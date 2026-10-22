@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+
+# MesoWatch data is not licensed for redistribution: every user saves their own snapshot.
+data/*.json
+!data/.gitkeep
+
+maplelens.log
+.pytest_tmp/
+run.out
+debug/

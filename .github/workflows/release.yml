@@ -1,0 +1,56 @@
+name: Release
+
+# Push a tag like v0.2.0 (see scripts/bump_version.py) to build maplelens.exe and publish a GitHub Release.
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Check the tag matches the code version
+        shell: bash
+        run: |
+          code_version=$(python -c "import re,pathlib;print(re.search(r'__version__ = \"(.+?)\"', pathlib.Path('src/maplelens/__init__.py').read_text()).group(1))")
+          if [ "v$code_version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match __version__ $code_version"; exit 1
+          fi
+          echo "VERSION=$code_version" >> "$GITHUB_ENV"
+
+      - run: pip install -e ".[dev,build]"
+      - run: ruff check .
+      - run: pytest
+
+      - name: Build exe
+        run: pyinstaller maplelens.spec --noconfirm
+
+      - name: Smoke test the exe
+        run: ./dist/maplelens.exe --version
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $name = "maplelens-v$env:VERSION-windows"
+          New-Item -ItemType Directory $name | Out-Null
+          Copy-Item dist/maplelens.exe, README.md, LICENSE $name
+          Compress-Archive -Path $name -DestinationPath "$name.zip"
+          (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower() + "  $name.zip" | Out-File "$name.zip.sha256" -Encoding ascii
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            maplelens-v${{ env.VERSION }}-windows.zip
+            maplelens-v${{ env.VERSION }}-windows.zip.sha256
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}

@@ -1,0 +1,50 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# On demand only: reviews run when the owner adds the `review` label (only users with triage/write
+# access can label) or comments `@coderabbitai review`. Never use description_keyword here: anyone
+# can write a PR description, so it would let outside contributors trigger reviews.
+language: en-US
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  auto_review:
+    enabled: false
+    labels: ["review"]
+    drafts: false
+  # Keep the review on code: vendored skills are upstream text, screenshots have no reviewable lines.
+  # The skills still reach CodeRabbit as guidelines via knowledge_base.code_guidelines below.
+  path_filters:
+    - "!.claude/skills/**"
+    - "!docs/showcase/**"
+    - "!tests/fixtures/**"
+  path_instructions:
+    - path: "**"
+      instructions: |
+        Review in a strict "thermo-nuclear" style. Only report problems in lines added or modified
+        by the PR. Do not over-report: trace each finding end to end and flag only what you are
+        confident about.
+        1. Correctness/security: bugs, behaviour broken elsewhere, dev-experience regressions
+           (scripts, env, install), secrets or personal data in the diff.
+        2. Code quality: look for restructurings that delete complexity; flag ad-hoc conditionals
+           in unrelated flows, thin pass-through wrappers, copy-pasted logic, and logic in the wrong
+           layer. Flag a file this PR pushes past ~150 lines (this repo's limit, see AGENTS.md; it
+           overrides the skills' 1000-line figure) or that is already over and grows further.
+        3. Enforce AGENTS.md "Hard rules": screen pixels only (no process injection or memory
+           reads), no MesoWatch data or download instructions committed, overlay click-through
+           and never steals focus, no per-frame guessing, UI calls only on the main thread.
+    - path: "src/maplelens/{market/**,vision/tooltip.py,overlay/{card,canvas,glance,details,placement}.py}"
+      instructions: "Pure modules: no win32/Windows APIs. File I/O only in market/snapshot.py. Time-dependent code takes `now` as a parameter."
+    - path: "tests/**"
+      instructions: "Fixtures must be native-resolution captures; do not accept loosened thresholds in place of new fixtures."
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    # CodeRabbit can't run Claude skills, but it reads these files as review guidelines.
+    # Source: cursor/plugins thermos (MIT), see .claude/skills/LICENSE-thermos.txt.
+    filePatterns:
+      - ".claude/skills/thermo-nuclear-review/SKILL.md"
+      - ".claude/skills/thermo-nuclear-code-quality-review/SKILL.md"
+      - "AGENTS.md"
+chat:
+  auto_reply: true

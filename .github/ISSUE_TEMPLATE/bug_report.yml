@@ -1,0 +1,30 @@
+name: Bug report
+description: Something is wrong or broken
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you expected and what you saw. Screenshots help.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+  - type: input
+    id: version
+    attributes:
+      label: MapleLens version
+      description: Output of `maplelens --version`
+  - type: input
+    id: env
+    attributes:
+      label: Windows version and game resolution/scale
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Relevant lines from `maplelens.log` (run with `--debug`).
+      render: text
