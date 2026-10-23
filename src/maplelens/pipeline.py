@@ -118,6 +118,9 @@ class HoverPipeline(threading.Thread):
                 self._compare_seen_at = float("-inf")   # a new item: forget the old item's compare tooltip
                 # Longer than a title = mis-read (title + description), not worth matching.
                 last_item = self._catalog.lookup(title) if len(title) <= config.MAX_TITLE_CHARS else None
+                if last_item is None:   # long names wrap onto a second title line the one-line read cuts off
+                    wrapped = reader.read(image, config.TOOLTIP_TITLE_WIDTH, lines=2)
+                    last_item = self._catalog.lookup(wrapped) if len(wrapped) <= config.MAX_TITLE_CHARS else None
                 log.debug("ocr=%r -> %s", title, last_item and last_item.name)
                 if last_item:
                     _dump_capture(image, title)
