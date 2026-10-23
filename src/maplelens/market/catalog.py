@@ -20,6 +20,15 @@ def _key(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", name.lower())
 
 
+# Glyphs the game font makes Windows OCR swap ('Stiff' -> 'Stitt', 'Ore' -> '0re'). Folding both sides before
+# scoring lets one confusion cost nothing instead of an edit, without lowering the cutoff for real typos.
+_OCR_LOOKALIKES = str.maketrans("f0i15", "tolls")
+
+
+def _fold(key: str) -> str:
+    return key.translate(_OCR_LOOKALIKES)
+
+
 class Catalog:
     def __init__(self, items: Iterable[Item], generated_at: str | None = None) -> None:
         self.generated_at = generated_at   # when MesoWatch exported the data (shown as data age)
@@ -30,6 +39,7 @@ class Catalog:
             if known is None or item.sold > known.sold:
                 self._by_key[_key(item.name)] = item
         self._keys = list(self._by_key)
+        self._folded = [_fold(key) for key in self._keys]
 
     def __len__(self) -> int:
         return len(self._by_key)
@@ -41,7 +51,7 @@ class Catalog:
                 return None
             if key in self._by_key:
                 return self._by_key[key]
-            hit = process.extractOne(key, self._keys, scorer=fuzz.ratio, score_cutoff=MIN_MATCH_SCORE)
+            hit = process.extractOne(_fold(key), self._folded, scorer=fuzz.ratio, score_cutoff=MIN_MATCH_SCORE)
             if hit:
-                return self._by_key[hit[0]]
+                return self._by_key[self._keys[hit[2]]]
         return None
