@@ -63,3 +63,14 @@ def test_tooltip_size_uses_the_measured_width():
     assert tooltip_size(None, 370) == (370, TOOLTIP_SIZES["Equip"][1])
     assert tooltip_size(None, 450)[0] == 450
     assert tooltip_size(None, None) == tuple(TOOLTIP_SIZES["Etc"])   # nothing known: the default size
+
+
+def test_ocr_confused_glyphs_still_match():
+    catalog = Catalog([make("Stiff Feather"), make("Tree Branch")])
+    assert catalog.lookup("Stitt Feather").name == "Stiff Feather"   # 'ff' read as 'tt'
+    assert catalog.lookup("Stiff Feather").name == "Stiff Feather"
+
+
+def test_folding_does_not_make_distinct_names_collide_on_exact_match():
+    catalog = Catalog([make("Stiff Feather", sold=1), make("Stitt Feather", sold=2)])
+    assert catalog.lookup("Stiff Feather").sold == 1
