@@ -9,6 +9,8 @@ from maplelens.overlay import theme
 from maplelens.overlay.canvas import Canvas
 from maplelens.overlay.glance import PAD
 
+_THREE_COLUMNS_MIN_W = 280
+
 
 def week_chart(cv: Canvas, y: int, item: Item) -> int:
     """Daily median with its low-high band, and sales volume as bars underneath."""
@@ -67,12 +69,13 @@ def stat_grid(cv: Canvas, y: int, item: Item) -> int:
         ("SELLING SINCE", first, theme.TEXT),
     ]
     cells = [c for c in cells if c[1]]
-    column = (cv.width - 2 * PAD) / 3
+    columns = 3 if cv.width >= _THREE_COLUMNS_MIN_W else 2   # "MEDIAN LISTING" needs about 85 px
+    column = (cv.width - 2 * PAD) / columns
     for n, (label, value, colour) in enumerate(cells):
-        x, top = PAD + column * (n % 3), y + (n // 3) * 34
+        x, top = PAD + column * (n % columns), y + (n // columns) * 34
         cv.text(x, top, label, 10, theme.TEXT_FAINT)
         cv.text(x, top + 12, value, 13, colour, bold=True)
-    return y + ((len(cells) + 2) // 3) * 34
+    return y + ((len(cells) + columns - 1) // columns) * 34
 
 
 def tags(cv: Canvas, y: int, item: Item) -> int:

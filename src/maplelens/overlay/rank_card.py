@@ -13,9 +13,10 @@ from maplelens.ranking.service import RankResult, Status
 CARD_WIDTH = 204   # native pixels: it sits next to a game window, so no CARD_SCALE
 _MAX_HEIGHT = 300
 _HERO_H = 30
+_CREDIT = "data: classicrank.com"
 _NOTE_H = 14   # room under the last row for the 'updated' line
 _MESSAGES = {
-    Status.LOADING: ("Looking up rank…", "classicrank.com"),
+    Status.LOADING: ("Looking up rank…", "one moment"),
     Status.MISSING: ("Not ranked yet", "No record on classicrank.com"),
     Status.FAILED: ("Rank unavailable", "will retry shortly"),
 }
@@ -25,7 +26,7 @@ def _number(value: int | None, prefix: str = "") -> str:
     return f"{prefix}{value:,}" if value is not None else "—"
 
 
-def render_rank_card(result: RankResult, now: datetime | None = None) -> Image.Image:
+def render_rank_card(result: RankResult, now: datetime | None = None, *, ui_scale: float = 1.0) -> Image.Image:
     """Panel for a player in whatever state their lookup is in (the game window already shows the name)."""
     cv = Canvas(CARD_WIDTH, _MAX_HEIGHT)
     y = gamewin.PANEL_TOP + gamewin.PAD_V
@@ -40,9 +41,10 @@ def render_rank_card(result: RankResult, now: datetime | None = None) -> Image.I
     card = Canvas(CARD_WIDTH, height)
     gamewin.window(card, height, "RANKING")
     card.image.alpha_composite(cv.image.crop((0, gamewin.PANEL_TOP, CARD_WIDTH, height)), (0, gamewin.PANEL_TOP))
-    gamewin.button(card, (gamewin.BORDER, panel_bottom + 4, CARD_WIDTH - 2 * gamewin.BORDER, gamewin.BUTTON_H),
-                   "VIEW ON CLASSICRANK")
-    return card.image
+    gamewin.centred(card, CARD_WIDTH / 2, panel_bottom + 1 + gamewin.STRIP_H / 2 - 2, _CREDIT, 10, gamewin.INK_DIM)
+    if abs(ui_scale - 1) < 0.01:
+        return card.image
+    return card.image.resize((round(CARD_WIDTH * ui_scale), round(height * ui_scale)), Image.BICUBIC)
 
 
 def _ranks(cv: Canvas, y: int, rank: Rank, now: datetime) -> tuple[int, str]:

@@ -58,15 +58,15 @@ class PriceOverlayApp:
         self._seen_at = 0.0                 # when a tooltip was last detected
         self._shown: tuple[str, bool] | None = None   # which card (title, expanded) the window holds
         self._since = 0.0                   # when the pointer arrived on the current item
-        self._cards: OrderedDict[tuple[str, bool], Image.Image] = OrderedDict()
+        self._cards: OrderedDict[tuple[str, bool, float, bool], Image.Image] = OrderedDict()
         # Rank panel beside the Character Info window: its own window, pipeline and lookups.
         self._rank_window = LayeredWindow()
         self._info_pipeline = InfoPipeline()
         self._ranks = RankService()
         self._info: InfoWindow | None = None
         self._info_seen_at = 0.0
-        self._rank_shown: tuple[str, RankResult] | None = None
-        self._rank_cards: OrderedDict[tuple[str, RankResult], Image.Image] = OrderedDict()
+        self._rank_shown: tuple[str, RankResult, float] | None = None
+        self._rank_cards: OrderedDict[tuple[str, RankResult, float], Image.Image] = OrderedDict()
         self._quit = False
         self._controls = SettingsController(settings_store.default_path(), self._on_settings_changed)
         self._settings = SettingsWindow(load_icon(), self._controls.update, self._capture_hotkey)
@@ -172,7 +172,7 @@ class PriceOverlayApp:
         hover = self._hover
         if hover is not None:
             hover = Hover(hover.title, self._catalog.lookup(hover.title), hover.tooltip_size,
-                          hover.compare, hover.bounds)
+                          hover.compare, hover.bounds, hover.scale)
         if hover is None or time.monotonic() - self._seen_at > config.HIDE_GRACE_S:
             self._hover, self._shown = None, None
             self._window.hide()
@@ -185,8 +185,10 @@ class PriceOverlayApp:
         expanded = now - self._since >= self._controls.current.expand_delay_s
         card = self._card_for(hover, expanded)
         cx, cy = game_window.cursor_pos()
-        tooltip = Box(cx + config.TOOLTIP_OFFSET[0], cy + config.TOOLTIP_OFFSET[1], *hover.tooltip_size)
-        x, y = place_card(tooltip, card.size, config.CARD_GAP_PX, hover.bounds, compare=hover.compare)
+        tooltip = Box(cx + round(config.TOOLTIP_OFFSET[0] * hover.scale),
+                      cy + round(config.TOOLTIP_OFFSET[1] * hover.scale), *hover.tooltip_size)
+        gap = round(config.CARD_GAP_PX * hover.scale)
+        x, y = place_card(tooltip, card.size, gap, hover.bounds, compare=hover.compare)
         if self._shown != (hover.title, expanded) or not self._window.visible:
             self._window.set_image(card, x, y)
             self._shown = (hover.title, expanded)
@@ -195,11 +197,12 @@ class PriceOverlayApp:
 
     def _card_for(self, hover: Hover, expanded: bool) -> Image.Image:
         """Rendering takes a few ms, so each item's card is drawn once and kept."""
-        key = (hover.title, expanded)
+        key = (hover.title, expanded, hover.scale, hover.compare)
         if key in self._cards:
             self._cards.move_to_end(key)
         else:
-            self._cards[key] = render_card(hover.item, hover.title, self._catalog.generated_at, expanded=expanded)
+            self._cards[key] = render_card(hover.item, hover.title, self._catalog.generated_at, expanded=expanded,
+                                           ui_scale=hover.scale, wide=hover.compare)
             if len(self._cards) > _CARD_CACHE_SIZE:
                 self._cards.popitem(last=False)
         return self._cards[key]
@@ -219,23 +222,23 @@ class PriceOverlayApp:
             self._rank_window.hide()
             return
         result = self._ranks.get(info.name)
-        card = self._rank_card_for(info.name, result)
-        pos = place_beside_window(info.box, card.size, config.INFO_CARD_GAP_PX, info.bounds)
+        card = self._rank_card_for(info.name, result, info.scale)
+        pos = place_beside_window(info.box, card.size, round(config.INFO_CARD_GAP_PX * info.scale), info.bounds)
         if pos is None:   # no room inside the game: show nothing rather than float outside it
             self._rank_shown = None
             self._rank_window.hide()
-        elif self._rank_shown != (info.name, result) or not self._rank_window.visible:
+        elif self._rank_shown != (info.name, result, info.scale) or not self._rank_window.visible:
             self._rank_window.set_image(card, *pos)
-            self._rank_shown = (info.name, result)
+            self._rank_shown = (info.name, result, info.scale)
         else:
             self._rank_window.move(*pos)
 
-    def _rank_card_for(self, name: str, result: RankResult) -> Image.Image:
-        key = (name, result)
+    def _rank_card_for(self, name: str, result: RankResult, scale: float) -> Image.Image:
+        key = (name, result, scale)
         if key in self._rank_cards:
             self._rank_cards.move_to_end(key)
         else:
-            self._rank_cards[key] = render_rank_card(result)
+            self._rank_cards[key] = render_rank_card(result, ui_scale=scale)
             if len(self._rank_cards) > _RANK_CARD_CACHE_SIZE:
                 self._rank_cards.popitem(last=False)
         return self._rank_cards[key]

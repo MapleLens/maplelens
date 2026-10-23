@@ -18,38 +18,43 @@ _NAME = re.compile(r"[A-Za-z0-9]{2,13}")   # MapleStory names; anything else is 
 
 
 @cache
-def _title() -> np.ndarray:
+def _title(scale: float = 1.0) -> np.ndarray:
+    """The title image as the game draws it at `scale` (see `geometry.ui_scale`)."""
     template = cv2.imread(str(_TITLE_PNG), cv2.IMREAD_GRAYSCALE)
     if template is None:
         raise FileNotFoundError(_TITLE_PNG)
+    if abs(scale - 1) > 0.01:
+        template = cv2.resize(template, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA if scale < 1
+                              else cv2.INTER_CUBIC)
     return template
 
 
-def title_box(window: Box) -> Box:
+def title_box(window: Box, scale: float = 1.0) -> Box:
     """Screen rectangle of the title text of a window whose top-left is `window`."""
-    h, w = _title().shape
-    return Box(window.x + config.INFO_TITLE_OFFSET[0], window.y + config.INFO_TITLE_OFFSET[1], w, h)
+    h, w = _title(scale).shape
+    return Box(window.x + round(config.INFO_TITLE_OFFSET[0] * scale),
+               window.y + round(config.INFO_TITLE_OFFSET[1] * scale), w, h)
 
 
-def find_window(gray: np.ndarray) -> tuple[int, int] | None:
+def find_window(gray: np.ndarray, scale: float = 1.0) -> tuple[int, int] | None:
     """Top-left of the Character Info window inside `gray` (a capture of the game), or None."""
-    scores = cv2.matchTemplate(gray, _title(), cv2.TM_CCOEFF_NORMED)
+    scores = cv2.matchTemplate(gray, _title(scale), cv2.TM_CCOEFF_NORMED)
     _, best, _, (x, y) = cv2.minMaxLoc(scores)
     if best < _MATCH_MIN:
         return None
-    return x - config.INFO_TITLE_OFFSET[0], y - config.INFO_TITLE_OFFSET[1]
+    return x - round(config.INFO_TITLE_OFFSET[0] * scale), y - round(config.INFO_TITLE_OFFSET[1] * scale)
 
 
-def is_window(title_gray: np.ndarray) -> bool:
+def is_window(title_gray: np.ndarray, scale: float = 1.0) -> bool:
     """Does a capture of exactly the title area still show the title (i.e. the window has not moved)?"""
-    template = _title()
+    template = _title(scale)
     if title_gray.shape != template.shape:
         return False
     return float(cv2.matchTemplate(title_gray, template, cv2.TM_CCOEFF_NORMED)[0, 0]) >= _MATCH_MIN
 
 
-def name_box(window: Box) -> Box:
-    x, y, w, h = config.INFO_NAME_BOX
+def name_box(window: Box, scale: float = 1.0) -> Box:
+    x, y, w, h = (round(v * scale) for v in config.INFO_NAME_BOX)
     return Box(window.x + x, window.y + y, w, h)
 
 

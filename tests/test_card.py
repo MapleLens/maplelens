@@ -47,3 +47,17 @@ def test_glance_card_is_a_compact_version_of_the_full_card():
     glance, full = render_card(item, now=NOW, expanded=False), render_card(item, now=NOW, expanded=True)
     assert glance.width == full.width
     assert glance.height < full.height * 0.65   # the glance card is what you see first, so it must stay small
+
+
+def test_card_scales_with_game_resolution():
+    full = render_card(SAMPLE_ITEMS[0], now=NOW)
+    small = render_card(SAMPLE_ITEMS[0], now=NOW, ui_scale=0.5)
+    assert small.width == round(full.width / 2)
+
+
+def test_compare_card_is_horizontal():
+    item = SAMPLE_ITEMS[0]
+    normal, wide = render_card(item, now=NOW), render_card(item, now=NOW, wide=True)
+    assert wide.width > normal.width * 1.5 and wide.height < normal.height * 0.75
+    # nothing to expand on a glance card: it stays the compact one
+    assert render_card(item, now=NOW, expanded=False, wide=True).width == normal.width

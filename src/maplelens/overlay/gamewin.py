@@ -1,5 +1,5 @@
 """Pieces of MapleStory's own windows (Character Info, Item List...): blue frame, white title bar, light
-inner panel, pink label pills, beige value boxes, green buttons.
+inner panel, pink label pills, beige value boxes.
 
 Every colour and size was measured pixel by pixel on a native screenshot of the Character Info window
 (1x, no scaling), so the pieces line up with the real window when drawn beside it.
@@ -26,17 +26,12 @@ PINK: RGBA = (204, 79, 130, 255)
 PINK_EDGE: RGBA = (166, 70, 110, 255)
 PINK_LIGHT: RGBA = (214, 109, 154, 255)
 PINK_INK: RGBA = (255, 233, 246, 255)
-GREEN_EDGE: RGBA = (12, 22, 4, 255)
-GREEN_TOP: RGBA = (106, 173, 27)           # vertical gradient of the green buttons
-GREEN_BOTTOM: RGBA = (156, 217, 69)
-GREEN_SHINE: RGBA = (140, 203, 70, 255)
-GREEN_INK: RGBA = (205, 236, 165, 255)
 RED: RGBA = (214, 64, 64, 255)
 
 BORDER = 6            # frame thickness: the title bar and panel start this far in
 TITLE_H = 20
-BUTTON_H = 20
-STRIP_H = 3 + BUTTON_H + BORDER   # blue strip under the panel: gap, a button, the frame
+CREDIT_H = 14
+STRIP_H = 3 + CREDIT_H + BORDER   # blue strip under the panel: gap, the data credit, the frame
 PANEL_TOP = BORDER + TITLE_H + 2   # 2 px of blue between title bar and panel
 PAD = BORDER + 6      # content starts this far from the card edge (6 px inside the panel)
 PAD_V = 6             # panel top/bottom padding
@@ -98,17 +93,6 @@ def pill(cv: Canvas, box: tuple[int, int, int, int], text: str, size: int = 11) 
         d.rounded_rectangle((2 * s, 2 * s, (w - 2) * s - 1, (h - 2) * s - 1), radius=2 * s, fill=PINK),
     ), scale=3)
     centred(cv, x + w / 2, y + h / 2, text, size, PINK_INK)
-
-
-def button(cv: Canvas, box: tuple[int, int, int, int], text: str, size: int = 11) -> None:
-    """Green button (REQUEST PARTY...): near-black outline, lit top, light-to-bright vertical gradient."""
-    x, y, w, h = box
-    cv.overlay(box, lambda d, s: d.rounded_rectangle((0, 0, w * s - 1, h * s - 1), radius=3 * s, fill=GREEN_EDGE),
-               scale=3)
-    _vgradient(cv.draw, x + 1, x + w - 2, y + 2, y + h - 3, GREEN_TOP, GREEN_BOTTOM)
-    cv.draw.line((x + 1, y + 1, x + w - 2, y + 1), fill=GREEN_SHINE)
-    cv.draw.line((x + 1, y + 2, x + 1, y + h - 3), fill=GREEN_SHINE)
-    centred(cv, x + w / 2, y + h / 2, text, size, GREEN_INK)
 
 
 def value_box(cv: Canvas, box: tuple[int, int, int, int]) -> None:
