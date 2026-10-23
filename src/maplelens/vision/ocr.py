@@ -9,6 +9,7 @@ from winrt.windows.media.ocr import OcrEngine
 from winrt.windows.storage.streams import DataWriter
 
 _TITLE_ROW_H = 46        # title row incl. descenders (q, y, g); the description line starts below this
+_TITLE_LINE_H = 24       # a long name wraps onto a second title line this far below the first
 _TITLE_LEFT_SKIP = 18    # skips the blue bullet in front of the title
 _UPSCALE = 3             # the OCR engine is far more accurate on larger glyphs
 _STRAY_LEADING = "'`.,·• "
@@ -26,9 +27,11 @@ class TitleReader:
         self._loop = asyncio.new_event_loop()
         self._cache: dict[tuple[tuple[int, ...], bytes], str] = {}
 
-    def read(self, image: np.ndarray, tooltip_width: int) -> str:
-        """Item name printed in the title row of the tooltip at the image's top-left ('' if unreadable)."""
-        row = image[:_TITLE_ROW_H, _TITLE_LEFT_SKIP:tooltip_width]
+    def read(self, image: np.ndarray, tooltip_width: int, lines: int = 1) -> str:
+        """Item name printed in the title row(s) of the tooltip at the image's top-left ('' if unreadable)."""
+        row = image[:_TITLE_ROW_H + (lines - 1) * _TITLE_LINE_H, _TITLE_LEFT_SKIP:tooltip_width]
+        if row.size == 0:   # capture clipped at the screen edge (or a mid-resize frame): nothing to read
+            return ""
         gray = cv2.cvtColor(row, cv2.COLOR_BGR2GRAY)
         # Binarise: pure black text on white is what the OCR engine reads best, and it removes whatever
         # game background shows through the translucent tooltip.

@@ -54,6 +54,16 @@ def test_ocr_reads_title(case):
     assert TitleReader().read(image[:46, :450], 450) == title
 
 
+def test_long_name_wraps_onto_second_title_line():
+    """'Ink-and-Wash Painting / Name Tag Ring': the one-line read cuts the name off, the two-line read keeps it."""
+    from maplelens.vision.ocr import TitleReader
+
+    image = load("tooltip_cash_two_line_title_ink_wash_ring.png")
+    reader = TitleReader()
+    assert reader.read(image, 379) == "Ink-and-Wash Painting"
+    assert reader.read(image, 379, lines=2) == "Ink-and-Wash Painting Name Tag Ring"
+
+
 def test_equipment_compare_reads_both_titles():
     """Two equipment tooltips side by side: the first title must not leak into the second or vice versa."""
     from maplelens import config
@@ -64,6 +74,21 @@ def test_equipment_compare_reads_both_titles():
     assert reader.read(strip, config.TOOLTIP_TITLE_WIDTH) == "Beginner's Triangular Zamadar"
     second = strip[:, config.TOOLTIP_COMPARE_OFFSET_X :]
     assert reader.read(second, second.shape[1]) == "Beginner's Garnier"
+
+
+def test_ocr_empty_region_reads_nothing():
+    """A capture clipped at the screen edge leaves a zero-width compare strip; it crashed cvtColor (hover-pipeline)."""
+    import numpy as np
+
+    from maplelens import config
+    from maplelens.vision.ocr import TitleReader
+
+    reader = TitleReader()
+    clipped = np.zeros((120, config.TOOLTIP_COMPARE_OFFSET_X - 3, 3), np.uint8)
+    second = clipped[:, config.TOOLTIP_COMPARE_OFFSET_X :]
+    assert second.shape[1] == 0
+    assert reader.read(second, second.shape[1]) == ""
+    assert reader.read(np.zeros((0, 0, 3), np.uint8), 450) == ""
 
 
 # -- tooltip width ------------------------------------------------------------------------------------------------
