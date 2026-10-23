@@ -22,6 +22,7 @@ Hover an item, see what it is worth. No injection, no memory reading, no game fi
 | | |
 |---|---|
 | 🪙 **Live price card** | Hover any inventory item and a card appears beside its tooltip with the [MesoWatch](https://meso.watch) price. |
+| 🗺️ **Map helper** | Hover a location on the **world map** and a card appears beside its tooltip with the monsters that spawn there (level, EXP, HP, spawn points and share) and the NPCs you can meet, each with their sprite. Data and sprites come from [maplestory.io](https://maplestory.io) (classic‑era data, so spawn counts are close to, not exactly, the live game); every monster and NPC is listed (the card grows extra columns to fit the game window). Maps and sprites are downloaded once and kept in `%LOCALAPPDATA%\MapleLens\cache` (`maps`, `icons`), so repeat hovers are instant. With `--debug` an OpenCV window shows what the map scan sees. |
 | 🏆 **Player rank panel** | Open a player's **Character Info** window and a panel in the game's own style (pink labels, beige boxes) appears on its left with their world, job and fame rank from the public [classicrank.com API](https://classicrank.com/developer) (no key; cached, rate‑limit friendly). Falls back to the right side, or hides, if there is no room inside the game. |
 | 🧭 **Smart placement** | Right of the tooltip; left near the screen edge; below for equipment compare (two tooltips). |
 | 🎨 **Truly translucent** | Per‑pixel alpha like the game's own box (see‑through fill, solid text), Tahoma font, same borders and bullet. |
@@ -149,7 +150,7 @@ by Nexon, and Nexon has not published a rule that says overlays like this are al
 | Reading or writing game memory | ❌ Never. It only reads screen pixels, like OBS or a screenshot. |
 | Injecting code, DLLs or hooks into the game | ❌ Never. |
 | Pressing keys or clicking for you | ❌ Never. It only reads where your mouse already is. |
-| Changing game files or network traffic | ❌ Never. Its only downloads are MesoWatch prices and classicrank.com ranks. |
+| Changing game files or network traffic | ❌ Never. Its only downloads are MesoWatch prices, classicrank.com ranks and maplestory.io map data and sprites. |
 | Playing the game for you | ❌ Never. It shows information; you do everything yourself. |
 
 The only time it touches the game process is a quick check of the program name (`maplestory.exe`) to find the game

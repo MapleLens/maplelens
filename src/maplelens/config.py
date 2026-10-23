@@ -79,3 +79,19 @@ INFO_CARD_GAP_PX = 4
 RANK_TTL_S = 90.0
 RANK_MISSING_TTL_S = 300.0   # unknown names (often an OCR slip) are not worth hammering
 RANK_REQUEST_GAP_S = 2.0
+
+# --- Map helper: hover a location on the world map (maplestory.io data and icons) ---
+MAP_API = "https://maplestory.io/api/GMS/40"   # v40 is the classic-era data set (the Hill East of Henesys: 49 spawns)
+MAP_REQUEST_TIMEOUT_S = 20   # maplestory.io is sometimes slow (a request took >8 s)
+MAP_RETRY_S = 30.0          # after a failed lookup
+# World-map tooltips are not at a fixed offset from the cursor (two samples differ by ~20 px vertically), so
+# the tooltip box is located inside this window to the right of / below the cursor, once per hover (screen px
+# at the measured resolution; origin is the cursor).
+MAP_SCAN_OFFSET = (8, 8)
+MAP_SCAN_SIZE = (560, 190)
+MAP_TOOLTIP_MIN_SIZE = (120, 20)   # smaller blue boxes are not a tooltip
+MAP_POLL_S = 0.06   # OCR of the scan window is the cost, not the grab; cached when the picture does not change
+MAP_HIDE_GRACE_S = 0.8   # OCR scans are slower and noisier than item scans: bridge a few missed ones
+MAP_STALE_S = 2.0   # a lookup nobody asked about for this long is dropped from the queue
+MAP_FORGET_S = 0.6   # no tooltip read for this long: the next one is a new hover, start voting afresh
+MAP_REJECT_S = 10.0   # a reading that matched no map is ignored this long (OCR then tries other readings)

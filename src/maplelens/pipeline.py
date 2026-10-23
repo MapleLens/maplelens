@@ -13,7 +13,7 @@ import numpy as np
 
 from maplelens import config
 from maplelens.capture import game_window
-from maplelens.capture.frame import ScreenGrabber
+from maplelens.capture.frame import ScreenGrabber, grab_normalised
 from maplelens.geometry import Box, ui_scale
 from maplelens.market.catalog import Catalog, clean_title
 from maplelens.market.models import Item
@@ -55,18 +55,9 @@ def tooltip_size(item: Item | None, measured_width: int | None = None) -> tuple[
 def _looks_like_title(text: str) -> bool:
     """Item names are short phrases; UI hint tooltips are sentences ("Double-click to ...") or OCR noise."""
     text = text.strip()
-    if len(text) < 3 or not text[0].isupper() or text.endswith(".") or "click" in text.lower():
+    if len(text) < 3 or not text[0].isupper() or text.endswith(".") or "click" in text.lower() or ":" in text:
         return False
     return sum(c.isalnum() or c in " '-:" for c in text) >= 0.9 * len(text)
-
-
-def _grab_normalised(grabber: ScreenGrabber, area: Box, scale: float) -> np.ndarray:
-    """Grab `area`, then bring it to the resolution the vision constants were measured at."""
-    image = grabber.grab(area)
-    if abs(scale - 1) > 0.01:
-        image = cv2.resize(image, None, fx=1 / scale, fy=1 / scale,
-                           interpolation=cv2.INTER_CUBIC if scale < 1 else cv2.INTER_AREA)
-    return image
 
 
 def _dump_capture(image, title: str) -> None:
@@ -130,7 +121,7 @@ class HoverPipeline(threading.Thread):
                 time.sleep(config.POLL_S)
                 continue
 
-            image = _grab_normalised(grabber, area, scale)
+            image = grab_normalised(grabber, area, scale)
             title = reader.read(image, config.TOOLTIP_TITLE_WIDTH)
             if title != last_title:
                 last_title = title
@@ -200,7 +191,7 @@ class HoverPipeline(threading.Thread):
         top = max(bounds.y, bounds.bottom - round(config.TOOLTIP_MAX_HEIGHT * scale))
         if w < round(config.TOOLTIP_TITLE_WIDTH * scale) or top >= bounds.bottom:
             return False
-        strip = _grab_normalised(grabber, Box(x, top, w, bounds.bottom - top), scale)
+        strip = grab_normalised(grabber, Box(x, top, w, bounds.bottom - top), scale)
         rows = candidate_tops(strip)
         log.debug("pushed-up scan: usual_top=%d bottom=%d candidates=%s", usual_top, bounds.bottom, rows)
         for row in rows:

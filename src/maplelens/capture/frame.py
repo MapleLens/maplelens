@@ -18,3 +18,12 @@ class ScreenGrabber:
         shot = self._mss.grab({"left": area.x, "top": area.y, "width": area.w, "height": area.h})
         bgra = np.frombuffer(shot.bgra, np.uint8).reshape(shot.height, shot.width, 4)
         return cv2.cvtColor(bgra, cv2.COLOR_BGRA2BGR)
+
+
+def grab_normalised(grabber: ScreenGrabber, area: Box, scale: float) -> np.ndarray:
+    """Grab `area`, then bring it to the resolution the vision constants were measured at."""
+    image = grabber.grab(area)
+    if abs(scale - 1) > 0.01:
+        image = cv2.resize(image, None, fx=1 / scale, fy=1 / scale,
+                           interpolation=cv2.INTER_CUBIC if scale < 1 else cv2.INTER_AREA)
+    return image
