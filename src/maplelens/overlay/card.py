@@ -14,6 +14,7 @@ from maplelens.market.format import format_ago
 from maplelens.market.models import Item
 from maplelens.overlay import details, glance, theme
 from maplelens.overlay.canvas import Canvas
+from maplelens.overlay.range_bar import range_bar
 
 CARD_WIDTH = 300   # design width at 1x; the rendered card is CARD_WIDTH * theme.CARD_SCALE
 # The horizontal card (equipment compare, where it sits under two tooltips) adds a column for the details; the
@@ -39,7 +40,7 @@ def render_card(item: Item | None, title: str = "", generated_at: str | None = N
             y = details.sources(body, y, item)
     else:
         y = glance.hero(body, y, item)
-        y = glance.range_bar(body, y, item, show_listing=expanded)
+        y = range_bar(body, y, item)
         y = glance.signals(body, y + 4, item, now)
         if wide:
             y = details.tags(body, y + 2, item)

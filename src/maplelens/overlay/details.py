@@ -63,13 +63,13 @@ def stat_grid(cv: Canvas, y: int, item: Item) -> int:
     cells: list[tuple[str, str | None, theme.RGBA]] = [
         ("SELL-THROUGH", f"{item.sell_through * 100:.0f}%" if item.sell_through is not None else None, pace_colour),
         ("FOR SALE NOW", f"{item.asks:,}" if item.asks else None, theme.TEXT),
-        ("MEDIAN LISTING", format_mesos(item.ask_median) if item.ask_median else None, theme.TEXT),
+        ("SHOP PRICE", format_mesos(item.ask_median) if item.ask_median else None, theme.TEXT),
         ("TOP SALE", format_mesos(item.top_sale) if item.top_sale else None, theme.TEXT),
         ("TRADED", format_mesos(item.mesos_traded) if item.mesos_traded else None, theme.TEXT),
         ("SELLING SINCE", first, theme.TEXT),
     ]
     cells = [c for c in cells if c[1]]
-    columns = 3 if cv.width >= _THREE_COLUMNS_MIN_W else 2   # "MEDIAN LISTING" needs about 85 px
+    columns = 3 if cv.width >= _THREE_COLUMNS_MIN_W else 2   # the longest labels need about 85 px
     column = (cv.width - 2 * PAD) / columns
     for n, (label, value, colour) in enumerate(cells):
         x, top = PAD + column * (n % columns), y + (n // columns) * 34

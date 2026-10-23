@@ -2,7 +2,8 @@
 the y below itself.
 
 Reading order, top to bottom: which item/category -> the price (big) and where it is heading -> how sure the
-price is and where it sits in its range -> quick signals (how fast it sells, how many sales, how recent).
+price is and where it sits in its range (`range_bar.py`) -> quick signals (how fast it sells, how many sales,
+how recent).
 """
 
 from pathlib import Path
@@ -68,35 +69,6 @@ def _sparkline(cv: Canvas, x: int, y: int, item: Item) -> None:
                   width=s)
 
     cv.overlay((x, y, _SPARK_W, _SPARK_H), draw, scale=3)
-
-
-def range_bar(cv: Canvas, y: int, item: Item, *, show_listing: bool = False) -> int:
-    """Where the typical price sits among everything seen: dark groove = lowest..highest sale, gold = the
-    middle half of sales, white tick = the typical price. `show_listing` also marks the median shop listing."""
-    position = insights.range_position
-    mid = position(item.price, item.low, item.high)
-    if mid is None:
-        return y
-    width, top = cv.width - 2 * PAD, y + 2
-    lo, hi = position(item.p25, item.low, item.high), position(item.p75, item.low, item.high)
-
-    def bar(d, s):
-        d.rounded_rectangle((0, 0, width * s - 1, 8 * s - 1), radius=4 * s, fill=theme.TRACK)
-        if lo is not None and hi is not None:
-            d.rounded_rectangle((lo * width * s, 0, max(hi * width * s, lo * width * s + 5 * s), 8 * s - 1),
-                                radius=4 * s, fill=theme.GOLD_SOFT[:3] + (200,))
-
-    cv.overlay((PAD, top, width, 8), bar, scale=3)
-    cv.draw.rectangle((PAD + mid * width - 1, top - 3, PAD + mid * width + 1, top + 10), fill=theme.TEXT)
-    listing = position(item.ask_median, item.low, item.high) if show_listing else None
-    if listing is not None:
-        cv.arrow(round(PAD + listing * width - 3.5), top - 11, False, theme.TEXT_DIM, 7)
-    cv.text(PAD, top + 14, format_mesos(item.low), 10, theme.TEXT_FAINT)
-    cv.text(cv.width - PAD, top + 14, format_mesos(item.high), 10, theme.TEXT_FAINT, anchor="ra")
-    if item.p25 and item.p75:
-        cv.text(cv.width / 2, top + 14, f"usually {format_mesos(item.p25)} – {format_mesos(item.p75)}", 10,
-                theme.TEXT, anchor="ma")
-    return top + 34
 
 
 def signals(cv: Canvas, y: int, item: Item, now) -> int:
