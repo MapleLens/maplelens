@@ -50,7 +50,8 @@ overlay/   theme.py        RGBA palette, Tahoma fonts, measured translucency
            canvas.py       Canvas: drawing toolkit on an RGBA image (text, chips, layers)
            glance.py       glance card sections: what matters on hover (price, range, quick signals)
            details.py      details card sections, shown after a short dwell
-           card.py         render_card(item) -> RGBA image (pure, testable)
+           origin.py       details section: NPC prices, crafting cost and margin, where it drops
+           card.py         render_card(item) -> RGBA image (pure, testable); stacks section groups with dividers
            placement.py    place_card(): right / left / below(compare), clamped to the game (pure)
            layered.py      LayeredWindow: per-pixel-alpha topmost click-through Win32 window
 pipeline.py                HoverPipeline thread -> Hover events (title, item, size, compare)
@@ -59,7 +60,7 @@ cli.py / __main__.py       entry points
 config.py                  every tunable number, with a comment saying why
 
 Dependency direction: `cli → app → (pipeline, overlay) → (capture, vision, market) → geometry/config`.
-`market/`, `vision/tooltip.py`, `overlay/{card,canvas,glance,details,placement}.py` are pure (no win32, no windows) so
+`market/`, `vision/tooltip.py`, `overlay/{card,canvas,glance,details,origin,placement}.py` are pure (no win32, no windows) so
 they stay unit-testable. Only `overlay/layered.py` and `capture/` talk to Windows. No tkinter anywhere.
 
 ## Conventions

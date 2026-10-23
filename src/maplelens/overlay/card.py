@@ -3,16 +3,18 @@
 Two sizes, one design language:
 - **glance** (default): price, trend, week sparkline, where the price sits in its range, quick signals.
 - **full** (after a moment on the same item): everything in glance plus the week chart, market depth,
-  tags and sources.
+  tags and sources, each group under a divider.
 """
 
+from collections.abc import Callable
 from datetime import UTC, datetime
+from functools import partial
 
 from PIL import Image
 
 from maplelens.market.format import format_ago
 from maplelens.market.models import Item
-from maplelens.overlay import details, glance, theme
+from maplelens.overlay import details, glance, origin, theme
 from maplelens.overlay.canvas import Canvas
 from maplelens.overlay.range_bar import range_bar
 
@@ -21,6 +23,10 @@ CARD_WIDTH = 300   # design width at 1x; the rendered card is CARD_WIDTH * theme
 # total is about as wide as two equipment tooltips side by side (743 px at 1.5x).
 SIDE_WIDTH = 200
 _MAX_HEIGHT = 700
+_GROUP_GAP = 14   # room around the divider between groups
+
+Section = Callable[[Canvas, int, Item], int]
+Group = tuple[Section, ...]
 
 
 def render_card(item: Item | None, title: str = "", generated_at: str | None = None, now: datetime | None = None,
@@ -32,28 +38,12 @@ def render_card(item: Item | None, title: str = "", generated_at: str | None = N
     body = Canvas(CARD_WIDTH, _MAX_HEIGHT)
     y = glance.header(body, 8, item)
     if item is None:
-        y = _notice(body, y, f"No price data for {title or 'this item'}", "Not in the MesoWatch list yet.")
-    elif item.price is None:
-        y = _notice(body, y, "No sales seen yet", "Nobody has been seen selling it.")
-        if expanded:
-            y = details.tags(body, y, item)
-            y = details.sources(body, y, item)
+        y = _notice(f"No price data for {title or 'this item'}", "Not in the MesoWatch list yet.")(body, y, item)
     else:
-        y = glance.hero(body, y, item)
-        y = range_bar(body, y, item)
-        y = glance.signals(body, y + 4, item, now)
+        y = _stack(body, y, item, _groups(item, now, expanded=expanded, wide=wide))
         if wide:
-            y = details.tags(body, y + 2, item)
-            y = details.sources(body, y, item)
             body, y = _with_side_column(body, y, item)
-        elif expanded:
-            body.divider(y + 2, glance.PAD)
-            y = details.week_chart(body, y + 12, item)
-            y = details.stat_grid(body, y, item)
-            y = details.tags(body, y + 2, item)
-            y = details.sources(body, y, item)
-    age = format_ago(generated_at, now).removesuffix(" ago") if generated_at else None
-    height = _footer(body, y + 2, age) + 2
+    height = _footer(body, y + 2, format_ago(generated_at, now) if generated_at else None) + 2
 
     card = Canvas(width, height)
     card.frame(height)
@@ -61,6 +51,34 @@ def render_card(item: Item | None, title: str = "", generated_at: str | None = N
     factor = theme.CARD_SCALE * ui_scale
     scaled = (round(width * factor), round(height * factor))
     return card.image.resize(scaled, Image.BICUBIC)   # soft like the game's own, itself upscaled, text
+
+
+def _groups(item: Item, now: datetime, *, expanded: bool, wide: bool) -> list[Group]:
+    """What the main column shows, as groups of sections; a divider separates groups that drew anything."""
+    about: Group = (details.tags, origin.sources)
+    if item.price is None:
+        return [(_notice("No sales seen yet", "Nobody has been seen selling it."),), *([about] if expanded else [])]
+    price: Group = (glance.hero, range_bar, partial(glance.signals, now=now))
+    if not expanded:
+        return [price]
+    if wide:   # the chart and market depth go to the side column
+        return [price, about]
+    return [price, (details.week_chart, details.stat_grid), about]
+
+
+def _stack(cv: Canvas, y: int, item: Item, groups: list[Group]) -> int:
+    drawn = False
+    for group in groups:
+        start = y + _GROUP_GAP if drawn else y
+        end = start
+        for section in group:
+            end = section(cv, end, item)
+        if end == start:   # nothing to show: no divider either
+            continue
+        if drawn:
+            cv.divider(y + _GROUP_GAP // 2, glance.PAD)
+        y, drawn = end, True
+    return y
 
 
 def _with_side_column(left: Canvas, left_bottom: int, item: Item) -> tuple[Canvas, int]:
@@ -76,14 +94,17 @@ def _with_side_column(left: Canvas, left_bottom: int, item: Item) -> tuple[Canva
     return body, bottom
 
 
-def _notice(cv: Canvas, y: int, headline: str, hint: str) -> int:
-    cv.text(glance.PAD, y + 2, headline, 13, theme.TEXT, bold=True)
-    cv.text(glance.PAD, y + 22, hint, 11, theme.TEXT_DIM)
-    return y + 46
+def _notice(headline: str, hint: str) -> Section:
+    def section(cv: Canvas, y: int, _item: Item | None) -> int:
+        cv.text(glance.PAD, y + 2, headline, 13, theme.TEXT, bold=True)
+        cv.text(glance.PAD, y + 22, hint, 11, theme.TEXT_DIM)
+        return y + 40
+    return section
 
 
-def _footer(cv: Canvas, y: int, data_age: str | None) -> int:
-    text = f"meso.watch · data {data_age} old" if data_age else "meso.watch"
-    cv.text(glance.PAD, y + 4, text, 10, theme.TEXT_FAINT)
-    cv.text(cv.width - glance.PAD, y + 4, "MapleLens", 10, theme.TEXT_FAINT, anchor="ra")
-    return y + 20
+def _footer(cv: Canvas, y: int, updated: str | None) -> int:
+    cv.divider(y + 2, glance.PAD)
+    text = f"meso.watch · updated {updated}" if updated else "meso.watch"
+    cv.text(glance.PAD, y + 8, text, 10, theme.TEXT_FAINT)
+    cv.text(cv.width - glance.PAD, y + 8, "MapleLens", 10, theme.TEXT_FAINT, anchor="ra")
+    return y + 24

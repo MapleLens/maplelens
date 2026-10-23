@@ -83,3 +83,14 @@ def test_ask_marker_turns_amber_only_when_shops_ask_well_above_sales():
     item = SAMPLE_ITEMS[0]   # sells at 100
     assert range_bar._listing_colour(replace(item, ask_median=110)) == theme.BULLET
     assert range_bar._listing_colour(replace(item, ask_median=130)) == theme.WARN
+
+
+def test_a_token_npc_price_is_left_off_the_card():
+    from maplelens.market.models import NpcShop
+
+    item = replace(SAMPLE_ITEMS[0], obtain=())
+    token = replace(item, npc=NpcShop(None, 1, None, 0))   # an NPC paying 1 meso for a 100 meso item says nothing
+    assert render_card(token, now=NOW).tobytes() == render_card(replace(item, npc=None), now=NOW).tobytes()
+    notable = replace(item, npc=NpcShop(None, 40, None, 0))
+    assert render_card(notable, now=NOW).height > render_card(token, now=NOW).height
+
