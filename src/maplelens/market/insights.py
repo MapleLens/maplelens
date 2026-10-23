@@ -4,7 +4,7 @@ import math
 
 from maplelens.market.models import Craft, Item
 
-ASK_PREMIUM_NOTABLE = 0.2     # (not shown on the card for now: the "listings ask X% above sales" chip confused users)
+ASK_PREMIUM_NOTABLE = 0.2     # shops listing 20%+ above sales turns the range bar's "in shops" marker amber
 FAST_SELL_THROUGH = 0.5       # half of all listings sell
 SLOW_SELL_THROUGH = 0.15
 

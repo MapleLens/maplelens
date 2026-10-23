@@ -7,7 +7,7 @@ import pytest
 from maplelens.market.catalog import Catalog
 from maplelens.market.sample import SAMPLE_ITEMS
 from maplelens.market.snapshot import load_snapshot
-from maplelens.overlay import glance, theme
+from maplelens.overlay import range_bar, theme
 from maplelens.overlay.canvas import Canvas
 from maplelens.overlay.card import CARD_WIDTH, render_card
 
@@ -74,6 +74,12 @@ def test_ask_marker_shows_on_glance_card_and_adds_a_row():
 
 def test_ask_marker_label_flips_left_at_the_right_edge():
     cv = Canvas(CARD_WIDTH, 80)
-    glance._ask_marker(cv, CARD_WIDTH - glance.PAD, 40, 900)
+    range_bar._listing_marker(cv, CARD_WIDTH - range_bar.PAD, 40, 900, theme.BULLET)
     left, _, right, _ = cv.image.getchannel("A").getbbox()
-    assert right <= CARD_WIDTH - glance.PAD + 4 and left < CARD_WIDTH - 60   # label sits left of the arrow
+    assert right <= CARD_WIDTH - range_bar.PAD + 4 and left < CARD_WIDTH - 60   # label sits left of the arrow
+
+
+def test_ask_marker_turns_amber_only_when_shops_ask_well_above_sales():
+    item = SAMPLE_ITEMS[0]   # sells at 100
+    assert range_bar._listing_colour(replace(item, ask_median=110)) == theme.BULLET
+    assert range_bar._listing_colour(replace(item, ask_median=130)) == theme.WARN
