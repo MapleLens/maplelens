@@ -54,3 +54,26 @@ def test_pipeline_finds_the_pushed_up_item(monkeypatch):
     hover = hoverer.events.get_nowait()
     assert hover.item is ring
     assert hover.pushed_up_height == screen.shape[0] - 26   # from the found top to the bottom of the screen
+
+
+def test_pipeline_looks_for_a_pushed_tooltip_even_when_a_short_one_would_fit(monkeypatch):
+    """Mouse 300 px above the bottom: a 178 px tooltip fits below it, a 490 px ring does not and is pushed up."""
+    from maplelens import pipeline
+    from maplelens.geometry import Box
+    from maplelens.market.catalog import Catalog
+    from maplelens.market.models import Item
+    from maplelens.vision.ocr import TitleReader
+
+    strip = cv2.imread(str(FIXTURES / "strip_pushed_up_cash_ring.png"))
+    height = strip.shape[0] + 600   # a taller screen with the same bottom edge: the tooltip is 489 px from it
+    screen = cv2.copyMakeBorder(strip, 600, 0, 0, 0, cv2.BORDER_CONSTANT, value=(40, 30, 20))
+    ring = Item(name="Ink-and-Wash Painting Name Tag Ring", category="Cash Shop", price=1_899_999, sold=57)
+    monkeypatch.setattr(pipeline.game_window, "cursor_pos", lambda: (-1, height - 300 - 32))
+
+    class Grabber:
+        def grab(self, area):
+            return screen[area.y : area.y + area.h, area.x : area.x + area.w]
+
+    hoverer = pipeline.HoverPipeline(Catalog([ring]))
+    bounds = Box(0, 0, screen.shape[1], height)
+    assert hoverer._publish_pushed_up(Grabber(), TitleReader(), bounds, 1.0)

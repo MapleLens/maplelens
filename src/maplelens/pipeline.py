@@ -194,15 +194,16 @@ class HoverPipeline(threading.Thread):
         cx, cy = game_window.cursor_pos()
         x = cx + round(config.TOOLTIP_OFFSET[0] * scale)
         usual_top = cy + round(config.TOOLTIP_OFFSET[1] * scale)
-        shortest = min(height for _, height in config.TOOLTIP_SIZES.values())
-        if usual_top + round(shortest * scale) <= bounds.bottom or x < bounds.x:
-            return False   # even the shortest tooltip fits below the mouse: nothing was pushed
+        if usual_top + round(config.TOOLTIP_MAX_HEIGHT * scale) <= bounds.bottom or x < bounds.x:
+            return False   # even the tallest tooltip fits below the mouse: nothing was pushed
         w = min(round(config.TOOLTIP_CAPTURE_SIZE[0] * scale), bounds.right - x)
         top = max(bounds.y, bounds.bottom - round(config.TOOLTIP_MAX_HEIGHT * scale))
         if w < round(config.TOOLTIP_TITLE_WIDTH * scale) or top >= bounds.bottom:
             return False
         strip = _grab_normalised(grabber, Box(x, top, w, bounds.bottom - top), scale)
-        for row in candidate_tops(strip):
+        rows = candidate_tops(strip)
+        log.debug("pushed-up scan: usual_top=%d bottom=%d candidates=%s", usual_top, bounds.bottom, rows)
+        for row in rows:
             screen_top = top + round(row * scale)
             if screen_top > usual_top:
                 continue   # only ever pushed up, never down
