@@ -76,6 +76,21 @@ def test_equipment_compare_reads_both_titles():
     assert reader.read(second, second.shape[1]) == "Beginner's Garnier"
 
 
+def test_ocr_empty_region_reads_nothing():
+    """A capture clipped at the screen edge leaves a zero-width compare strip; it crashed cvtColor (hover-pipeline)."""
+    import numpy as np
+
+    from maplelens import config
+    from maplelens.vision.ocr import TitleReader
+
+    reader = TitleReader()
+    clipped = np.zeros((120, config.TOOLTIP_COMPARE_OFFSET_X - 3, 3), np.uint8)
+    second = clipped[:, config.TOOLTIP_COMPARE_OFFSET_X :]
+    assert second.shape[1] == 0
+    assert reader.read(second, second.shape[1]) == ""
+    assert reader.read(np.zeros((0, 0, 3), np.uint8), 450) == ""
+
+
 # -- tooltip width ------------------------------------------------------------------------------------------------
 WIDTHS = (370, 450)
 WIDE = ["tooltip_native_over_sky.png", "tooltip_native_over_window.png", "tooltip_native_octopus_leg.png",
