@@ -61,3 +61,16 @@ def test_compare_card_is_horizontal():
     assert wide.width > normal.width * 1.5 and wide.height < normal.height * 0.75
     # nothing to expand on a glance card: it stays the compact one
     assert render_card(item, now=NOW, expanded=False, wide=True).width == normal.width
+
+
+def test_a_token_npc_price_is_left_off_the_card():
+    from dataclasses import replace
+
+    from maplelens.market.models import NpcShop
+
+    item = replace(SAMPLE_ITEMS[0], obtain=())
+    token = replace(item, npc=NpcShop(None, 1, None, 0))   # an NPC paying 1 meso for a 100 meso item says nothing
+    assert render_card(token, now=NOW).tobytes() == render_card(replace(item, npc=None), now=NOW).tobytes()
+    notable = replace(item, npc=NpcShop(None, 40, None, 0))
+    assert render_card(notable, now=NOW).height > render_card(token, now=NOW).height
+

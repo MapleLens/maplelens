@@ -17,13 +17,13 @@ def week_chart(cv: Canvas, y: int, item: Item) -> int:
     days = item.history
     if len(days) < 2:
         return y
-    width, height = cv.width - 2 * PAD, 54
+    width, height = cv.width - 2 * PAD, 58
     cv.text(PAD, y, f"LAST {len(days)} DAYS", 10, theme.TEXT_FAINT)
     cv.text(cv.width - PAD, y, f"{sum(d.sold for d in days):,} sold", 10, theme.TEXT_DIM, anchor="ra")
     top = y + 15
     low, high = min(d.low for d in days), max(d.high for d in days)
     span = (high - low) or 1
-    volume, bar_room = insights.volume_bars(item), 12
+    volume, bar_room = insights.volume_bars(item), 16
 
     def xs(i: int, s: int) -> float:
         return (width - 16) * i / (len(days) - 1) * s + 8 * s
@@ -60,16 +60,17 @@ def stat_grid(cv: Canvas, y: int, item: Item) -> int:
              if item.first_sold else None)
     pace = insights.market_pace(item)
     pace_colour = theme.UP if pace == "fast" else theme.WARN if pace == "slow" else theme.TEXT
+    # What is on offer next to what it sells for first: the listing price is the one you can act on.
     cells: list[tuple[str, str | None, theme.RGBA]] = [
-        ("SELL-THROUGH", f"{item.sell_through * 100:.0f}%" if item.sell_through is not None else None, pace_colour),
         ("FOR SALE NOW", f"{item.asks:,}" if item.asks else None, theme.TEXT),
-        ("MEDIAN LISTING", format_mesos(item.ask_median) if item.ask_median else None, theme.TEXT),
+        ("LISTED AT", format_mesos(item.ask_median) if item.ask_median else None, theme.TEXT),
+        ("SELL-THROUGH", f"{item.sell_through * 100:.0f}%" if item.sell_through is not None else None, pace_colour),
         ("TOP SALE", format_mesos(item.top_sale) if item.top_sale else None, theme.TEXT),
         ("TRADED", format_mesos(item.mesos_traded) if item.mesos_traded else None, theme.TEXT),
         ("SELLING SINCE", first, theme.TEXT),
     ]
     cells = [c for c in cells if c[1]]
-    columns = 3 if cv.width >= _THREE_COLUMNS_MIN_W else 2   # "MEDIAN LISTING" needs about 85 px
+    columns = 3 if cv.width >= _THREE_COLUMNS_MIN_W else 2   # "SELL-THROUGH" needs about 80 px
     column = (cv.width - 2 * PAD) / columns
     for n, (label, value, colour) in enumerate(cells):
         x, top = PAD + column * (n % columns), y + (n // columns) * 34
@@ -97,33 +98,3 @@ def tags(cv: Canvas, y: int, item: Item) -> int:
         cv.chip(x, y + row * 24, text, colour, size=11, height=20)
         x += w + 5
     return y + (row + 1) * 24 + 2 if chips else y
-
-
-def sources(cv: Canvas, y: int, item: Item) -> int:
-    """Where the item comes from and what NPCs or crafters make of it."""
-    lines: list[str] = []
-    if item.npc and item.npc.sell:
-        share = insights.npc_floor_share(item)
-        extra = f" ({share * 100:.0f}% of market)" if share and share >= 0.02 else ""
-        lines.append(f"NPC buys it for {format_mesos(item.npc.sell)}{extra}")
-    if item.npc and item.npc.buy:
-        where = f" at {item.npc.shop}" if item.npc.shop else ""
-        lines.append(f"NPC sells it for {format_mesos(item.npc.buy)}{where}")
-    if item.craft:
-        margin = insights.craft_margin(item)
-        parts = ", ".join(f"{p.count}× {p.name}" for p in item.craft.parts[:3])
-        each = f" · {format_mesos(item.craft.per_item)} each" if item.craft.per_item else ""
-        tail = f" → {margin * 100:+.0f}% vs sale" if margin is not None else ""
-        level = f" Lv.{item.craft.level}" if item.craft.level else ""
-        lines.append(f"Craft ({item.craft.discipline}{level}): {parts}{each}{tail}")
-    names = {"mob": "monster drop", "npc": "NPC shop", "craft": "crafting", "quest": "quest reward"}
-    if item.obtain:
-        lines.append("From: " + ", ".join(names.get(o, o) for o in item.obtain))
-    for text in lines:
-        for n, wrapped in enumerate(cv.wrap(text, 11, cv.width - 2 * PAD - 12)):
-            if n == 0:
-                cv.draw.rectangle((PAD, y + 6, PAD + 3, y + 9), fill=theme.GOLD)
-            cv.text(PAD + 10, y, wrapped, 11, theme.TEXT_DIM)
-            y += 16
-        y += 2
-    return y

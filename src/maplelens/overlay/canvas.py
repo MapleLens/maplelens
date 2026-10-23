@@ -69,7 +69,7 @@ class Canvas:
              arrow: bool | None = None) -> int:
         """Solid-tinted status label, e.g. a green "+8.6%". `arrow` True/False adds an up/down triangle."""
         gap = 14 if arrow is not None else 0
-        width = self.measure(text, size, True) + 16 + gap
+        width = self.pill_width(text, size=size, arrow=arrow is not None)
         tint, edge = colour[:3] + (55,), colour[:3] + (150,)
         self.overlay((x, y, width, height), lambda d, s: d.rounded_rectangle(
             (0, 0, width * s - 1, height * s - 1), radius=height // 2 * s, fill=tint, outline=edge), scale=3)
@@ -80,7 +80,10 @@ class Canvas:
         self.text(left, y + height / 2, text, size, colour, bold=True, anchor="lm")
         return width
 
-    def arrow(self, x: int, y: int, up: bool, colour: RGBA, size: int = 8) -> None:
+    def pill_width(self, text: str, *, size: int = 11, arrow: bool = False) -> int:
+        return self.measure(text, size, True) + 16 + (14 if arrow else 0)
+
+    def arrow(self,x: int, y: int, up: bool, colour: RGBA, size: int = 8) -> None:
         """Filled triangle (Tahoma has no reliable arrow glyphs)."""
         points = [(x, y + size), (x + size, y + size), (x + size / 2, y)] if up else \
                  [(x, y), (x + size, y), (x + size / 2, y + size)]
