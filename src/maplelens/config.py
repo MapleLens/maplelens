@@ -36,6 +36,9 @@ TOOLTIP_SIZES = {   # keys: "Equip" (any equipment, incl. Cash Shop hats/pants) 
     "Cash Shop": (450, 277),
 }
 TOOLTIP_DEFAULT_SIZE = (450, 178)
+# The game slides a tooltip up when it would run off the bottom of the client area. This is taller than any
+# tooltip measured (an equipment-shaped cash ring with a long description: ~490), and bounds how far up to look.
+TOOLTIP_MAX_HEIGHT = 560
 # The only widths the game draws item tooltips at: equipment is narrow, everything else wide.
 TOOLTIP_WIDTHS = (370, 450)
 
