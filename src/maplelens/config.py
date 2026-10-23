@@ -46,6 +46,10 @@ GAME_LOST_RETRY_S = 1.0
 
 # OCR reads longer than this are a mis-read (e.g. title + description), not an item title.
 MAX_TITLE_CHARS = 40
+
+# An unknown title must read identically this many frames in a row before a "no price data" card shows: the
+# game's hint tooltips (friend list) OCR differently every frame, an item name does not.
+UNKNOWN_TITLE_FRAMES = 3
 # Minimum fuzzy-match score (0-100) to accept an OCR'd name as a known item.
 MIN_MATCH_SCORE = 88
 

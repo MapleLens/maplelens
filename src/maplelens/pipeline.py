@@ -50,6 +50,14 @@ def tooltip_size(item: Item | None, measured_width: int | None = None) -> tuple[
     return (measured_width or width), height
 
 
+def _looks_like_title(text: str) -> bool:
+    """Item names are short phrases; UI hint tooltips are sentences ("Double-click to ...") or OCR noise."""
+    text = text.strip()
+    if len(text) < 3 or text.endswith(".") or "click" in text.lower():
+        return False
+    return sum(c.isalnum() or c in " '-:" for c in text) >= 0.9 * len(text)
+
+
 def _dump_capture(image, title: str) -> None:
     """Debug aid: keep the raw capture of each new tooltip in debug/ (source of test fixtures)."""
     if log.isEnabledFor(logging.DEBUG):
@@ -70,6 +78,8 @@ class HoverPipeline(threading.Thread):
         self.catalog_updates: queue.Queue[Catalog] = queue.Queue()
         self._compare_seen_at = float("-inf")
         self._widths: dict[str, int] = {}
+        self._unknown_title: str | None = None
+        self._unknown_streak = 0
 
     def run(self) -> None:
         grabber, reader = ScreenGrabber(), TitleReader()
@@ -124,7 +134,19 @@ class HoverPipeline(threading.Thread):
             # A recognised item name at the spot where tooltips appear is the best proof a tooltip is
             # there: the blue fill is unreliable because it changes with whatever is behind the
             # translucent box. The colour check only has to carry unknown items.
-            if last_item is None and not tooltip_present(image):
+            # Other blue-ish UI (friend list, menus) passes the colour check and OCR reads names off it, so an
+            # unknown title must also have the tooltip border at one of the game's fixed widths.
+            if last_item is None:
+                self._unknown_streak = self._unknown_streak + 1 if title == self._unknown_title else 1
+                self._unknown_title = title
+            else:
+                self._unknown_title, self._unknown_streak = None, 0
+            # The game's other tooltips ("Double-click to send whispers" in the friend list) look just like item
+            # tooltips; their OCR text is short, noisy and different every frame, an item title is stable.
+            if last_item is None and not (tooltip_present(image)
+                                          and measure_width(image, config.TOOLTIP_WIDTHS) is not None
+                                          and self._unknown_streak >= config.UNKNOWN_TITLE_FRAMES
+                                          and _looks_like_title(title)):
                 stats["miss"] += 1
                 self.events.put(None)
                 time.sleep(config.POLL_S)
