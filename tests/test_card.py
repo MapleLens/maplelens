@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -6,7 +7,8 @@ import pytest
 from maplelens.market.catalog import Catalog
 from maplelens.market.sample import SAMPLE_ITEMS
 from maplelens.market.snapshot import load_snapshot
-from maplelens.overlay import theme
+from maplelens.overlay import glance, theme
+from maplelens.overlay.canvas import Canvas
 from maplelens.overlay.card import CARD_WIDTH, render_card
 
 NOW = datetime(2026, 10, 22, 0, 0, tzinfo=UTC)
@@ -61,3 +63,17 @@ def test_compare_card_is_horizontal():
     assert wide.width > normal.width * 1.5 and wide.height < normal.height * 0.75
     # nothing to expand on a glance card: it stays the compact one
     assert render_card(item, now=NOW, expanded=False, wide=True).width == normal.width
+
+
+def test_ask_marker_shows_on_glance_card_and_adds_a_row():
+    item = SAMPLE_ITEMS[0]
+    with_ask = render_card(item, now=NOW, expanded=False)
+    without = render_card(replace(item, ask_median=None), now=NOW, expanded=False)
+    assert with_ask.height > without.height
+
+
+def test_ask_marker_label_flips_left_at_the_right_edge():
+    cv = Canvas(CARD_WIDTH, 80)
+    glance._ask_marker(cv, CARD_WIDTH - glance.PAD, 40, 900)
+    left, _, right, _ = cv.image.getchannel("A").getbbox()
+    assert right <= CARD_WIDTH - glance.PAD + 4 and left < CARD_WIDTH - 60   # label sits left of the arrow

@@ -39,7 +39,7 @@ def render_card(item: Item | None, title: str = "", generated_at: str | None = N
             y = details.sources(body, y, item)
     else:
         y = glance.hero(body, y, item)
-        y = glance.range_bar(body, y, item, show_listing=expanded)
+        y = glance.range_bar(body, y, item)
         y = glance.signals(body, y + 4, item, now)
         if wide:
             y = details.tags(body, y + 2, item)

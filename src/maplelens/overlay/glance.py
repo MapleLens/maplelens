@@ -18,6 +18,7 @@ from maplelens.overlay.canvas import Canvas
 PAD = 12
 _COIN = Image.open(Path(__file__).resolve().parent.parent / "assets" / "meso.png")
 _SPARK_W, _SPARK_H = 84, 30
+_ASK_ROW = 14   # room above the range bar for the "asking N" marker
 
 
 def header(cv: Canvas, y: int, item: Item | None) -> int:
@@ -70,14 +71,25 @@ def _sparkline(cv: Canvas, x: int, y: int, item: Item) -> None:
     cv.overlay((x, y, _SPARK_W, _SPARK_H), draw, scale=3)
 
 
-def range_bar(cv: Canvas, y: int, item: Item, *, show_listing: bool = False) -> int:
+def _ask_marker(cv: Canvas, x: float, top: int, ask: float) -> None:
+    """Down-arrow over the bar at `x` with "asking N" beside it, on the side that has room."""
+    cv.arrow(round(x - 3.5), top - 11, False, theme.TEXT_DIM, 7)
+    label = f"asking {format_mesos(ask)}"
+    if x + 8 + cv.measure(label, 10) <= cv.width - PAD:
+        cv.text(x + 8, top - 15, label, 10, theme.TEXT_DIM)
+    else:
+        cv.text(x - 8, top - 15, label, 10, theme.TEXT_DIM, anchor="ra")
+
+
+def range_bar(cv: Canvas, y: int, item: Item) -> int:
     """Where the typical price sits among everything seen: dark groove = lowest..highest sale, gold = the
-    middle half of sales, white tick = the typical price. `show_listing` also marks the median shop listing."""
+    middle half of sales, white tick = the typical price. A labelled arrow above marks the median shop listing."""
     position = insights.range_position
     mid = position(item.price, item.low, item.high)
     if mid is None:
         return y
-    width, top = cv.width - 2 * PAD, y + 2
+    listing = position(item.ask_median, item.low, item.high)
+    width, top = cv.width - 2 * PAD, y + (_ASK_ROW if listing is not None else 0) + 2
     lo, hi = position(item.p25, item.low, item.high), position(item.p75, item.low, item.high)
 
     def bar(d, s):
@@ -88,9 +100,8 @@ def range_bar(cv: Canvas, y: int, item: Item, *, show_listing: bool = False) -> 
 
     cv.overlay((PAD, top, width, 8), bar, scale=3)
     cv.draw.rectangle((PAD + mid * width - 1, top - 3, PAD + mid * width + 1, top + 10), fill=theme.TEXT)
-    listing = position(item.ask_median, item.low, item.high) if show_listing else None
     if listing is not None:
-        cv.arrow(round(PAD + listing * width - 3.5), top - 11, False, theme.TEXT_DIM, 7)
+        _ask_marker(cv, PAD + listing * width, top, item.ask_median)
     cv.text(PAD, top + 14, format_mesos(item.low), 10, theme.TEXT_FAINT)
     cv.text(cv.width - PAD, top + 14, format_mesos(item.high), 10, theme.TEXT_FAINT, anchor="ra")
     if item.p25 and item.p75:
