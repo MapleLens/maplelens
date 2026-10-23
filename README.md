@@ -48,7 +48,7 @@ item's figures from MesoWatch (used with permission), credited on the card.
 Point at an item in your inventory (here **Opal Ore**) and the card appears beside the game's own tooltip.
 
 - **Price** in gold with the meso coin, a **trend pill** (green up / red down) and a **week sparkline**.
-- **Range bar:** the dark groove is the lowest to highest sale seen, the gold band is where most sales happen, the white tick is the typical price.
+- **Range bar:** the dark groove is the lowest to highest sale seen, the gold band is where most sales happen (labelled underneath), the white tick is the typical price. The blue **in shops N** arrow is the median price shops list it for right now, on the same scale; it turns amber when shops ask 20%+ more than it actually sells for.
 - **Signal pills:** how fast it sells, how many sales, how recent the last one is.
 - **Full card** (shown above after about a second on the item) adds the 7-day chart with volume bars, market depth (sell-through, items for sale, shops, traded volume) and where the item comes from.
 - It sits **right of the tooltip**, **left** near the screen edge, and **below** when an equipment compare tooltip is open.

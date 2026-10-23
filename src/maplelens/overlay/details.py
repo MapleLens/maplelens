@@ -60,17 +60,17 @@ def stat_grid(cv: Canvas, y: int, item: Item) -> int:
              if item.first_sold else None)
     pace = insights.market_pace(item)
     pace_colour = theme.UP if pace == "fast" else theme.WARN if pace == "slow" else theme.TEXT
-    # What is on offer next to what it sells for first: the listing price is the one you can act on.
+    # What is on offer first: the shop price is the one you can act on.
     cells: list[tuple[str, str | None, theme.RGBA]] = [
         ("FOR SALE NOW", f"{item.asks:,}" if item.asks else None, theme.TEXT),
-        ("LISTED AT", format_mesos(item.ask_median) if item.ask_median else None, theme.TEXT),
+        ("SHOP PRICE", format_mesos(item.ask_median) if item.ask_median else None, theme.TEXT),
         ("SELL-THROUGH", f"{item.sell_through * 100:.0f}%" if item.sell_through is not None else None, pace_colour),
         ("TOP SALE", format_mesos(item.top_sale) if item.top_sale else None, theme.TEXT),
         ("TRADED", format_mesos(item.mesos_traded) if item.mesos_traded else None, theme.TEXT),
         ("SELLING SINCE", first, theme.TEXT),
     ]
     cells = [c for c in cells if c[1]]
-    columns = 3 if cv.width >= _THREE_COLUMNS_MIN_W else 2   # "SELL-THROUGH" needs about 80 px
+    columns = 3 if cv.width >= _THREE_COLUMNS_MIN_W else 2   # the longest labels need about 85 px
     column = (cv.width - 2 * PAD) / columns
     for n, (label, value, colour) in enumerate(cells):
         x, top = PAD + column * (n % columns), y + (n // columns) * 34

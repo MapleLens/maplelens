@@ -16,6 +16,7 @@ from maplelens.market.format import format_ago
 from maplelens.market.models import Item
 from maplelens.overlay import details, glance, origin, theme
 from maplelens.overlay.canvas import Canvas
+from maplelens.overlay.range_bar import range_bar
 
 CARD_WIDTH = 300   # design width at 1x; the rendered card is CARD_WIDTH * theme.CARD_SCALE
 # The horizontal card (equipment compare, where it sits under two tooltips) adds a column for the details; the
@@ -57,7 +58,7 @@ def _groups(item: Item, now: datetime, *, expanded: bool, wide: bool) -> list[Gr
     about: Group = (details.tags, origin.sources)
     if item.price is None:
         return [(_notice("No sales seen yet", "Nobody has been seen selling it."),), *([about] if expanded else [])]
-    price: Group = (glance.hero, glance.range_bar, partial(glance.signals, now=now))
+    price: Group = (glance.hero, range_bar, partial(glance.signals, now=now))
     if not expanded:
         return [price]
     if wide:   # the chart and market depth go to the side column

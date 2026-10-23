@@ -2,7 +2,7 @@
 the y below itself.
 
 Reading order, top to bottom: which item/category -> the price (big), with where it is heading on the right ->
-where it sits in its range -> quick signals (how fast it sells, how many sales, how recent).
+where it sits in its range (`range_bar.py`) -> quick signals (how fast it sells, how many sales, how recent).
 """
 
 from pathlib import Path
@@ -70,37 +70,6 @@ def _sparkline(cv: Canvas, x: int, y: int, item: Item) -> None:
                   width=s)
 
     cv.overlay((x, y, _SPARK_W, _SPARK_H), draw, scale=3)
-
-
-def range_bar(cv: Canvas, y: int, item: Item) -> int:
-    """Where the typical price sits among everything seen: dark groove = lowest..highest sale, gold = the
-    middle half of sales, white tick = the typical price."""
-    position = insights.range_position
-    mid = position(item.price, item.low, item.high)
-    if mid is None:
-        return y
-    width, top = cv.width - 2 * PAD, y + 4
-    lo, hi = position(item.p25, item.low, item.high), position(item.p75, item.low, item.high)
-
-    def bar(d, s):
-        d.rounded_rectangle((0, 0, width * s - 1, 8 * s - 1), radius=4 * s, fill=theme.TRACK)
-        if lo is not None and hi is not None:
-            d.rounded_rectangle((lo * width * s, 0, max(hi * width * s, lo * width * s + 5 * s), 8 * s - 1),
-                                radius=4 * s, fill=theme.GOLD_SOFT[:3] + (200,))
-
-    cv.overlay((PAD, top, width, 8), bar, scale=3)
-    cv.draw.rectangle((PAD + mid * width - 1, top - 3, PAD + mid * width + 1, top + 10), fill=theme.TEXT)
-    left = cv.text(PAD, top + 14, "low ", 10, theme.TEXT_FAINT)
-    cv.text(PAD + left, top + 14, format_mesos(item.low), 10, theme.TEXT_DIM)
-    right = cv.text(cv.width - PAD, top + 14, format_mesos(item.high), 10, theme.TEXT_DIM, anchor="ra")
-    cv.text(cv.width - PAD - right, top + 14, "high ", 10, theme.TEXT_FAINT, anchor="ra")
-    if item.p25 and item.p75:
-        usual = f"{format_mesos(item.p25)} – {format_mesos(item.p75)}"
-        lead = cv.measure("usually ", 10)
-        x = cv.width / 2 - (lead + cv.measure(usual, 10, True)) / 2
-        cv.text(x, top + 14, "usually ", 10, theme.TEXT_FAINT)
-        cv.text(x + lead, top + 14, usual, 10, theme.TEXT, bold=True)
-    return top + 32
 
 
 def signals(cv: Canvas, y: int, item: Item, now) -> int:
