@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MapleLens</title>
+<meta name="description" content="Hover an item in MapleStory Classic and see what it is worth. A screen-reading price overlay. No injection, no memory reading.">
+<meta name="theme-color" content="#4a9be8">
+<link rel="icon" href="assets/favicon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lilita+One&display=swap">
+<style>
+:root{
+  /* classic client palette */
+  --sky-1:#3d8fe0; --sky-2:#8fd0ff; --sky-3:#d9f1ff;
+  --win:#eef1f6; --win-2:#d7dde8; --win-edge:#56607a; --win-dark:#2c3247;
+  --title-1:#8ea2c9; --title-2:#5b6f9f;
+  --tip:rgba(16,26,62,.86); --tip-edge:#c9d4f2;
+  --btn-1:#ffe07a; --btn-2:#ffad1f; --btn-edge:#9a5200;
+  --ink:#1e2740; --muted:#55607d; --gold:#ffcc33;
+  --grass:#78c850; --grass-d:#3e8f2a; --dirt:#a2703c; --dirt-d:#7a4f25;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{margin:0;color:var(--ink);font:15px/1.6 Tahoma,Verdana,"Segoe UI",sans-serif;overflow-x:hidden;
+  background:linear-gradient(var(--sky-1),var(--sky-2) 700px,var(--sky-3) 1400px,#eaf7ff)}
+img{max-width:100%}
+.px{image-rendering:pixelated}
+.wrap{max-width:1100px;margin:0 auto;padding:0 20px}
+.display{font-family:"Lilita One",Tahoma,sans-serif;font-weight:400;letter-spacing:.3px}
+/* the game's outlined white lettering (map names, damage-style titles) */
+.outline{color:#fff;text-shadow:
+  -2px -2px 0 var(--win-dark),2px -2px 0 var(--win-dark),-2px 2px 0 var(--win-dark),2px 2px 0 var(--win-dark),
+  0 -2px 0 var(--win-dark),0 2px 0 var(--win-dark),-2px 0 0 var(--win-dark),2px 0 0 var(--win-dark),0 5px 0 rgba(20,30,60,.35)}
+
+/* ---------- game window ---------- */
+.win{background:var(--win);border:2px solid var(--win-edge);border-radius:7px;
+  box-shadow:0 0 0 2px #fff inset,0 0 0 1px var(--win-dark),0 14px 30px -10px rgba(20,40,80,.55);overflow:hidden}
+.win-h{display:flex;align-items:center;gap:8px;height:30px;padding:0 6px 0 12px;
+  background:linear-gradient(var(--title-1),var(--title-2));border-bottom:2px solid var(--win-edge);
+  font:bold 13px Tahoma,sans-serif;color:#fff;text-shadow:0 1px 0 var(--win-dark);letter-spacing:.6px;text-transform:uppercase}
+.win-h .x{margin-left:auto;width:18px;height:18px;border-radius:3px;border:1px solid var(--win-dark);
+  background:linear-gradient(#ff8a8a,#e04040);box-shadow:0 1px 0 #fff8 inset;display:grid;place-items:center;font-size:11px;line-height:1}
+.win-b{padding:10px}
+
+/* ---------- buttons (orange "OK" button) ---------- */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 22px;border-radius:8px;cursor:pointer;
+  font:20px "Lilita One",Tahoma,sans-serif;letter-spacing:.4px;text-decoration:none;color:#fff;
+  background:linear-gradient(var(--btn-1),var(--btn-2) 55%,#f08a00);border:2px solid var(--btn-edge);
+  box-shadow:0 2px 0 #fff9 inset,0 4px 0 var(--btn-edge),0 8px 14px rgba(0,0,0,.2);
+  text-shadow:-1px -1px 0 var(--btn-edge),1px -1px 0 var(--btn-edge),-1px 1px 0 var(--btn-edge),1px 1px 0 var(--btn-edge),0 2px 0 var(--btn-edge);
+  transition:transform .08s,box-shadow .08s}
+.btn:hover{filter:brightness(1.06);transform:translateY(-1px)}
+.btn:active{transform:translateY(3px);box-shadow:0 2px 0 #fff9 inset,0 1px 0 var(--btn-edge)}
+.btn.grey{--btn-1:#ffffff;--btn-2:#dfe4ee;--btn-edge:#4d5670;color:var(--win-dark);text-shadow:0 1px 0 #fff;background:linear-gradient(#fff,#e3e8f1 55%,#c9d0de)}
+.btn.sm{font-size:16px;padding:5px 14px}
+.btn img{width:20px;height:20px}
+
+/* ---------- top menu bar ---------- */
+nav{position:sticky;top:0;z-index:10;background:linear-gradient(#4b5878,#2c3247);border-bottom:2px solid #11152a;box-shadow:0 2px 0 #7f8db0 inset}
+nav .wrap{display:flex;align-items:center;gap:18px;height:52px}
+.brand{display:flex;align-items:center;gap:8px;text-decoration:none;font:22px "Lilita One",sans-serif;color:#fff}
+.brand img{width:26px;height:26px}
+nav .sp{flex:1}
+nav a.l{color:#dfe6ff;text-decoration:none;font-weight:bold;font-size:13px}
+nav a.l:hover{color:var(--gold)}
+
+/* ---------- hero: a field map ---------- */
+.hero{position:relative;padding:56px 0 150px;overflow:hidden}
+.cloud{position:absolute;height:40px;width:130px;border-radius:40px;background:#fff;opacity:.92;animation:drift linear infinite}
+.cloud:before,.cloud:after{content:"";position:absolute;border-radius:50%;background:#fff}
+.cloud:before{width:58px;height:58px;left:18px;top:-28px}.cloud:after{width:44px;height:44px;left:66px;top:-18px}
+@keyframes drift{from{transform:translateX(-200px)}to{transform:translateX(calc(100vw + 200px))}}
+.hills{position:absolute;left:0;right:0;bottom:60px;height:140px;pointer-events:none;
+  background:radial-gradient(60% 120px at 18% 100%,#9fdc7c 98%,transparent),radial-gradient(50% 150px at 70% 100%,#8fd06c 98%,transparent),radial-gradient(40% 100px at 100% 100%,#a8e488 98%,transparent)}
+.ground{position:absolute;left:0;right:0;bottom:0;height:66px;
+  background:linear-gradient(var(--grass) 0 12px,var(--grass-d) 12px 17px,var(--dirt) 17px);
+  border-top:3px solid #2f6e1c}
+.ground:after{content:"";position:absolute;inset:17px 0 0;opacity:.35;
+  background:repeating-linear-gradient(90deg,var(--dirt-d) 0 2px,transparent 2px 48px),repeating-linear-gradient(0deg,var(--dirt-d) 0 2px,transparent 2px 24px)}
+.mobs{position:absolute;left:0;right:0;bottom:63px;height:70px;pointer-events:none}
+.mob{position:absolute;bottom:0;animation:walk var(--t,26s) linear infinite;animation-delay:var(--dl,0s)}
+@keyframes walk{
+  0%{transform:translateX(0) scaleX(1)} 49.9%{transform:translateX(calc(-1 * var(--run))) scaleX(1)}
+  50%{transform:translateX(calc(-1 * var(--run))) scaleX(-1)} 100%{transform:translateX(0) scaleX(-1)}}
+.hero-grid{position:relative;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:44px;align-items:center}
+.logo{display:flex;align-items:center;gap:14px}
+.logo img{width:64px;height:64px;filter:drop-shadow(0 3px 0 rgba(20,30,60,.35))}
+.hero h1{font-size:clamp(48px,7vw,80px);line-height:1;margin:0}
+.tagline{margin:16px 0 26px;font-size:18px;font-weight:bold;color:#0e2a55;max-width:28em;text-shadow:0 1px 0 #ffffffa0}
+.actions{display:flex;flex-wrap:wrap;gap:14px;align-items:center}
+.meta{display:block;margin-top:12px;font-size:12px;color:#163866;font-weight:bold}
+.hero .win img{display:block;width:100%;height:auto}
+
+section{padding:60px 0 0}
+
+/* screenshots */
+.shots{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:22px;align-items:start}
+.shots .win img.s{display:block;width:100%;height:auto;aspect-ratio:16/9;object-fit:cover;object-position:left center;background:#0d1530}
+.cap{display:flex;gap:10px;align-items:center;padding:10px 14px;border-top:2px solid var(--win-2);font-weight:bold;font-size:13.5px;color:var(--muted)}
+.cap img{width:26px;height:26px;flex:none}
+
+/* tooltips as feature cards */
+.tips{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+.tip{background:var(--tip);border:1px solid var(--tip-edge);border-radius:5px;box-shadow:0 0 0 1px #0a1230,0 10px 24px -8px rgba(0,0,0,.45);
+  color:#fff;padding:12px 14px}
+.tip .t{text-align:center;font-weight:bold;font-size:15px;color:#ffd75a;margin-bottom:8px}
+.tip .r{display:flex;gap:12px;align-items:flex-start}
+.tip .ic{flex:none;width:52px;height:52px;border-radius:4px;background:#fff;display:grid;place-items:center}
+.tip .ic img{width:32px;height:32px}
+.tip p{margin:0;color:#dbe3ff;font-size:13.5px;line-height:1.5}
+
+/* NPC dialog as download call */
+.npc{max-width:720px;margin:0 auto}
+.npc .win-b{display:flex;gap:18px;align-items:center;padding:18px}
+.npc .face{flex:none;width:96px;text-align:center;font-size:11px;font-weight:bold;color:var(--muted)}
+.npc .face img{width:70px;height:auto;display:block;margin:0 auto 4px}
+.npc .say{flex:1;background:#fff;border:1px solid var(--win-2);border-radius:6px;padding:14px 16px}
+.npc .say p{margin:0 0 14px;font-size:15px}
+.npc .say b{color:#d23a5a}
+.npc .meta{color:var(--muted);margin-top:10px}
+
+footer{margin-top:80px}
+.fine{background:#1b1f2d;color:#98a2c2;font-size:12px;padding:14px 0 18px}
+.fine .wrap{display:flex;flex-wrap:wrap;gap:6px 18px;justify-content:space-between}
+.fine a{color:#dfe6ff}
+
+@media (max-width:900px){
+  .hero-grid{grid-template-columns:minmax(0,1fr)}
+  .shots{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:720px){.tips{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:600px){
+  nav a.l{display:none}
+  .npc .win-b{flex-direction:column;text-align:center}
+  .npc .say .actions{justify-content:center}
+}
+@media (prefers-reduced-motion:reduce){.cloud,.mob{animation:none}}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="#"><img class="px" src="assets/meso.png" alt="">MapleLens</a>
+    <span class="sp"></span>
+    <a class="l" href="#screens">Screenshots</a>
+    <a class="l" href="https://github.com/MapleLens/maplelens" rel="noopener">GitHub</a>
+    <a class="btn sm js-dl" href="https://github.com/MapleLens/maplelens/releases/latest" rel="noopener">Download</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <span class="cloud" style="top:30px;animation-duration:80s;animation-delay:-30s"></span>
+  <span class="cloud" style="top:140px;animation-duration:110s;animation-delay:-70s;scale:.7"></span>
+  <span class="cloud" style="top:250px;animation-duration:95s;animation-delay:-10s;scale:1.15"></span>
+  <div class="hills"></div>
+
+  <div class="wrap hero-grid">
+    <div>
+      <div class="logo"><img class="px" src="assets/meso.png" alt=""><h1 class="display outline">MapleLens</h1></div>
+      <p class="tagline">Hover an item in MapleStory Classic and see what it's worth, right beside the game's tooltip.</p>
+      <div class="actions">
+        <a class="btn js-dl" href="https://github.com/MapleLens/maplelens/releases/latest" rel="noopener"><span class="js-dl-label">Download for Windows</span></a>
+        <a class="btn grey" href="https://github.com/MapleLens/maplelens" rel="noopener">GitHub</a>
+      </div>
+      <span class="meta js-dl-meta">Free &amp; open source · Windows 10/11</span>
+    </div>
+    <div class="win">
+      <div class="win-h">Price overlay<span class="x">×</span></div>
+      <img src="showcase/price-overlay.png" alt="MapleLens price card beside the Opal Ore tooltip in the inventory" width="1055" height="767">
+    </div>
+  </div>
+
+  <div class="mobs" aria-hidden="true">
+    <img class="mob px" src="assets/mobs/100100.png"  style="left:30%;--run:22vw;--t:30s" alt="">
+    <img class="mob px" src="assets/mobs/1210102.png" style="left:58%;--run:30vw;--t:40s;--dl:-12s" alt="">
+    <img class="mob px" src="assets/mobs/210100.png"  style="left:88%;--run:26vw;--t:34s;--dl:-20s" alt="">
+    <img class="mob px" src="assets/mobs/100101.png"  style="left:44%;--run:18vw;--t:28s;--dl:-6s" alt="">
+    <img class="mob px" src="assets/mobs/1110101.png" style="left:98%;--run:14vw;--t:46s;--dl:-30s" alt="">
+  </div>
+  <div class="ground"></div>
+</header>
+
+<main class="wrap">
+  <section id="screens">
+    <div class="shots">
+      <div class="win">
+        <div class="win-h">Player shop<span class="x">×</span></div>
+        <a href="showcase/price-shop.png"><img class="s" src="showcase/price-shop.png" alt="Price card beside a Selective 5-slot Coupon in a player shop" width="1177" height="653" loading="lazy"></a>
+        <div class="cap"><img class="px" src="assets/meso.png" alt="">Is this listing cheap? One glance tells you.</div>
+      </div>
+      <div class="win">
+        <div class="win-h">Character info<span class="x">×</span></div>
+        <a href="showcase/rank-panel.png"><img class="s" src="showcase/rank-panel.png" alt="Rank panel beside the Character Info window" width="796" height="409" loading="lazy"></a>
+        <div class="cap"><img class="px" src="assets/npc-admin.png" alt="" style="height:26px;width:auto">See a player's world, job and fame rank.</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="tips">
+      <div class="tip"><div class="t">Screen pixels only</div><div class="r"><div class="ic"><img class="px" src="assets/items/2030000.png" alt=""></div>
+        <p>Reads the screen like OBS does. No injection, no memory reading, no automation.</p></div></div>
+      <div class="tip"><div class="t">Click-through</div><div class="r"><div class="ic"><img class="px" src="assets/items/2000003.png" alt=""></div>
+        <p>Never steals focus or clicks. Only shows while the game is in front.</p></div></div>
+      <div class="tip"><div class="t">Glance, then details</div><div class="r"><div class="ic"><img class="px" src="assets/items/4010000.png" alt=""></div>
+        <p>Price and trend at once. Hold the pointer a second for the 7-day chart.</p></div></div>
+    </div>
+  </section>
+
+  <section id="download">
+    <div class="win npc">
+      <div class="win-h">Maple Administrator<span class="x">×</span></div>
+      <div class="win-b">
+        <div class="face"><img class="px" src="assets/npc-admin.png" alt="">Maple Administrator</div>
+        <div class="say">
+          <p>Want to know what your loot is worth? Unzip MapleLens, run it, and <b>hover any item</b>. Prices come from <a href="https://meso.watch">MesoWatch</a>.</p>
+          <div class="actions">
+            <a class="btn js-dl" href="https://github.com/MapleLens/maplelens/releases/latest" rel="noopener"><span class="js-dl-label">Download for Windows</span></a>
+            <a class="btn grey" href="https://github.com/MapleLens/maplelens#-quick-start-for-developers" rel="noopener">Build from source</a>
+          </div>
+          <span class="meta js-dl-meta">Free &amp; open source · Windows 10/11</span>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="fine">
+    <div class="wrap">
+      <span>Unofficial fan project · MIT. Not affiliated with NEXON. MapleStory art © NEXON via <a href="https://maplestory.io">maplestory.io</a>. Prices © <a href="https://meso.watch">MesoWatch</a>.</span>
+      <span><a href="https://github.com/MapleLens/maplelens">GitHub</a> · <a href="https://github.com/MapleLens/maplelens/releases">Releases</a></span>
+    </div>
+  </div>
+</footer>
+
+<script>
+// GoatCounter: set your site code (the "xxx" in xxx.goatcounter.com). Empty means no analytics are loaded.
+const GOATCOUNTER_CODE = "maplelens";
+if (GOATCOUNTER_CODE) {
+  const s = document.createElement("script");
+  s.async = true;
+  s.src = "https://gc.zgo.at/count.js";
+  s.dataset.goatcounter = `https://${GOATCOUNTER_CODE}.goatcounter.com/count`;
+  document.head.appendChild(s);
+  // Download clicks show up as their own events next to page views.
+  document.querySelectorAll(".js-dl").forEach(a => a.addEventListener("click", () =>
+    window.goatcounter?.count?.({path: "download", title: a.textContent.trim(), event: true})));
+}
+
+// Point every download button at the newest Windows zip; the releases page stays as the fallback.
+fetch("https://api.github.com/repos/MapleLens/maplelens/releases/latest")
+  .then(r => r.ok ? r.json() : Promise.reject(r.status))
+  .then(rel => {
+    const zip = rel.assets.find(a => /windows\.zip$/i.test(a.name));
+    if (!zip) return;
+    document.querySelectorAll(".js-dl").forEach(a => a.href = zip.browser_download_url);
+    document.querySelectorAll(".js-dl-label").forEach(s => s.textContent = `Download ${rel.tag_name}`);
+    document.querySelectorAll(".js-dl-meta").forEach(s => s.textContent = `${zip.name} · ${Math.round(zip.size/1048576)} MB · Windows 10/11`);
+  })
+  .catch(() => {});
+</script>
+</body>
+</html>
