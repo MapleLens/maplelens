@@ -17,6 +17,7 @@ from maplelens.capture.frame import ScreenGrabber
 from maplelens.geometry import Box, ui_scale
 from maplelens.market.catalog import Catalog, clean_title
 from maplelens.market.models import Item
+from maplelens.vision.locate import candidate_tops
 from maplelens.vision.ocr import TitleReader
 from maplelens.vision.tooltip import measure_width, tooltip_present
 
@@ -35,6 +36,7 @@ class Hover:
     compare: bool   # equipment compare: a second tooltip (the worn item) sits to the right of the first
     bounds: Box     # game client area in screen coordinates
     scale: float = 1.0   # UI size relative to the measured resolution; tooltip_size is already in screen pixels
+    pushed_up_height: int | None = None   # screen px; set when the game slid the tooltip up to fit on screen
 
 
 def tooltip_size(item: Item | None, measured_width: int | None = None) -> tuple[int, int]:
@@ -56,6 +58,15 @@ def _looks_like_title(text: str) -> bool:
     if len(text) < 3 or not text[0].isupper() or text.endswith(".") or "click" in text.lower():
         return False
     return sum(c.isalnum() or c in " '-:" for c in text) >= 0.9 * len(text)
+
+
+def _grab_normalised(grabber: ScreenGrabber, area: Box, scale: float) -> np.ndarray:
+    """Grab `area`, then bring it to the resolution the vision constants were measured at."""
+    image = grabber.grab(area)
+    if abs(scale - 1) > 0.01:
+        image = cv2.resize(image, None, fx=1 / scale, fy=1 / scale,
+                           interpolation=cv2.INTER_CUBIC if scale < 1 else cv2.INTER_AREA)
+    return image
 
 
 def _dump_capture(image, title: str) -> None:
@@ -112,25 +123,20 @@ class HoverPipeline(threading.Thread):
             bounds = game_window.client_box(hwnd)
             scale = ui_scale(bounds)
             area = self._tooltip_area(bounds, scale)
-            if area is None:
-                stats["miss_area"] += 1
-                self.events.put(None)
+            if area is None:   # no room below the mouse for even the top of a tooltip: it can only be pushed up
+                if not self._publish_pushed_up(grabber, reader, bounds, scale):
+                    stats["miss_area"] += 1
+                    self.events.put(None)
                 time.sleep(config.POLL_S)
                 continue
 
-            image = grabber.grab(area)
-            if abs(scale - 1) > 0.01:   # vision constants are in measured-resolution pixels: normalise the grab
-                image = cv2.resize(image, None, fx=1 / scale, fy=1 / scale,
-                                   interpolation=cv2.INTER_CUBIC if scale < 1 else cv2.INTER_AREA)
+            image = _grab_normalised(grabber, area, scale)
             title = reader.read(image, config.TOOLTIP_TITLE_WIDTH)
             if title != last_title:
                 last_title = title
                 self._compare_seen_at = float("-inf")   # a new item: forget the old item's compare tooltip
                 # Longer than a title = mis-read (title + description), not worth matching.
-                last_item = self._catalog.lookup(title) if len(title) <= config.MAX_TITLE_CHARS else None
-                if last_item is None:   # long names wrap onto a second title line the one-line read cuts off
-                    wrapped = reader.read(image, config.TOOLTIP_TITLE_WIDTH, lines=2)
-                    last_item = self._catalog.lookup(wrapped) if len(wrapped) <= config.MAX_TITLE_CHARS else None
+                last_item = self._lookup(reader, image, title)
                 log.debug("ocr=%r -> %s", title, last_item and last_item.name)
                 if last_item:
                     _dump_capture(image, title)
@@ -139,6 +145,9 @@ class HoverPipeline(threading.Thread):
             # translucent box. The colour check only has to carry unknown items.
             # Other blue-ish UI (friend list, menus) passes the colour check and OCR reads names off it, so an
             # unknown title must also have the tooltip border at one of the game's fixed widths.
+            if last_item is None and self._publish_pushed_up(grabber, reader, bounds, scale):
+                time.sleep(config.POLL_S)
+                continue
             if last_item is None:
                 self._unknown_streak = self._unknown_streak + 1 if title == self._unknown_title else 1
                 self._unknown_title = title
@@ -165,6 +174,50 @@ class HoverPipeline(threading.Thread):
             compare = self._has_compare(reader, image, equipment, time.monotonic())
             self.events.put(Hover(shown, last_item, size, compare, bounds, scale))
             time.sleep(config.POLL_S)
+
+    def _lookup(self, reader: TitleReader, image: np.ndarray, title: str) -> Item | None:
+        """The item named by `title`, the one-line OCR read of the tooltip in `image`."""
+        # Longer than a title = mis-read (title + description), not worth matching.
+        item = self._catalog.lookup(title) if len(title) <= config.MAX_TITLE_CHARS else None
+        if item is None:   # long names wrap onto a second title line the one-line read cuts off
+            wrapped = reader.read(image, config.TOOLTIP_TITLE_WIDTH, lines=2)
+            item = self._catalog.lookup(wrapped) if len(wrapped) <= config.MAX_TITLE_CHARS else None
+        return item
+
+    def _publish_pushed_up(self, grabber: ScreenGrabber, reader: TitleReader, bounds: Box, scale: float) -> bool:
+        """Look for a known item's tooltip the game slid up to fit on screen; publish it and say whether found.
+
+        The game keeps a tooltip inside the client area, so one taller than the room under the mouse has its
+        bottom on the client's bottom edge and its top somewhere above the usual spot. Only a recognised item
+        counts here: stray UI text must never be mistaken for a tooltip we had to go looking for.
+        """
+        cx, cy = game_window.cursor_pos()
+        x = cx + round(config.TOOLTIP_OFFSET[0] * scale)
+        usual_top = cy + round(config.TOOLTIP_OFFSET[1] * scale)
+        shortest = min(height for _, height in config.TOOLTIP_SIZES.values())
+        if usual_top + round(shortest * scale) <= bounds.bottom or x < bounds.x:
+            return False   # even the shortest tooltip fits below the mouse: nothing was pushed
+        w = min(round(config.TOOLTIP_CAPTURE_SIZE[0] * scale), bounds.right - x)
+        top = max(bounds.y, bounds.bottom - round(config.TOOLTIP_MAX_HEIGHT * scale))
+        if w < round(config.TOOLTIP_TITLE_WIDTH * scale) or top >= bounds.bottom:
+            return False
+        strip = _grab_normalised(grabber, Box(x, top, w, bounds.bottom - top), scale)
+        for row in candidate_tops(strip):
+            screen_top = top + round(row * scale)
+            if screen_top > usual_top:
+                continue   # only ever pushed up, never down
+            image = strip[row : row + config.TOOLTIP_CAPTURE_SIZE[1]]
+            title = reader.read(image, config.TOOLTIP_TITLE_WIDTH)
+            item = self._lookup(reader, image, title)
+            if item is None:
+                continue
+            width = self._tooltip_width(image, title)
+            size = tooltip_size(item, width)
+            height = bounds.bottom - screen_top
+            compare = self._has_compare(reader, image, item.is_equip, time.monotonic())
+            self.events.put(Hover(item.name, item, (round(size[0] * scale), height), compare, bounds, scale, height))
+            return True
+        return False
 
     def _tooltip_width(self, image: np.ndarray, title: str) -> int | None:
         """Measured width, remembered per title so one unsure frame keeps the last good answer."""
