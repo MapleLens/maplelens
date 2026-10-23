@@ -29,6 +29,8 @@ class TitleReader:
     def read(self, image: np.ndarray, tooltip_width: int) -> str:
         """Item name printed in the title row of the tooltip at the image's top-left ('' if unreadable)."""
         row = image[:_TITLE_ROW_H, _TITLE_LEFT_SKIP:tooltip_width]
+        if row.size == 0:   # capture clipped at the screen edge (or a mid-resize frame): nothing to read
+            return ""
         gray = cv2.cvtColor(row, cv2.COLOR_BGR2GRAY)
         # Binarise: pure black text on white is what the OCR engine reads best, and it removes whatever
         # game background shows through the translucent tooltip.
