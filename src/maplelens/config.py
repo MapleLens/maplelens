@@ -49,7 +49,7 @@ MAX_TITLE_CHARS = 40
 
 # An unknown title must read identically this many frames in a row before a "no price data" card shows: the
 # game's hint tooltips (friend list) OCR differently every frame, an item name does not.
-UNKNOWN_TITLE_FRAMES = 3
+UNKNOWN_TITLE_FRAMES = 5
 # Minimum fuzzy-match score (0-100) to accept an OCR'd name as a known item.
 MIN_MATCH_SCORE = 88
 

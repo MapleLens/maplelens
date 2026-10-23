@@ -13,6 +13,7 @@ def test_item_names_are_titles(text):
     "C) oubl*-click: tü send",
     "r •.lfll IVIlP-f: lif:k tri rid b'dhi P.",
     "to",
+    "to send",   # fragment of the same tooltip, repeats for several frames
     "",
 ])
 def test_ui_hints_and_noise_are_not_titles(text):

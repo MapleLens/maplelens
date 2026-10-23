@@ -53,7 +53,7 @@ def tooltip_size(item: Item | None, measured_width: int | None = None) -> tuple[
 def _looks_like_title(text: str) -> bool:
     """Item names are short phrases; UI hint tooltips are sentences ("Double-click to ...") or OCR noise."""
     text = text.strip()
-    if len(text) < 3 or text.endswith(".") or "click" in text.lower():
+    if len(text) < 3 or not text[0].isupper() or text.endswith(".") or "click" in text.lower():
         return False
     return sum(c.isalnum() or c in " '-:" for c in text) >= 0.9 * len(text)
 
