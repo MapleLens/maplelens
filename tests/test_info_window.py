@@ -63,3 +63,11 @@ def test_ranked_card_shows_more_than_a_notice():
     ranked = render_rank_card(RankResult(Status.FOUND, rank))
     assert ranked.height > render_rank_card(RankResult(Status.MISSING)).height
     assert render_rank_card(RankResult(Status.FOUND, botter)).height < ranked.height
+
+
+def test_window_is_found_when_the_game_is_drawn_bigger():
+    scale = 1.2
+    big = cv2.resize(SHOT, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+    x, y = info_window.find_window(cv2.cvtColor(big, cv2.COLOR_BGR2GRAY), scale)
+    assert abs(x - WINDOW.x * scale) <= 2 and abs(y - WINDOW.y * scale) <= 2
+    assert render_rank_card(RankResult(Status.LOADING), ui_scale=scale).width == round(CARD_WIDTH * scale)

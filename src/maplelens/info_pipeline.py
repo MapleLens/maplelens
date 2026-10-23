@@ -11,7 +11,7 @@ import cv2
 from maplelens import config
 from maplelens.capture import game_window
 from maplelens.capture.frame import ScreenGrabber
-from maplelens.geometry import Box
+from maplelens.geometry import Box, ui_scale
 from maplelens.vision import info_window
 from maplelens.vision.ocr import TitleReader
 
@@ -25,6 +25,7 @@ class InfoWindow:
     name: str | None   # whose it is; None while the name plate is unreadable
     box: Box           # the window in screen coordinates
     bounds: Box        # game client area in screen coordinates
+    scale: float = 1.0   # UI size relative to the measured resolution
 
 
 class InfoPipeline(threading.Thread):
@@ -49,28 +50,32 @@ class InfoPipeline(threading.Thread):
                 time.sleep(config.GAME_LOST_RETRY_S if hwnd is None else config.POLL_BACKGROUND_S)
                 continue
             bounds = game_window.client_box(hwnd)
-            if window is not None and not self._still_there(grabber, window):
+            scale = ui_scale(bounds)
+            if window is not None and not self._still_there(grabber, window, scale):
                 window = None
             if window is None:
-                window = self._search(grabber, bounds)
+                window = self._search(grabber, bounds, scale)
             if window is None:
                 self.events.put(None)
                 time.sleep(config.INFO_SEARCH_S)
                 continue
-            plate = grabber.grab(info_window.name_box(window))
+            plate = grabber.grab(info_window.name_box(window, scale))
+            if abs(scale - 1) > 0.01:   # the name thresholds and OCR upscale are tuned for measured-size pixels
+                plate = cv2.resize(plate, None, fx=1 / scale, fy=1 / scale, interpolation=cv2.INTER_AREA)
             name = info_window.clean_name(reader.read_mask(info_window.name_mask(plate)))
-            self.events.put(InfoWindow(name, window, bounds))
+            self.events.put(InfoWindow(name, window, bounds, scale))
             time.sleep(config.INFO_POLL_S)
 
     @staticmethod
-    def _still_there(grabber: ScreenGrabber, window: Box) -> bool:
-        title = grabber.grab(info_window.title_box(window))
-        return info_window.is_window(cv2.cvtColor(title, cv2.COLOR_BGR2GRAY))
+    def _still_there(grabber: ScreenGrabber, window: Box, scale: float) -> bool:
+        title = grabber.grab(info_window.title_box(window, scale))
+        return info_window.is_window(cv2.cvtColor(title, cv2.COLOR_BGR2GRAY), scale)
 
     @staticmethod
-    def _search(grabber: ScreenGrabber, bounds: Box) -> Box | None:
+    def _search(grabber: ScreenGrabber, bounds: Box, scale: float) -> Box | None:
         gray = cv2.cvtColor(grabber.grab(bounds), cv2.COLOR_BGR2GRAY)
-        found = info_window.find_window(gray)
+        found = info_window.find_window(gray, scale)
         if found is None:
             return None
-        return Box(bounds.x + found[0], bounds.y + found[1], *config.INFO_WINDOW_SIZE)
+        size = (round(v * scale) for v in config.INFO_WINDOW_SIZE)
+        return Box(bounds.x + found[0], bounds.y + found[1], *size)

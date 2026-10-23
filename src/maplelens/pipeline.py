@@ -14,7 +14,7 @@ import numpy as np
 from maplelens import config
 from maplelens.capture import game_window
 from maplelens.capture.frame import ScreenGrabber
-from maplelens.geometry import Box
+from maplelens.geometry import Box, ui_scale
 from maplelens.market.catalog import Catalog, clean_title
 from maplelens.market.models import Item
 from maplelens.vision.ocr import TitleReader
@@ -34,6 +34,7 @@ class Hover:
     tooltip_size: tuple[int, int]
     compare: bool   # equipment compare: a second tooltip (the worn item) sits to the right of the first
     bounds: Box     # game client area in screen coordinates
+    scale: float = 1.0   # UI size relative to the measured resolution; tooltip_size is already in screen pixels
 
 
 def tooltip_size(item: Item | None, measured_width: int | None = None) -> tuple[int, int]:
@@ -99,7 +100,8 @@ class HoverPipeline(threading.Thread):
                 continue
 
             bounds = game_window.client_box(hwnd)
-            area = self._tooltip_area(bounds)
+            scale = ui_scale(bounds)
+            area = self._tooltip_area(bounds, scale)
             if area is None:
                 stats["miss_area"] += 1
                 self.events.put(None)
@@ -107,6 +109,9 @@ class HoverPipeline(threading.Thread):
                 continue
 
             image = grabber.grab(area)
+            if abs(scale - 1) > 0.01:   # vision constants are in measured-resolution pixels: normalise the grab
+                image = cv2.resize(image, None, fx=1 / scale, fy=1 / scale,
+                                   interpolation=cv2.INTER_CUBIC if scale < 1 else cv2.INTER_AREA)
             title = reader.read(image, config.TOOLTIP_TITLE_WIDTH)
             if title != last_title:
                 last_title = title
@@ -128,11 +133,12 @@ class HoverPipeline(threading.Thread):
             stats["ok"] += 1
             width = self._tooltip_width(image, title)
             size = tooltip_size(last_item, width)
+            size = (round(size[0] * scale), round(size[1] * scale))
             # Show the matched name, not the raw OCR text: its per-frame variants must not repaint the card.
             shown = last_item.name if last_item else clean_title(title)
             equipment = last_item.is_equip if last_item else width == min(config.TOOLTIP_WIDTHS)
             compare = self._has_compare(reader, image, equipment, time.monotonic())
-            self.events.put(Hover(shown, last_item, size, compare, bounds))
+            self.events.put(Hover(shown, last_item, size, compare, bounds, scale))
             time.sleep(config.POLL_S)
 
     def _tooltip_width(self, image: np.ndarray, title: str) -> int | None:
@@ -158,11 +164,12 @@ class HoverPipeline(threading.Thread):
         return now - self._compare_seen_at < config.COMPARE_GRACE_S
 
     @staticmethod
-    def _tooltip_area(bounds: Box) -> Box | None:
+    def _tooltip_area(bounds: Box, scale: float = 1.0) -> Box | None:
         """Where the top of the tooltip would be if one is showing, or None if that is outside the game."""
         cx, cy = game_window.cursor_pos()
-        x, y = cx + config.TOOLTIP_OFFSET[0], cy + config.TOOLTIP_OFFSET[1]
-        w, h = config.TOOLTIP_CAPTURE_SIZE
+        x, y = cx + round(config.TOOLTIP_OFFSET[0] * scale), cy + round(config.TOOLTIP_OFFSET[1] * scale)
+        w, h = (round(v * scale) for v in config.TOOLTIP_CAPTURE_SIZE)
         w = min(w, bounds.right - x)   # near the right edge there is no room for a compare tooltip anyway
-        inside = bounds.x <= x and bounds.y <= y and w >= config.TOOLTIP_TITLE_WIDTH and y + h <= bounds.bottom
+        inside = (bounds.x <= x and bounds.y <= y and w >= round(config.TOOLTIP_TITLE_WIDTH * scale)
+                  and y + h <= bounds.bottom)
         return Box(x, y, w, h) if inside else None

@@ -22,7 +22,7 @@ Hover an item, see what it is worth. No injection, no memory reading, no game fi
 | | |
 |---|---|
 | 🪙 **Live price card** | Hover any inventory item and a card appears beside its tooltip with the [MesoWatch](https://meso.watch) price. |
-| 🏆 **Player rank panel** | Open a player's **Character Info** window and a panel in the game's own style (pink labels, beige boxes, green button) appears on its left with their world, job and fame rank from the public [classicrank.com API](https://classicrank.com/developer) (no key; cached, rate‑limit friendly). Falls back to the right side, or hides, if there is no room inside the game. |
+| 🏆 **Player rank panel** | Open a player's **Character Info** window and a panel in the game's own style (pink labels, beige boxes) appears on its left with their world, job and fame rank from the public [classicrank.com API](https://classicrank.com/developer) (no key; cached, rate‑limit friendly). Falls back to the right side, or hides, if there is no room inside the game. |
 | 🧭 **Smart placement** | Right of the tooltip; left near the screen edge; below for equipment compare (two tooltips). |
 | 🎨 **Truly translucent** | Per‑pixel alpha like the game's own box (see‑through fill, solid text), Tahoma font, same borders and bullet. |
 | 👀 **Glance first, details on dwell** | Hover and you get the answer at once: price, trend, week sparkline, where the price sits in its range, how it sells. Keep the pointer on the item for ~1 s and the card grows into the full view. |
@@ -73,7 +73,7 @@ card showing the market median (44k), a "Fast seller" pill and the NX price (5,0
 <img src="docs/showcase/rank-panel.png" alt="Rank panel beside the Character Info window">
 
 Open a player's **Character Info** window and the ranking panel appears beside it, in the game's own window style
-(pink labels, beige boxes, green button), with their world, job and fame rank from the public classicrank.com API.
+(pink labels, beige boxes), with their world, job and fame rank from the public classicrank.com API.
 
 ## 🚀 Quick start (for developers)
 

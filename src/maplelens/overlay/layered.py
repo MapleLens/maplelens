@@ -21,6 +21,7 @@ _SWP_NOSIZE, _SWP_NOACTIVATE, _SWP_SHOWWINDOW = 0x1, 0x10, 0x40
 _HWND_TOPMOST = wintypes.HWND(-1)
 _ULW_ALPHA, _AC_SRC_OVER, _AC_SRC_ALPHA = 2, 0, 1
 _BI_RGB, _DIB_RGB_COLORS = 0, 0
+_WDA_EXCLUDEFROMCAPTURE = 0x11   # Windows 10 2004+
 
 
 class _BitmapInfoHeader(ctypes.Structure):
@@ -89,6 +90,10 @@ class LayeredWindow:
                                             None, None, None, None)
         if not self._hwnd:
             raise OSError("could not create the overlay window")
+        # Our own pixels must never be read back by the detection: a card drawn over the compare tooltip would
+        # hide its title, the compare would be lost and the card would jump onto it. Older Windows keeps the old
+        # behaviour (the call fails, nothing else breaks).
+        user32.SetWindowDisplayAffinity(self._hwnd, _WDA_EXCLUDEFROMCAPTURE)
         self._rect: Box | None = None
         self._visible = False
 
