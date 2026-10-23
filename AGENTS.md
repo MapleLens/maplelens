@@ -26,7 +26,7 @@ or a screenshot of the running overlay over the game.
 3. **The overlay must be click-through** and must never steal focus from the game.
 4. **No searching, no per-frame guessing.** The tooltip is always at `mouse + config.TOOLTIP_OFFSET`
    (measured, not assumed). The card position comes from the live cursor on the UI tick; detection only
-   supplies title and tooltip size. Do not add trackers/filters to paper over a wrong constant: re-measure it.
+   supplies title and tooltip size. Do not add trackers/filters to paper over a wrong constant: re-measure it. The one exception is the game's own clamp: a tooltip too tall for the room below the mouse is pushed up to the client's bottom edge, so `vision/locate.py` looks for it there (only when the usual spot found no item and a tall tooltip could not fit); the card then uses `min(mouse + offset, bottom - height)`.
 5. **Overlays only over the game.** The pipeline emits nothing unless MapleStory is the foreground window,
    and the card is hidden if it would not fit inside the client area.
 6. **UI calls stay on the main thread.** The detection thread talks to the UI exclusively through
@@ -38,6 +38,7 @@ or a screenshot of the running overlay over the game.
 capture/   game_window.py  find MapleStory window, client rect (DPI aware), cursor
            frame.py        ScreenGrabber: BGR capture of a screen rectangle
 vision/    tooltip.py      tooltip_present(image) -> bool   (pure)
+           locate.py       candidate_tops(strip): find a tooltip pushed up by the game's bottom clamp (pure)
            ocr.py          TitleReader: Windows OCR of a tooltip title row (cached)
 market/    models.py       Item and nested data (Day, NpcShop, Craft, CashInfo); Item.from_raw
            snapshot.py     load list.json -> Snapshot(items, generated_at)

@@ -5,6 +5,7 @@ import logging
 import queue
 import time
 from collections import OrderedDict
+from dataclasses import replace
 from pathlib import Path
 
 from PIL import Image
@@ -171,8 +172,7 @@ class PriceOverlayApp:
                 self._hover, self._seen_at = event, time.monotonic()
         hover = self._hover
         if hover is not None:
-            hover = Hover(hover.title, self._catalog.lookup(hover.title), hover.tooltip_size,
-                          hover.compare, hover.bounds, hover.scale)
+            hover = replace(hover, item=self._catalog.lookup(hover.title))
         if hover is None or time.monotonic() - self._seen_at > config.HIDE_GRACE_S:
             self._hover, self._shown = None, None
             self._window.hide()
@@ -185,8 +185,10 @@ class PriceOverlayApp:
         expanded = now - self._since >= self._controls.current.expand_delay_s
         card = self._card_for(hover, expanded)
         cx, cy = game_window.cursor_pos()
-        tooltip = Box(cx + round(config.TOOLTIP_OFFSET[0] * hover.scale),
-                      cy + round(config.TOOLTIP_OFFSET[1] * hover.scale), *hover.tooltip_size)
+        tooltip_y = cy + round(config.TOOLTIP_OFFSET[1] * hover.scale)
+        if hover.pushed_up_height is not None:   # the game keeps a tall tooltip's bottom inside the client area
+            tooltip_y = min(tooltip_y, hover.bounds.bottom - hover.pushed_up_height)
+        tooltip = Box(cx + round(config.TOOLTIP_OFFSET[0] * hover.scale), tooltip_y, *hover.tooltip_size)
         gap = round(config.CARD_GAP_PX * hover.scale)
         x, y = place_card(tooltip, card.size, gap, hover.bounds, compare=hover.compare)
         if self._shown != (hover.title, expanded) or not self._window.visible:
