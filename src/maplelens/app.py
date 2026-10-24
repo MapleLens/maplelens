@@ -4,13 +4,14 @@ import ctypes
 import logging
 import queue
 import time
+import webbrowser
 from collections import OrderedDict
 from dataclasses import replace
 from pathlib import Path
 
 from PIL import Image
 
-from maplelens import config, settings_store
+from maplelens import __version__, config, settings_store
 from maplelens.capture import game_window
 from maplelens.geometry import Box
 from maplelens.info_pipeline import InfoPipeline, InfoWindow
@@ -29,6 +30,9 @@ from maplelens.settings_store import Settings
 from maplelens.tray.icon import load_icon
 from maplelens.tray.settings import SettingsWindow
 from maplelens.tray.tray import TrayIcon
+from maplelens.update import UpdateError, install
+from maplelens.update.check import UpdateChecker
+from maplelens.update.model import Phase, UpdateState
 
 log = logging.getLogger(__name__)
 _CARD_CACHE_SIZE = 64
@@ -70,9 +74,14 @@ class PriceOverlayApp:
         self._rank_cards: OrderedDict[tuple[str, RankResult, float], Image.Image] = OrderedDict()
         self._quit = False
         self._controls = SettingsController(settings_store.default_path(), self._on_settings_changed)
-        self._settings = SettingsWindow(load_icon(), self._controls.update, self._capture_hotkey)
+        self._settings = SettingsWindow(load_icon(), self._controls.update, self._capture_hotkey,
+                                        self._check_for_update, self._start_update)
         self._tray = TrayIcon(lambda: self._settings.show(self._controls.current), self._request_quit,
-                              self._toggle_overlay)
+                              self._toggle_overlay, self._start_update)
+        self._updates = UpdateChecker(__version__, auto_check=self._controls.current.check_updates)
+        self._update_state = UpdateState()
+        self._installer: install.UpdateInstaller | None = None
+        self._relaunch: Path | None = None   # set once a new exe has been swapped in
 
     def run(self) -> None:
         if self._refresh is not None:
@@ -82,6 +91,7 @@ class PriceOverlayApp:
         self._pipeline.start()
         self._info_pipeline.start()
         self._ranks.start()
+        self._updates.start()
         # Windows' default timer granularity is ~15.6 ms, which makes sleep() coarse and jittery.
         ctypes.windll.winmm.timeBeginPeriod(1)
         try:
@@ -94,11 +104,14 @@ class PriceOverlayApp:
         finally:
             if self._refresh is not None:
                 self._refresh.stop_event.set()
+            self._updates.stop()
             ctypes.windll.winmm.timeEndPeriod(1)
             self._tray.close()
             self._settings.close()
             self._window.close()
             self._rank_window.close()
+            if self._relaunch is not None:   # last, so the new instance finds the hotkey and tray icon free
+                install.relaunch(self._relaunch, __version__)
 
     def _request_quit(self) -> None:
         self._quit = True
@@ -112,6 +125,68 @@ class PriceOverlayApp:
             self._apply_overlay_enabled(new.overlay_enabled)
         if new.toggle_hotkey != old.toggle_hotkey:
             self._register_hotkey(new.toggle_hotkey)
+        if new.check_updates != old.check_updates:
+            self._updates.auto_check = new.check_updates
+            if new.check_updates:
+                self._check_for_update()
+
+    def _set_update_state(self, state: UpdateState) -> None:
+        self._update_state = state
+        self._settings.show_update_state(state)
+        self._tray.set_update(state.update.version if state.update and state.phase != Phase.UP_TO_DATE else None)
+
+    def _check_for_update(self) -> None:
+        if self._update_state.phase not in (Phase.CHECKING, Phase.DOWNLOADING):
+            self._set_update_state(UpdateState(Phase.CHECKING, self._update_state.update))
+            self._updates.check_now()
+
+    def _start_update(self) -> None:
+        update = self._update_state.update
+        if update is None or self._update_state.phase in (Phase.CHECKING, Phase.DOWNLOADING):
+            return
+        if not install.can_self_update():   # a source checkout is updated with git/pip, not by swapping an exe
+            webbrowser.open(update.page_url)
+            return
+        self._installer = install.UpdateInstaller(update, install.current_exe())
+        self._set_update_state(UpdateState(Phase.DOWNLOADING, update))
+        self._installer.start()
+
+    def _follow_updates(self) -> None:
+        """Applies the newest result of the update threads; both only ever talk to the UI through queues."""
+        while not self._updates.events.empty():
+            result = self._updates.events.get_nowait()
+            if self._update_state.phase == Phase.DOWNLOADING:
+                continue
+            if result.error:
+                self._set_update_state(UpdateState(Phase.FAILED, self._update_state.update, result.error))
+            else:
+                phase = Phase.AVAILABLE if result.update else Phase.UP_TO_DATE
+                self._set_update_state(UpdateState(phase, result.update))
+        if self._installer is None:
+            return
+        update = self._update_state.update
+        while not self._installer.events.empty():
+            event = self._installer.events.get_nowait()
+            if event.error:
+                self._installer = None
+                self._set_update_state(UpdateState(Phase.FAILED, update, event.error))
+                return
+            if event.staged is not None:
+                self._installer = None
+                self._finish_update(event.staged)
+                return
+            self._set_update_state(UpdateState(Phase.DOWNLOADING, update, f"{event.progress:.0%}"))
+
+    def _finish_update(self, staged: Path) -> None:
+        exe = install.current_exe()
+        try:
+            install.swap(exe, staged)
+        except UpdateError as exc:
+            staged.unlink(missing_ok=True)
+            self._set_update_state(UpdateState(Phase.FAILED, self._update_state.update, str(exc)))
+            return
+        self._relaunch = exe
+        self._request_quit()
 
     def _apply_overlay_enabled(self, enabled: bool) -> None:
         for pipeline in (self._pipeline, self._info_pipeline):
@@ -137,6 +212,10 @@ class PriceOverlayApp:
         self._rank_window.hide()
 
     def _tick(self) -> None:
+        try:
+            self._follow_updates()
+        except Exception:
+            log.exception("update tick failed")
         if not self._controls.current.overlay_enabled:
             for pipeline in (self._pipeline, self._info_pipeline):   # the idle threads keep posting "nothing"
                 while not pipeline.events.empty():

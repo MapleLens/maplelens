@@ -79,3 +79,17 @@ INFO_CARD_GAP_PX = 4
 RANK_TTL_S = 90.0
 RANK_MISSING_TTL_S = 300.0   # unknown names (often an OCR slip) are not worth hammering
 RANK_REQUEST_GAP_S = 2.0
+
+# --- Updates (GitHub releases, verified against a signed manifest; see update/) ---
+UPDATE_REPO = "MapleLens/maplelens"
+# Ed25519 public key (base64, raw) that release manifests must be signed with. Rotating it strands every
+# installed copy, so keep the private key (CI secret UPDATE_SIGNING_KEY) safe; scripts/make_update_key.py makes it.
+UPDATE_PUBLIC_KEY = "Qa1pyznR0jsj3Vdhk5i/OrBzkfsCdipbQ1zavbranMs="
+UPDATE_CHECK_S = 24 * 3600
+UPDATE_RETRY_S = 15 * 60       # a failed check (offline, rate limited) is retried sooner than the daily one
+UPDATE_TIMEOUT_S = 30
+# Hard size caps so a hostile or broken server cannot fill the disk or memory.
+UPDATE_MAX_API_BYTES = 1 << 20
+UPDATE_MAX_MANIFEST_BYTES = 16 * 1024
+UPDATE_MAX_ZIP_BYTES = 300 << 20
+UPDATE_SELF_TEST_S = 90        # a one-file exe unpacks itself on first launch, which is slow on a cold disk

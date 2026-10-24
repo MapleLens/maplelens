@@ -34,6 +34,7 @@ Hover an item, see what it is worth. No injection, no memory reading, no game fi
 | 🪟 **Game only** | Shown only while MapleStory is the front window, and always clamped inside it. |
 | 👻 **Click‑through** | The overlay never steals mouse input from the game. |
 | 🔍 **Typo tolerant** | OCR slips such as `Emerald 0re` still resolve to the right item. |
+| 🔄 **Safe updates** | The tray icon tells you when a new version is out (`MapleLens v… - new update available`), and **Settings → Update now** installs it. Every update is checked against a signed manifest (Ed25519 signature, size, SHA‑256) before anything is replaced; the old version is put back if the swap fails. The packaged `maplelens.exe` updates itself; a source install shows the release page instead. Turn the daily check off in Settings. |
 | 🛡️ **Screen‑only** | Reads pixels from the game window. Nothing is injected into or read from the game process. |
 
 ## 🖼️ Showcase
@@ -149,7 +150,7 @@ by Nexon, and Nexon has not published a rule that says overlays like this are al
 | Reading or writing game memory | ❌ Never. It only reads screen pixels, like OBS or a screenshot. |
 | Injecting code, DLLs or hooks into the game | ❌ Never. |
 | Pressing keys or clicking for you | ❌ Never. It only reads where your mouse already is. |
-| Changing game files or network traffic | ❌ Never. Its only downloads are MesoWatch prices and classicrank.com ranks. |
+| Changing game files or network traffic | ❌ Never. Its only downloads are MesoWatch prices, classicrank.com ranks and update checks against this project's GitHub releases. |
 | Playing the game for you | ❌ Never. It shows information; you do everything yourself. |
 
 The only time it touches the game process is a quick check of the program name (`maplestory.exe`) to find the game
@@ -234,5 +235,8 @@ git commit -am "Release 0.1.1" && git tag v0.1.1 && git push --follow-tags
 
 Pushing a `v*.*.*` tag runs `.github/workflows/release.yml`: lint, tests, PyInstaller build (`maplelens.spec`),
 a `--version` smoke test, then a GitHub Release with `maplelens-vX.Y.Z-windows.zip` (exe, README, LICENSE) and
-its SHA-256. Tags containing `-` (e.g. `v0.2.0-rc1`) are marked pre-release. No price data is ever bundled.
+its SHA-256, plus a signed update manifest (`maplelens-vX.Y.Z-manifest.json` and `.sig`) that installed copies
+verify before updating. The signing key is the `UPDATE_SIGNING_KEY` Actions secret; its public half is
+`config.UPDATE_PUBLIC_KEY` (create both with `scripts/make_update_key.py`; losing or rotating the key strands
+installed copies). Tags containing `-` (e.g. `v0.2.0-rc1`) are marked pre-release. No price data is ever bundled.
 `ci.yml` runs lint and tests on every push and PR.

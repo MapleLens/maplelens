@@ -5,8 +5,12 @@ from collections.abc import Callable
 from ctypes import wintypes
 from dataclasses import replace
 
+from maplelens import __version__
 from maplelens.settings_store import EXPAND_DELAY_RANGE_S, Settings
+from maplelens.tray.update_panel import UpdatePanel
 from maplelens.tray.winclass import create_window, user32
+from maplelens.update.install import can_self_update
+from maplelens.update.model import UpdateState
 
 _WS_CAPTION, _WS_SYSMENU, _WS_CHILD, _WS_VISIBLE, _WS_TABSTOP = 0xC00000, 0x80000, 0x40000000, 0x10000000, 0x10000
 _BS_AUTOCHECKBOX, _TBS_AUTOTICKS, _WS_EX_CLIENTEDGE = 0x3, 0x1, 0x200
@@ -19,10 +23,13 @@ _HKCOMB_NONE, _HKCOMB_S, _HOTKEYF_CTRL_ALT = 0x1, 0x2, 0x2 | 0x4
 _ICC_BAR_CLASSES, _ICC_HOTKEY_CLASS = 0x4, 0x40
 _SW_HIDE, _SW_SHOW = 0, 5
 _DEFAULT_GUI_FONT = 17
-_SIZE = (440, 300)
+_SIZE = (440, 420)
 _STEPS_PER_S = 10   # the slider works in tenths of a second
 
 _ID_STARTUP, _ID_OVERLAY, _ID_HOTKEY, _ID_CLEAR, _ID_DELAY, _ID_DELAY_TEXT = 101, 102, 103, 104, 105, 106
+_ID_AUTO_UPDATE = 107
+
+_TOGGLES = (_ID_STARTUP, _ID_OVERLAY, _ID_AUTO_UPDATE)
 
 
 class _InitCommonControls(ctypes.Structure):
@@ -51,9 +58,11 @@ class SettingsWindow:
     focus, so the app can release the global hotkey while the player types a new one.
     """
 
-    def __init__(self, icon: int, on_change: Callable[[Settings], None],
-                 on_capture: Callable[[bool], None]) -> None:
+    def __init__(self, icon: int, on_change: Callable[[Settings], None], on_capture: Callable[[bool], None],
+                 on_check_update: Callable[[], None] = lambda: None,
+                 on_update: Callable[[], None] = lambda: None) -> None:
         self._icon, self._on_change, self._on_capture = icon, on_change, on_capture
+        self._updates = UpdatePanel(__version__, can_self_update(), on_check_update, on_update)
         self._hwnd = 0
         self._proc = None   # keeps the ctypes callback alive
         self._current = Settings()
@@ -72,6 +81,9 @@ class SettingsWindow:
         self._current = settings
         if self._hwnd:
             self._load(settings)
+
+    def show_update_state(self, state: UpdateState) -> None:
+        self._updates.show_state(state)
 
     def close(self) -> None:
         if self._hwnd:
@@ -109,12 +121,16 @@ class SettingsWindow:
         top = round(EXPAND_DELAY_RANGE_S[1] * _STEPS_PER_S)
         user32.SendMessageW(slider, _TBM_SETRANGE, 1, top << 16)
         self._child("Static", "", 0, (320, 188, 100, 20), _ID_DELAY_TEXT)
+        self._updates.create(self._child, self._item, 232)
+        self._child("Button", "Check for updates automatically", _BS_AUTOCHECKBOX | _WS_TABSTOP,
+                    (20, 232 + 102, 380, 22), _ID_AUTO_UPDATE)
 
     def _load(self, settings: Settings) -> None:
         self._loading = True
         try:
             user32.SendMessageW(self._item(_ID_STARTUP), _BM_SETCHECK, settings.launch_at_startup, 0)
             user32.SendMessageW(self._item(_ID_OVERLAY), _BM_SETCHECK, settings.overlay_enabled, 0)
+            user32.SendMessageW(self._item(_ID_AUTO_UPDATE), _BM_SETCHECK, settings.check_updates, 0)
             user32.SendMessageW(self._item(_ID_HOTKEY), _HKM_SETHOTKEY, settings.toggle_hotkey, 0)
             user32.SendMessageW(self._item(_ID_DELAY), _TBM_SETPOS, 1, round(settings.expand_delay_s * _STEPS_PER_S))
             user32.SetWindowTextW(self._item(_ID_DELAY_TEXT), delay_text(settings.expand_delay_s))
@@ -128,6 +144,7 @@ class SettingsWindow:
             self._current,
             launch_at_startup=bool(user32.SendMessageW(self._item(_ID_STARTUP), _BM_GETCHECK, 0, 0)),
             overlay_enabled=bool(user32.SendMessageW(self._item(_ID_OVERLAY), _BM_GETCHECK, 0, 0)),
+            check_updates=bool(user32.SendMessageW(self._item(_ID_AUTO_UPDATE), _BM_GETCHECK, 0, 0)),
             toggle_hotkey=user32.SendMessageW(self._item(_ID_HOTKEY), _HKM_GETHOTKEY, 0, 0) & 0xFFFF,
             expand_delay_s=delay)
 
@@ -150,6 +167,8 @@ class SettingsWindow:
             elif control == _ID_CLEAR:
                 user32.SendMessageW(self._item(_ID_HOTKEY), _HKM_SETHOTKEY, 0, 0)
                 self._edited()
-            elif control in (_ID_STARTUP, _ID_OVERLAY) or (control == _ID_HOTKEY and note == _EN_CHANGE):
+            elif control in _TOGGLES or (control == _ID_HOTKEY and note == _EN_CHANGE):
                 self._edited()
+            else:
+                self._updates.command(control)
         return None
