@@ -88,8 +88,11 @@ maplelens            # automatically refreshes the local price cache
 | Flag | What it does |
 |---|---|
 | `--snapshot PATH` | Use a local `list.json` without automatic updates |
-| `--debug` | Write detection details to `maplelens.log` and save each new tooltip capture to `debug/` |
+| `--debug` | Also log detection details to `maplelens.log` and save each new tooltip capture to `debug/` |
 | `--version` | Print the version |
+
+MapleLens always writes warnings and errors (plus start-up info) to `maplelens.log` next to `maplelens.exe`. If something
+breaks, send that file along with your report.
 
 Never used a terminal? Follow the guide below instead.
 
