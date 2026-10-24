@@ -15,6 +15,7 @@ from maplelens import __version__, config, settings_store
 from maplelens.capture import game_window
 from maplelens.geometry import Box, UiScale
 from maplelens.info_pipeline import InfoPipeline, InfoWindow
+from maplelens.map_helper import MapHelper
 from maplelens.market.catalog import Catalog
 from maplelens.market.refresh import SnapshotRefresh
 from maplelens.market.sample import SAMPLE_ITEMS
@@ -73,6 +74,7 @@ class PriceOverlayApp:
         self._info_seen_at = 0.0
         self._rank_shown: tuple[str, RankResult, float] | None = None
         self._rank_cards: OrderedDict[tuple[str, RankResult, float], Image.Image] = OrderedDict()
+        self._map = MapHelper(ui)   # world-map tooltips: its own pipeline, lookups and window
         self._quit = False
         self._controls = SettingsController(settings_store.default_path(), self._on_settings_changed)
         self._settings = SettingsWindow(load_icon(), self._controls.update, self._capture_hotkey,
@@ -91,6 +93,7 @@ class PriceOverlayApp:
         self._register_hotkey(self._controls.current.toggle_hotkey)
         self._pipeline.start()
         self._info_pipeline.start()
+        self._map.start()
         self._ranks.start()
         self._updates.start()
         # Windows' default timer granularity is ~15.6 ms, which makes sleep() coarse and jittery.
@@ -111,6 +114,7 @@ class PriceOverlayApp:
             self._settings.close()
             self._window.close()
             self._rank_window.close()
+            self._map.close()
             if self._relaunch is not None:   # last, so the new instance finds the hotkey and tray icon free
                 install.relaunch(self._relaunch, __version__)
 
@@ -195,6 +199,7 @@ class PriceOverlayApp:
                 pipeline.enabled.set()
             else:
                 pipeline.enabled.clear()
+        self._map.set_enabled(enabled)
         self._tray.overlay_enabled = enabled
         if not enabled:
             self._hide_everything()
@@ -221,6 +226,7 @@ class PriceOverlayApp:
             for pipeline in (self._pipeline, self._info_pipeline):   # the idle threads keep posting "nothing"
                 while not pipeline.events.empty():
                     pipeline.events.get_nowait()
+            self._map.drain()
             return
         try:
             if self._refresh is not None:
@@ -234,12 +240,17 @@ class PriceOverlayApp:
                     self._cards.clear()
                     self._hover, self._shown = None, None
             self._follow_mouse()
+            self._map.set_item_showing(self._hover is not None)
         except Exception:   # a UI glitch must never kill the overlay loop
             log.exception("overlay tick failed")
         try:
             self._follow_info_window()
         except Exception:
             log.exception("rank panel tick failed")
+        try:
+            self._map.tick()
+        except Exception:
+            log.exception("map card tick failed")
 
     def _follow_mouse(self) -> None:
         """Runs every tick: the card is placed from the live mouse position, never from stale detections."""

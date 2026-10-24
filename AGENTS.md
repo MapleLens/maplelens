@@ -26,7 +26,7 @@ or a screenshot of the running overlay over the game.
 3. **The overlay must be click-through** and must never steal focus from the game.
 4. **No searching, no per-frame guessing.** The tooltip is always at `mouse + config.TOOLTIP_OFFSET`
    (measured, not assumed). The card position comes from the live cursor on the UI tick; detection only
-   supplies title and tooltip size. Do not add trackers/filters to paper over a wrong constant: re-measure it. The one exception is the game's own clamp: a tooltip too tall for the room below the mouse is pushed up to the client's bottom edge, so `vision/locate.py` looks for it there (only when the usual spot found no item and a tall tooltip could not fit); the card then uses `min(mouse + offset, bottom - height)`.
+   supplies title and tooltip size. Do not add trackers/filters to paper over a wrong constant: re-measure it. The world map's tooltip is a different widget whose offset from the cursor was not measurable (the two samples disagree by ~20 px), so `vision/map_tooltip.py` reads its text lines by OCR inside a bounded window next to the cursor and `MapHover.offset` is stored relative to the cursor; unknown text never shows a card (the lookup must find a map). The other exception is the game's own clamp: a tooltip too tall for the room below the mouse is pushed up to the client's bottom edge, so `vision/locate.py` looks for it there (only when the usual spot found no item and a tall tooltip could not fit); the card then uses `min(mouse + offset, bottom - height)`.
 5. **Overlays only over the game.** The pipeline emits nothing unless MapleStory is the foreground window,
    and the card is hidden if it would not fit inside the client area.
 6. **UI calls stay on the main thread.** The detection thread talks to the UI exclusively through
@@ -39,6 +39,7 @@ capture/   game_window.py  find MapleStory window, client rect (DPI aware), curs
            frame.py        ScreenGrabber: BGR capture of a screen rectangle
 vision/    tooltip.py      tooltip_present(image) -> bool   (pure)
            locate.py       candidate_tops(strip): find a tooltip pushed up by the game's bottom clamp (pure)
+           map_tooltip.py  world-map tooltip: text mask + tooltip box from OCR lines (pure); map_debug.py = --debug window
            hud.py          find_bar(strip): the status bar, whose width is the UI scale in any UI Size mode (pure)
            ocr.py          TitleReader: Windows OCR of a tooltip title row (cached)
 market/    models.py       Item and nested data (Day, NpcShop, Craft, CashInfo); Item.from_raw
@@ -52,9 +53,12 @@ overlay/   theme.py        RGBA palette, Tahoma fonts, measured translucency
            glance.py       glance card sections: what matters on hover (price, range, quick signals)
            details.py      details card sections, shown after a short dwell
            origin.py       details section: NPC prices, crafting cost and margin, where it drops
+           map_card.py     render_map_card(info, icons) -> RGBA image (pure): monsters/NPCs with sprites
            card.py         render_card(item) -> RGBA image (pure, testable); stacks section groups with dividers
            placement.py    place_card(): right / left / below(compare), clamped to the game (pure)
            layered.py      LayeredWindow: per-pixel-alpha topmost click-through Win32 window
+mapinfo/   models.py, resolve.py (OCR title -> map), client.py + icons.py + store.py + service.py (maplestory.io, sprite and map caches), vote.py (settles OCR noise)
+map_pipeline.py / map_helper.py   world-map tooltip -> MapHover; UI-side card window (own pipeline, not HoverPipeline)
 update/    manifest.py     signed release manifest: Ed25519 signature, size, sha256 (pure)
            version.py      X.Y.Z parsing and ordering (pure)
            check.py        find_update(): newest release + verified manifest; UpdateChecker thread
