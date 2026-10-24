@@ -24,6 +24,10 @@ TOOLTIP_TITLE_WIDTH = 370
 # Only the top of the tooltips is captured: both titles, the presence check and the border rows that tell the width.
 TOOLTIP_CAPTURE_SIZE = (TOOLTIP_COMPARE_OFFSET_X + TOOLTIP_TITLE_WIDTH, 120)
 
+# Items crafted by a player carry the crafter's name ("bTang's") on a line above the title, pushing the whole
+# tooltip down by this much (measured on a real capture; OCR reads the title anywhere in 30-42).
+TOOLTIP_CRAFTED_SHIFT = 36
+
 # Tooltip size (width, height) per kind of item, measured by hovering items of every tab.
 # Heights vary a little inside a tab (equipment 323-398, use 178-277) with the description length;
 # tune these if the card overlaps or floats away from the tooltip. Unknown items use the default.
