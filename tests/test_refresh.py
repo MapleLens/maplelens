@@ -9,8 +9,8 @@ from maplelens.market import refresh
 from maplelens.market.snapshot import SnapshotError
 
 
-def response(content):
-    return SimpleNamespace(content=content, raise_for_status=lambda: None)
+def response(content, status=200):
+    return SimpleNamespace(content=content, status_code=status, raise_for_status=lambda: None)
 
 
 def test_missing_fresh_and_expired_cache(tmp_path, monkeypatch):
@@ -28,7 +28,22 @@ def test_missing_fresh_and_expired_cache(tmp_path, monkeypatch):
     assert not refresh.refresh_snapshot(path, now=10001)
     assert refresh.refresh_snapshot(path, now=10000 + config.SNAPSHOT_REFRESH_S)
     assert len(calls) == 2
-    assert calls[0]["impersonate"] == "chrome"
+    assert calls[0]["impersonate"] in refresh.BROWSER_PROFILES
+    assert calls[0]["headers"]["Referer"] == "https://meso.watch/"
+
+
+def test_blocked_profile_is_replaced(tmp_path, monkeypatch):
+    path = tmp_path / "list.json"
+    payload = json.dumps({"items": [{"name": "Handwritten demo", "price": 42}]}).encode()
+    profiles = []
+
+    def get(*args, **kwargs):
+        profiles.append(kwargs["impersonate"])
+        return response(payload, 200 if len(profiles) == 3 else 403)
+
+    monkeypatch.setattr(refresh.requests, "get", get)
+    assert refresh.refresh_snapshot(path, now=10000)
+    assert len(set(profiles)) == 3
 
 
 @pytest.mark.parametrize("content", [b"<html>Cloudflare challenge</html>", b'{}'])
