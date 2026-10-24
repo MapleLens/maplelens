@@ -55,6 +55,11 @@ overlay/   theme.py        RGBA palette, Tahoma fonts, measured translucency
            card.py         render_card(item) -> RGBA image (pure, testable); stacks section groups with dividers
            placement.py    place_card(): right / left / below(compare), clamped to the game (pure)
            layered.py      LayeredWindow: per-pixel-alpha topmost click-through Win32 window
+update/    manifest.py     signed release manifest: Ed25519 signature, size, sha256 (pure)
+           version.py      X.Y.Z parsing and ordering (pure)
+           check.py        find_update(): newest release + verified manifest; UpdateChecker thread
+           install.py      stage (download, verify, unzip one member, self-test), swap, relaunch; UpdateInstaller thread
+           net.py          HTTPS fetch with a GitHub-only host allow-list (redirects included) and size caps
 pipeline.py                HoverPipeline thread -> Hover events (title, item, size, compare)
 app.py                     PriceOverlayApp: main loop wiring pipeline to window; card cache
 cli.py / __main__.py       entry points
@@ -63,6 +68,13 @@ config.py                  every tunable number, with a comment saying why
 Dependency direction: `cli → app → (pipeline, overlay) → (capture, vision, market) → geometry/config`.
 `market/`, `vision/tooltip.py`, `overlay/{card,canvas,glance,details,origin,placement}.py` are pure (no win32, no windows) so
 they stay unit-testable. Only `overlay/layered.py` and `capture/` talk to Windows. No tkinter anywhere.
+
+## Updates
+
+Never weaken the chain: the app only trusts a manifest signed by `config.UPDATE_PUBLIC_KEY`, download URLs are
+built from the verified version (never from server text), and the zip's size and hash must match that manifest.
+Only the packaged exe swaps itself; a source install opens the release page. The update threads talk to the UI
+only through their `events` queues, like the pipelines.
 
 ## Conventions
 

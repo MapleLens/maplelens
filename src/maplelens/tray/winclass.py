@@ -36,20 +36,32 @@ _COLOR_BTNFACE = 15   # matches the Static labels placed on the window
 _IDC_ARROW = 32512
 
 
+_WM_NCDESTROY = 0x82
+_handlers: dict[int, WindowProc] = {}
+
+
+def _dispatch(hwnd: int, msg: int, wparam: int, lparam: int) -> int:
+    handler = _handlers.get(hwnd)
+    result = handler(hwnd, msg, wparam, lparam) if handler else None
+    if msg == _WM_NCDESTROY:
+        _handlers.pop(hwnd, None)
+    return user32.DefWindowProcW(hwnd, msg, wparam, lparam) if result is None else result
+
+
+# One callback for every window, alive for the whole process: a class stays registered (pointing at its callback)
+# after its window is gone, so a per-window callback that got garbage collected crashed the next window made.
+_WNDPROC = WNDPROC(_dispatch)
+
+
 def create_window(class_name: str, title: str, proc: WindowProc, style: int, rect: tuple[int, int, int, int],
                   icon: int = 0, parent: int = 0) -> tuple[int, WNDPROC]:
-    """Returns (hwnd, c_proc). The caller must keep `c_proc` alive as long as the window exists."""
-
-    def dispatch(hwnd: int, msg: int, wparam: int, lparam: int) -> int:
-        result = proc(hwnd, msg, wparam, lparam)
-        return user32.DefWindowProcW(hwnd, msg, wparam, lparam) if result is None else result
-
-    c_proc = WNDPROC(dispatch)
+    """Returns (hwnd, c_proc). `proc` handles this window's messages and is dropped when the window is destroyed."""
     instance = kernel32.GetModuleHandleW(None)
-    cls = _WndClass(0, c_proc, 0, 0, instance, icon, user32.LoadCursorW(None, _IDC_ARROW), _COLOR_BTNFACE + 1,
+    cls = _WndClass(0, _WNDPROC, 0, 0, instance, icon, user32.LoadCursorW(None, _IDC_ARROW), _COLOR_BTNFACE + 1,
                     None, class_name)
-    user32.RegisterClassW(ctypes.byref(cls))
+    user32.RegisterClassW(ctypes.byref(cls))   # fails harmlessly when the class already exists
     hwnd = user32.CreateWindowExW(0, class_name, title, style, *rect, parent, None, instance, None)
     if not hwnd:
         raise OSError(f"could not create the {class_name} window")
-    return hwnd, c_proc
+    _handlers[hwnd] = proc
+    return hwnd, _WNDPROC

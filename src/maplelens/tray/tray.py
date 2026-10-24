@@ -4,6 +4,7 @@ import ctypes
 from collections.abc import Callable
 from ctypes import wintypes
 
+from maplelens import __version__
 from maplelens.tray.icon import load_icon
 from maplelens.tray.winclass import create_window, user32
 
@@ -11,15 +12,15 @@ shell32 = ctypes.windll.shell32
 
 _WM_APP_TRAY = 0x8000 + 1   # private message the shell sends us about mouse events on the icon
 _WM_LBUTTONDBLCLK, _WM_RBUTTONUP, _WM_HOTKEY, _WM_NULL = 0x203, 0x205, 0x312, 0
-_NIM_ADD, _NIM_DELETE = 0, 2
+_NIM_ADD, _NIM_MODIFY, _NIM_DELETE = 0, 1, 2
 _NIF_MESSAGE, _NIF_ICON, _NIF_TIP = 0x1, 0x2, 0x4
 _MF_STRING, _MF_SEPARATOR, _MF_CHECKED = 0, 0x800, 0x8
 _TPM_RIGHTBUTTON, _TPM_RETURNCMD, _TPM_BOTTOMALIGN = 0x2, 0x100, 0x20
-_ID_SETTINGS, _ID_EXIT, _ID_TOGGLE = 1, 2, 3
+_ID_SETTINGS, _ID_EXIT, _ID_TOGGLE, _ID_UPDATE = 1, 2, 3, 4
 _HOTKEY_ID = 1
 _MOD_ALT, _MOD_CONTROL, _MOD_SHIFT, _MOD_NOREPEAT = 0x1, 0x2, 0x4, 0x4000
 _HOTKEYF_SHIFT, _HOTKEYF_CONTROL, _HOTKEYF_ALT = 0x1, 0x2, 0x4
-_TIP = "MapleLens"
+_TIP = f"MapleLens v{__version__}"
 
 
 class _NotifyIconData(ctypes.Structure):
@@ -55,8 +56,9 @@ class TrayIcon:
     """Messages arrive while the main loop pumps them, so the callbacks run on the main thread."""
 
     def __init__(self, on_settings: Callable[[], None], on_exit: Callable[[], None],
-                 on_toggle: Callable[[], None]) -> None:
-        self._on_settings, self._on_exit, self._on_toggle = on_settings, on_exit, on_toggle
+                 on_toggle: Callable[[], None], on_update: Callable[[], None] = lambda: None) -> None:
+        self._on_settings, self._on_exit, self._on_toggle, self._on_update = on_settings, on_exit, on_toggle, on_update
+        self._update_version: str | None = None   # set while a newer release is waiting
         self.overlay_enabled = True   # the check mark in front of "Show overlays"
         self._hotkey = False
         self._icon = load_icon()
@@ -76,6 +78,18 @@ class TrayIcon:
                                                   packed & 0xFF))
         return self._hotkey
 
+    def set_update(self, version: str | None) -> None:
+        """Announce (or clear) a newer release in the icon's tooltip and the menu."""
+        if version != self._update_version:
+            self._update_version = version
+            shell32.Shell_NotifyIconW(_NIM_MODIFY, ctypes.byref(self._data()))
+
+    @property
+    def tooltip(self) -> str:
+        if self._update_version is None:
+            return _TIP
+        return f"{_TIP} - new update available (v{self._update_version})"
+
     def close(self) -> None:
         self.set_hotkey(0)
         shell32.Shell_NotifyIconW(_NIM_DELETE, ctypes.byref(self._data()))
@@ -85,7 +99,7 @@ class TrayIcon:
         data = _NotifyIconData()
         data.cbSize, data.hWnd, data.uID = ctypes.sizeof(_NotifyIconData), self._hwnd, 1
         data.uFlags = _NIF_MESSAGE | _NIF_ICON | _NIF_TIP
-        data.uCallbackMessage, data.hIcon, data.szTip = _WM_APP_TRAY, self._icon, _TIP
+        data.uCallbackMessage, data.hIcon, data.szTip = _WM_APP_TRAY, self._icon, self.tooltip
         return data
 
     def _add(self) -> None:
@@ -110,6 +124,8 @@ class TrayIcon:
         menu = user32.CreatePopupMenu()
         user32.AppendMenuW(menu, _MF_STRING | _MF_CHECKED * self.overlay_enabled, _ID_TOGGLE, "Show overlays")
         user32.AppendMenuW(menu, _MF_STRING, _ID_SETTINGS, "Settings")
+        if self._update_version is not None:
+            user32.AppendMenuW(menu, _MF_STRING, _ID_UPDATE, f"Update to v{self._update_version}")
         user32.AppendMenuW(menu, _MF_SEPARATOR, 0, None)
         user32.AppendMenuW(menu, _MF_STRING, _ID_EXIT, "Exit")
         point = wintypes.POINT()
@@ -124,5 +140,7 @@ class TrayIcon:
             self._on_toggle()
         elif choice == _ID_SETTINGS:
             self._on_settings()
+        elif choice == _ID_UPDATE:
+            self._on_update()
         elif choice == _ID_EXIT:
             self._on_exit()

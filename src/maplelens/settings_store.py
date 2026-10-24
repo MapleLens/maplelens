@@ -18,6 +18,7 @@ class Settings:
     launch_at_startup: bool = False
     overlay_enabled: bool = True
     toggle_hotkey: int = DEFAULT_HOTKEY   # 0 = no hotkey
+    check_updates: bool = True            # look for a newer release at start-up and daily
     expand_delay_s: float = 1.2           # how long the pointer rests on an item before the glance card expands
 
 
