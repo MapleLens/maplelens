@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import threading
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -33,7 +34,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.updated_from:
         logging.getLogger(__name__).info("updated from %s to %s", args.updated_from, __version__)
-    cleanup_leftovers()
+    threading.Thread(target=cleanup_leftovers, daemon=True, name="update-cleanup").start()   # may need to wait
 
     path = args.snapshot or config.DEFAULT_SNAPSHOT
     PriceOverlayApp(build_catalog(path), auto_refresh=args.snapshot is None).run()

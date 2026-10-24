@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,16 +35,23 @@ def current_exe() -> Path:
     return Path(sys.executable)
 
 
-def cleanup_leftovers(exe: Path | None = None) -> None:
-    """The previous version's file is still locked while that process exits, so this retries on every start."""
+def cleanup_leftovers(exe: Path | None = None, tries: int = 20, delay_s: float = 0.5) -> None:
+    """The previous version's file stays locked until that process has fully exited, so keep trying for a while."""
     if not can_self_update():
         return
     exe = exe or current_exe()
-    for name in (OLD_NAME, NEW_NAME):
-        try:
-            exe.with_name(name).unlink(missing_ok=True)
-        except OSError:
-            log.info("could not remove %s yet", name)
+    pending = [exe.with_name(name) for name in (OLD_NAME, NEW_NAME)]
+    for attempt in range(tries):
+        pending = [path for path in pending if path.exists()]
+        for path in pending:
+            try:
+                path.unlink()
+            except OSError:
+                log.info("could not remove %s yet", path.name)
+        if not [path for path in pending if path.exists()]:
+            return
+        if attempt + 1 < tries:
+            time.sleep(delay_s)
 
 
 def extract_exe(archive: Path, update: Update, target: Path) -> None:
