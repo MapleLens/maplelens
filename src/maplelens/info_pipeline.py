@@ -11,7 +11,7 @@ import cv2
 from maplelens import config
 from maplelens.capture import game_window
 from maplelens.capture.frame import ScreenGrabber
-from maplelens.geometry import Box, ui_scale
+from maplelens.geometry import Box, UiScale
 from maplelens.vision import info_window
 from maplelens.vision.ocr import TitleReader
 
@@ -31,8 +31,9 @@ class InfoWindow:
 class InfoPipeline(threading.Thread):
     """Publishes `InfoWindow` (or None when there is none to decorate) to `events`; the UI thread drains it."""
 
-    def __init__(self) -> None:
+    def __init__(self, ui: UiScale | None = None) -> None:
         super().__init__(daemon=True, name="info-pipeline")
+        self.ui = ui or UiScale()   # measured by the hover pipeline
         self.events: queue.Queue[InfoWindow | None] = queue.Queue()
         self.enabled = threading.Event()   # cleared by the overlay toggle: the thread then idles without grabbing
         self.enabled.set()
@@ -50,7 +51,7 @@ class InfoPipeline(threading.Thread):
                 time.sleep(config.GAME_LOST_RETRY_S if hwnd is None else config.POLL_BACKGROUND_S)
                 continue
             bounds = game_window.client_box(hwnd)
-            scale = ui_scale(bounds)
+            scale = self.ui.of(bounds)
             if window is not None and not self._still_there(grabber, window, scale):
                 window = None
             if window is None:
