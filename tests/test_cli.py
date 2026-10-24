@@ -8,6 +8,7 @@ from maplelens import cli, config
 
 def test_default_startup_builds_from_cache_without_network(monkeypatch):
     calls = []
+    monkeypatch.setattr(cli, "setup_logging", lambda debug: None)
 
     class App:
         def __init__(self, catalog, *, auto_refresh):

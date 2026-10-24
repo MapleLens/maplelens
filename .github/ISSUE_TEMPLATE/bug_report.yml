@@ -26,5 +26,5 @@ body:
     id: log
     attributes:
       label: Log
-      description: Relevant lines from `maplelens.log` (run with `--debug`).
+      description: Relevant lines from `maplelens.log` (next to `maplelens.exe`; run with `--debug` for more detail).
       render: text
