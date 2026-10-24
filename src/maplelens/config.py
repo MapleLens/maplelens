@@ -42,6 +42,14 @@ TOOLTIP_MAX_HEIGHT = 560
 # The only widths the game draws item tooltips at: equipment is narrow, everything else wide.
 TOOLTIP_WIDTHS = (370, 450)
 
+# The status bar at the bottom of the game is the ruler for the UI size (vision/hud.py): this wide at the measured
+# resolution, outline to outline. Measured at 1920x1200: 1250 x 106 normally, 800 x 68 in "Ideal Ratio" (scale 0.64).
+STATUS_BAR_WIDTH = 1250
+# Only this much of the bottom of the client is grabbed to find the bar (at the measured resolution; the bar is ~110).
+STATUS_BAR_STRIP_HEIGHT = 200
+# The UI size only changes when the window is resized or the player changes "UI Size": once a second is plenty.
+STATUS_BAR_CHECK_S = 1.0
+
 # A screen grab alone takes ~9 ms (GDI floor), so the detection loop barely sleeps.
 POLL_S = 0.001
 POLL_BACKGROUND_S = 0.1   # game not in front: nothing to do, check again soon

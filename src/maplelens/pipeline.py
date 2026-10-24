@@ -14,9 +14,10 @@ import numpy as np
 from maplelens import config
 from maplelens.capture import game_window
 from maplelens.capture.frame import ScreenGrabber
-from maplelens.geometry import Box, ui_scale
+from maplelens.geometry import Box, UiScale, ui_scale
 from maplelens.market.catalog import Catalog, clean_title
 from maplelens.market.models import Item
+from maplelens.vision.hud import find_bar
 from maplelens.vision.locate import candidate_tops
 from maplelens.vision.ocr import TitleReader
 from maplelens.vision.tooltip import measure_width, tooltip_present
@@ -80,8 +81,10 @@ def _dump_capture(image, title: str) -> None:
 class HoverPipeline(threading.Thread):
     """Publishes `Hover` (or None when no tooltip is showing) to `events`; the UI thread drains it."""
 
-    def __init__(self, catalog: Catalog) -> None:
+    def __init__(self, catalog: Catalog, ui: UiScale | None = None) -> None:
         super().__init__(daemon=True, name="hover-pipeline")
+        self.ui = ui or UiScale()
+        self._bar_checked_at = float("-inf")
         self.events: queue.Queue[Hover | None] = queue.Queue()
         self.enabled = threading.Event()   # cleared by the overlay toggle: the thread then idles without grabbing
         self.enabled.set()
@@ -121,7 +124,8 @@ class HoverPipeline(threading.Thread):
                 continue
 
             bounds = game_window.client_box(hwnd)
-            scale = ui_scale(bounds)
+            self._measure_ui(grabber, bounds)
+            scale = self.ui.of(bounds)
             area = self._tooltip_area(bounds, scale)
             if area is None:   # no room below the mouse for even the top of a tooltip: it can only be pushed up
                 if not self._publish_pushed_up(grabber, reader, bounds, scale):
@@ -174,6 +178,21 @@ class HoverPipeline(threading.Thread):
             compare = self._has_compare(reader, image, equipment, time.monotonic())
             self.events.put(Hover(shown, last_item, size, compare, bounds, scale))
             time.sleep(config.POLL_S)
+
+    def _measure_ui(self, grabber: ScreenGrabber, bounds: Box) -> None:
+        """Re-measure the UI scale off the status bar now and then (a grab of the bottom of the client)."""
+        now = time.monotonic()
+        if now - self._bar_checked_at < config.STATUS_BAR_CHECK_S:
+            return
+        self._bar_checked_at = now
+        height = min(bounds.h, round(config.STATUS_BAR_STRIP_HEIGHT * ui_scale(bounds)))
+        bar = find_bar(grabber.grab(Box(bounds.x, bounds.bottom - height, bounds.w, height)))
+        if bar is None:
+            return   # hidden (Cash Shop, a cut scene): keep the last measurement
+        scale = bar.width / config.STATUS_BAR_WIDTH
+        if abs(scale - self.ui.of(bounds)) > 0.005:
+            log.info("UI scale %.3f (status bar %d px wide, client %dx%d)", scale, bar.width, bounds.w, bounds.h)
+        self.ui.set(bounds, scale)
 
     def _lookup(self, reader: TitleReader, image: np.ndarray, title: str) -> Item | None:
         """The item named by `title`, the one-line OCR read of the tooltip in `image`."""
