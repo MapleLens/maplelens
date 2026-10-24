@@ -12,7 +12,7 @@ import cv2
 from maplelens import config
 from maplelens.capture import game_window
 from maplelens.capture.frame import ScreenGrabber, grab_normalised
-from maplelens.geometry import Box, ui_scale
+from maplelens.geometry import Box, UiScale
 from maplelens.mapinfo import resolve
 from maplelens.mapinfo.models import Location
 from maplelens.mapinfo.vote import Voter
@@ -38,9 +38,10 @@ class MapHover:
 class MapPipeline(threading.Thread):
     """Publishes `MapHover` (or None when there is no map tooltip) to `events`; the UI thread drains it."""
 
-    def __init__(self, debug_view: bool = False) -> None:
+    def __init__(self, ui: UiScale | None = None, debug_view: bool = False) -> None:
         super().__init__(daemon=True, name="map-pipeline")
         self.events: queue.Queue[MapHover | None] = queue.Queue()
+        self.ui = ui or UiScale()   # measured by the hover pipeline
         self.enabled = threading.Event()   # cleared by the overlay toggle: the thread then idles without grabbing
         self.enabled.set()
         self.item_showing = threading.Event()   # set while an item tooltip is up: no map is looked for then
@@ -75,7 +76,7 @@ class MapPipeline(threading.Thread):
                 self._view.blank("item tooltip showing: map lookup paused")
             self._voter.clear()
             return None
-        scale = ui_scale(bounds)
+        scale = self.ui.of(bounds)
         cx, cy = game_window.cursor_pos()
         x, y = cx + round(config.MAP_SCAN_OFFSET[0] * scale), cy + round(config.MAP_SCAN_OFFSET[1] * scale)
         w = min(round(config.MAP_SCAN_SIZE[0] * scale), bounds.right - x)

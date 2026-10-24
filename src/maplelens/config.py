@@ -24,6 +24,10 @@ TOOLTIP_TITLE_WIDTH = 370
 # Only the top of the tooltips is captured: both titles, the presence check and the border rows that tell the width.
 TOOLTIP_CAPTURE_SIZE = (TOOLTIP_COMPARE_OFFSET_X + TOOLTIP_TITLE_WIDTH, 120)
 
+# Items crafted by a player carry the crafter's name ("bTang's") on a line above the title, pushing the whole
+# tooltip down by this much (measured on a real capture; OCR reads the title anywhere in 30-42).
+TOOLTIP_CRAFTED_SHIFT = 36
+
 # Tooltip size (width, height) per kind of item, measured by hovering items of every tab.
 # Heights vary a little inside a tab (equipment 323-398, use 178-277) with the description length;
 # tune these if the card overlaps or floats away from the tooltip. Unknown items use the default.
@@ -41,6 +45,14 @@ TOOLTIP_DEFAULT_SIZE = (450, 178)
 TOOLTIP_MAX_HEIGHT = 560
 # The only widths the game draws item tooltips at: equipment is narrow, everything else wide.
 TOOLTIP_WIDTHS = (370, 450)
+
+# The status bar at the bottom of the game is the ruler for the UI size (vision/hud.py): this wide at the measured
+# resolution, outline to outline. Measured at 1920x1200: 1250 x 106 normally, 800 x 68 in "Ideal Ratio" (scale 0.64).
+STATUS_BAR_WIDTH = 1250
+# Only this much of the bottom of the client is grabbed to find the bar (at the measured resolution; the bar is ~110).
+STATUS_BAR_STRIP_HEIGHT = 200
+# The UI size only changes when the window is resized or the player changes "UI Size": once a second is plenty.
+STATUS_BAR_CHECK_S = 1.0
 
 # A screen grab alone takes ~9 ms (GDI floor), so the detection loop barely sleeps.
 POLL_S = 0.001
@@ -95,3 +107,17 @@ MAP_HIDE_GRACE_S = 0.8   # OCR scans are slower and noisier than item scans: bri
 MAP_STALE_S = 2.0   # a lookup nobody asked about for this long is dropped from the queue
 MAP_FORGET_S = 0.6   # no tooltip read for this long: the next one is a new hover, start voting afresh
 MAP_REJECT_S = 10.0   # a reading that matched no map is ignored this long (OCR then tries other readings)
+
+# --- Updates (GitHub releases, verified against a signed manifest; see update/) ---
+UPDATE_REPO = "MapleLens/maplelens"
+# Ed25519 public key (base64, raw) that release manifests must be signed with. Rotating it strands every
+# installed copy, so keep the private key (CI secret UPDATE_SIGNING_KEY) safe; scripts/make_update_key.py makes it.
+UPDATE_PUBLIC_KEY = "Qa1pyznR0jsj3Vdhk5i/OrBzkfsCdipbQ1zavbranMs="
+UPDATE_CHECK_S = 24 * 3600
+UPDATE_RETRY_S = 15 * 60       # a failed check (offline, rate limited) is retried sooner than the daily one
+UPDATE_TIMEOUT_S = 30
+# Hard size caps so a hostile or broken server cannot fill the disk or memory.
+UPDATE_MAX_API_BYTES = 1 << 20
+UPDATE_MAX_MANIFEST_BYTES = 16 * 1024
+UPDATE_MAX_ZIP_BYTES = 300 << 20
+UPDATE_SELF_TEST_S = 90        # a one-file exe unpacks itself on first launch, which is slow on a cold disk

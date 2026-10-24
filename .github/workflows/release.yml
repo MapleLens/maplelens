@@ -46,11 +46,20 @@ jobs:
           Compress-Archive -Path $name -DestinationPath "$name.zip"
           (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower() + "  $name.zip" | Out-File "$name.zip.sha256" -Encoding ascii
 
+      # Players' copies only trust updates signed by the key built into them (see update/manifest.py).
+      - name: Sign update manifest
+        shell: bash
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: python scripts/sign_release.py "maplelens-v$VERSION-windows.zip"
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             maplelens-v${{ env.VERSION }}-windows.zip
             maplelens-v${{ env.VERSION }}-windows.zip.sha256
+            maplelens-v${{ env.VERSION }}-manifest.json
+            maplelens-v${{ env.VERSION }}-manifest.json.sig
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}

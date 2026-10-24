@@ -40,9 +40,12 @@ class TitleReader:
         self._cache: dict[tuple[tuple[int, ...], bytes], str] = {}
         self._line_cache: dict[tuple[tuple[int, ...], bytes], list[TextLine]] = {}
 
-    def read(self, image: np.ndarray, tooltip_width: int, lines: int = 1) -> str:
-        """Item name printed in the title row(s) of the tooltip at the image's top-left ('' if unreadable)."""
-        row = image[:_TITLE_ROW_H + (lines - 1) * _TITLE_LINE_H, _TITLE_LEFT_SKIP:tooltip_width]
+    def read(self, image: np.ndarray, tooltip_width: int, lines: int = 1, top: int = 0) -> str:
+        """Item name printed in the title row(s) of the tooltip at the image's top-left ('' if unreadable).
+
+        `top` skips rows above the title: a player-crafted item has the crafter's name on its own line first.
+        """
+        row = image[top:top + _TITLE_ROW_H + (lines - 1) * _TITLE_LINE_H, _TITLE_LEFT_SKIP:tooltip_width]
         if row.size == 0:   # capture clipped at the screen edge (or a mid-resize frame): nothing to read
             return ""
         gray = cv2.cvtColor(row, cv2.COLOR_BGR2GRAY)

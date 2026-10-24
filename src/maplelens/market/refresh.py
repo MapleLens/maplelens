@@ -3,6 +3,7 @@
 import logging
 import os
 import queue
+import random
 import tempfile
 import threading
 import time
@@ -17,6 +18,27 @@ from maplelens.market.snapshot import SnapshotError, load_snapshot
 
 log = logging.getLogger(__name__)
 SNAPSHOT_URL = "https://meso.watch/data/list.json"
+# The CDN answers 403 to a data request that lacks a same-origin Referer, whatever the TLS profile.
+REQUEST_HEADERS = {"Referer": "https://meso.watch/"}
+# Browser releases from 2024 on; older profiles look stale to bot filters. Tried in random order.
+BROWSER_PROFILES = (
+    "chrome131", "chrome133a", "chrome136", "chrome142", "chrome145", "chrome146",
+    "safari180", "safari184", "safari260", "firefox133", "firefox135", "firefox144", "firefox147",
+)
+MAX_ATTEMPTS = 3
+
+
+def fetch_snapshot() -> requests.Response:
+    """GET the list as a random recent browser, switching profile after a 403."""
+    response = None
+    for profile in random.sample(BROWSER_PROFILES, MAX_ATTEMPTS):
+        response = requests.get(SNAPSHOT_URL, impersonate=profile, headers=REQUEST_HEADERS,
+                                timeout=config.SNAPSHOT_TIMEOUT_S)
+        if response.status_code != 403:
+            break
+        log.warning("snapshot request blocked as %s; trying another browser", profile)
+    response.raise_for_status()
+    return response
 
 
 def refresh_snapshot(path: Path, *, now: float) -> bool:
@@ -30,8 +52,7 @@ def refresh_snapshot(path: Path, *, now: float) -> bool:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary: Path | None = None
     try:
-        response = requests.get(SNAPSHOT_URL, impersonate="chrome", timeout=config.SNAPSHOT_TIMEOUT_S)
-        response.raise_for_status()
+        response = fetch_snapshot()
         with tempfile.NamedTemporaryFile(dir=path.parent, suffix=".tmp", delete=False) as output:
             temporary = Path(output.name)
             output.write(response.content)

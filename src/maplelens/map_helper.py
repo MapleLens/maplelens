@@ -9,7 +9,7 @@ from PIL import Image
 
 from maplelens import config
 from maplelens.capture import game_window
-from maplelens.geometry import Box
+from maplelens.geometry import Box, UiScale
 from maplelens.map_pipeline import MapHover, MapPipeline
 from maplelens.mapinfo import resolve
 from maplelens.mapinfo.icons import IconCache, default_dir
@@ -28,8 +28,8 @@ _SPINNER_FPS = 12
 class MapHelper:
     """Owns the map pipeline, lookups and window; the app calls `tick()` on the main thread."""
 
-    def __init__(self) -> None:
-        self._pipeline = MapPipeline(debug_view=log.isEnabledFor(logging.DEBUG))   # --debug opens the OpenCV window
+    def __init__(self, ui: UiScale | None = None) -> None:
+        self._pipeline = MapPipeline(ui, debug_view=log.isEnabledFor(logging.DEBUG))   # --debug opens the OpenCV window
         self._service = MapService(IconCache(default_dir()), MapStore(store_dir()))
         self._window = LayeredWindow()
         self._hover: MapHover | None = None
