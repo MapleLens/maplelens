@@ -39,6 +39,7 @@ capture/   game_window.py  find MapleStory window, client rect (DPI aware), curs
            frame.py        ScreenGrabber: BGR capture of a screen rectangle
 vision/    tooltip.py      tooltip_present(image) -> bool   (pure)
            locate.py       candidate_tops(strip): find a tooltip pushed up by the game's bottom clamp (pure)
+           hud.py          find_bar(strip): the status bar, whose width is the UI scale in any UI Size mode (pure)
            ocr.py          TitleReader: Windows OCR of a tooltip title row (cached)
 market/    models.py       Item and nested data (Day, NpcShop, Craft, CashInfo); Item.from_raw
            snapshot.py     load list.json -> Snapshot(items, generated_at)

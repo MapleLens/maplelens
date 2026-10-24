@@ -12,7 +12,7 @@ from PIL import Image
 
 from maplelens import config, settings_store
 from maplelens.capture import game_window
-from maplelens.geometry import Box
+from maplelens.geometry import Box, UiScale
 from maplelens.info_pipeline import InfoPipeline, InfoWindow
 from maplelens.market.catalog import Catalog
 from maplelens.market.refresh import SnapshotRefresh
@@ -54,7 +54,8 @@ class PriceOverlayApp:
         self._catalog = catalog
         self._refresh = SnapshotRefresh(config.DEFAULT_SNAPSHOT) if auto_refresh else None
         self._window = LayeredWindow()
-        self._pipeline = HoverPipeline(catalog)
+        ui = UiScale()   # measured by the hover pipeline, read by both
+        self._pipeline = HoverPipeline(catalog, ui)
         self._hover: Hover | None = None
         self._seen_at = 0.0                 # when a tooltip was last detected
         self._shown: tuple[str, bool] | None = None   # which card (title, expanded) the window holds
@@ -62,7 +63,7 @@ class PriceOverlayApp:
         self._cards: OrderedDict[tuple[str, bool, float, bool], Image.Image] = OrderedDict()
         # Rank panel beside the Character Info window: its own window, pipeline and lookups.
         self._rank_window = LayeredWindow()
-        self._info_pipeline = InfoPipeline()
+        self._info_pipeline = InfoPipeline(ui)
         self._ranks = RankService()
         self._info: InfoWindow | None = None
         self._info_seen_at = 0.0
