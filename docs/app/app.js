@@ -1,9 +1,9 @@
 // MapleLens Web: capture the game window (the page offers nothing else; the sample, video and frame-folder sources are
 // test hooks started by a URL parameter), feed frames to the engine, show the cards in the page and, on request, in a picture-in-picture window that floats over the game.
 
-import { Lens } from "./lens.js?v=737f62b708b3";
-import { CardView, floatingSize, openFloating } from "./cards.js?v=737f62b708b3";
-import { Prices } from "./prices.js?v=737f62b708b3";
+import { Lens } from "./lens.js?v=507c4b8ceb67";
+import { CardView, floatingSize, openFloating } from "./cards.js?v=507c4b8ceb67";
+import { Prices } from "./prices.js?v=507c4b8ceb67";
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -19,6 +19,21 @@ const STATS_FRAMES = 300;
 const SHOP_KEY = "maplelens.web.shop";
 /** A Discord webhook URL, as the engine accepts one (it checks again; this is for the buttons). */
 const WEBHOOK = /^https:\/\/(discord\.com|discordapp\.com|ptb\.discord\.com|canary\.discord\.com)\/api\/webhooks\/\d+\/[A-Za-z0-9_-]+$/;
+/** A Telegram bot's sendMessage URL, with its chat once known; or a token alone (in @BotFather's whole message). The
+ *  engine reads them the same way (`telegram::parse_webhook`); this is for the buttons. */
+const TELEGRAM_URL = /^https:\/\/api\.telegram\.org\/bot(\d{1,20}:[A-Za-z0-9_-]{30,60})\/sendMessage(?:\?(.*))?$/;
+const BOT_TOKEN = /(?:^|[\s`"',.])(\d{1,20}:[A-Za-z0-9_-]{30,60})(?=$|[\s`"',.])/;
+
+/** What was pasted as a Telegram webhook URL in its one form, or "" when it holds no bot. */
+function telegramWebhook(text) {
+  text = text.trim();
+  const url = text.match(TELEGRAM_URL);
+  const token = url ? url[1] : text.match(BOT_TOKEN)?.[1];
+  if (!token || (!url && text.startsWith("https://api.telegram.org/"))) return "";
+  const chatId = url && new URLSearchParams(url[2] || "").get("chat_id");
+  if (chatId !== null && chatId !== undefined && !/^-?[1-9]\d{0,18}$/.test(chatId)) return "";
+  return `https://api.telegram.org/bot${token}/sendMessage${chatId ? `?chat_id=${chatId}` : ""}`;
+}
 const LOG_ROWS = 40;
 /** A still frame is held this long (and until its text is read, up to the maximum) before the next one. */
 const FRAME_HOLD_MS = 4000;
@@ -29,8 +44,6 @@ const PACE = 2;
  *  appear); while a tooltip or window is being read, the full rate. */
 const IDLE_GAP_MS = 250;
 const IDLE_AFTER_MS = 1500;
-/** Reading nothing for this long while a source runs: say what to check. */
-const NOTHING_AFTER_MS = 25000;
 
 let lens = null;
 let source = null; // {stop(), next(): Promise<ImageBitmap|null>, scale, label, fullFrame}
@@ -43,7 +56,6 @@ let pageView = null;
 let lastMs = 0;
 let lastState = null;
 let lastSeen = 0; // when a tooltip or Character Info window was last in the state
-let startedAt = 0;
 let latest = { card: null, rank: null, title: "", note: "" };
 const images = { card: null, rank: null };
 const stats = { shopEvents: [], frames: 0, dropped: 0, ms: [], longTasks: 0, started: 0, cards: 0, hovers: 0, titles: {}, mainMs: 0, pumpMs: 0 };
@@ -53,18 +65,20 @@ function storage(action) {
   try { return action(window.localStorage); } catch { return undefined; } // private windows may refuse
 }
 
-/** What the player set for the shop and Discord, kept in this browser. */
-const shopSettings = { shop: true, sales: true, store: true, webhook: "" };
+/** What the player set for the shop, Discord and Telegram, kept in this browser. */
+const shopSettings = { shop: true, sales: true, store: true, webhook: "", telegramWebhook: "" };
 
 function loadShopSettings() {
   try {
     Object.assign(shopSettings, JSON.parse(storage(s => s.getItem(SHOP_KEY)) || "{}"));
   } catch { /* damaged: the defaults stay */ }
   if (typeof shopSettings.webhook !== "string" || !WEBHOOK.test(shopSettings.webhook)) shopSettings.webhook = "";
+  shopSettings.telegramWebhook = typeof shopSettings.telegramWebhook === "string" ? telegramWebhook(shopSettings.telegramWebhook) : "";
   $("shop").checked = shopSettings.shop !== false;
   $("notify-sales").checked = shopSettings.sales !== false;
   $("notify-store").checked = shopSettings.store !== false;
   showWebhook();
+  showTelegram();
 }
 
 function saveShopSettings() {
@@ -85,11 +99,27 @@ function showWebhook(editing = false) {
   if (editing) $("discord").focus();
 }
 
+/** The bot's URL shows the same way (the end of its token); until its chat is known it says so. */
+function showTelegram(editing = false) {
+  const url = shopSettings.telegramWebhook;
+  const set = Boolean(url);
+  const token = url.match(TELEGRAM_URL)?.[1] || "";
+  $("telegram-state").textContent = !set ? "Not connected" : `•••••••• ${token.slice(-4)}${url.includes("chat_id=") ? "" : " · no chat yet"}`;
+  $("telegram-state").hidden = editing;
+  $("telegram").hidden = !editing;
+  $("telegram").value = "";
+  $("telegram-change").textContent = editing ? "Cancel" : set ? "Change" : "Add";
+  $("telegram-test").hidden = !set || editing;
+  $("telegram-clear").hidden = !set || editing;
+  if (editing) $("telegram").focus();
+}
+
 /** Pass the settings to the engine. */
 function applyShopSettings() {
   if (!lens) return;
   lens.setShop(shopSettings.shop);
-  lens.setNotify(shopSettings.webhook, shopSettings.sales, shopSettings.store);
+  const { webhook, telegramWebhook, sales, store } = shopSettings;
+  lens.setNotify({ webhook, telegramWebhook, sales, store });
 }
 
 /** Words for a shop event, for the log. */
@@ -301,22 +331,21 @@ async function pump() {
 function start(newSource) {
   stop();
   source = newSource;
-  startedAt = lastSeen = performance.now();
+  lastSeen = performance.now();
   Object.assign(stats, { frames: 0, dropped: 0, ms: [], longTasks: 0, cards: 0, hovers: 0, titles: {}, mainMs: 0, pumpMs: 0, started: performance.now() });
   $("start").hidden = true;
   $("view").hidden = false;
-  $("stop").hidden = false;
+  $("meter").hidden = false;
   $("source").textContent = source.label;
   pump();
 }
 
 function stop() {
-  $("nothing").hidden = true;
   source?.stop();
   source = null;
   $("start").hidden = false;
   $("view").hidden = true;
-  $("stop").hidden = true;
+  $("meter").hidden = true;
   $("boxes").replaceChildren();
   $("source").textContent = "not connected";
   setPill("tooltip-pill", false, "no tooltip");
@@ -476,18 +505,6 @@ function previewFloating() {
   floating = { window: { focus() {}, close() {} }, view };
 }
 
-/** Once a source has run a while without reading a tooltip or window, say what usually is the matter. */
-function watchForNothing() {
-  setInterval(() => {
-    const quiet = source && performance.now() - Math.max(startedAt, lastSeen) > NOTHING_AFTER_MS;
-    const note = $("nothing");
-    note.hidden = !quiet;
-    if (quiet) {
-      note.textContent = "Nothing read yet. Hover an item in the game window you shared.";
-    }
-  }, 1000);
-}
-
 let prices = null;
 
 /** Load prices (the cached copy, then MesoWatch when 30 minutes have passed) and say where they came from. */
@@ -503,7 +520,12 @@ async function updatePrices() {
 
 async function main() {
   checkSupport();
-  watchForNothing();
+  for (const button of document.querySelectorAll("[data-help]")) {
+    const guide = $(button.dataset.help);
+    button.addEventListener("click", () => guide.showModal());
+    // A click on the dimmed backdrop (the dialog itself, outside its window) closes it too.
+    guide.addEventListener("click", e => { if (e.target === guide) guide.close(); });
+  }
   pageView = new CardView(document, $("cards"), {
     emptyTitle: "Hover an item in the game",
     emptyText: "Its card appears here.",
@@ -541,14 +563,54 @@ async function main() {
   });
   $("discord-test").addEventListener("click", async () => {
     note("Sending…");
-    note((await lens.testNotify(shopSettings.webhook)).text);
+    note((await lens.testNotify("discord", { webhook: shopSettings.webhook })).text);
+  });
+  const telegramNote = text => { $("telegram-note").textContent = text; };
+  $("telegram-change").addEventListener("click", () => { telegramNote(""); showTelegram($("telegram").hidden); });
+  $("telegram").addEventListener("keydown", e => { if (e.key === "Escape") showTelegram(); });
+  $("telegram").addEventListener("change", e => {
+    const text = e.target.value.trim();
+    if (!text) return;
+    const url = telegramWebhook(text);
+    if (!url) {
+      telegramNote("That is not a Telegram bot URL (api.telegram.org/bot…/sendMessage?chat_id=…) or token");
+      return;
+    }
+    shopSettings.telegramWebhook = url;
+    saveShopSettings();
+    showTelegram();
+    applyShopSettings();
+    telegramNote(url.includes("chat_id=") ? "Saved" : "Saved. Send /start to your bot in Telegram, then press Test");
+  });
+  $("telegram-clear").addEventListener("click", () => {
+    shopSettings.telegramWebhook = "";
+    saveShopSettings();
+    showTelegram();
+    applyShopSettings();
+    telegramNote("Removed");
+  });
+  $("telegram-test").addEventListener("click", async () => {
+    const asked = shopSettings.telegramWebhook;
+    telegramNote(asked.includes("chat_id=") ? "Sending…" : "Looking for your chat with the bot…");
+    const result = await lens.testNotify("telegram", { telegramWebhook: asked });
+    let text = result.text;
+    // The completed URL is kept (unless another was pasted meanwhile) and offered on the clipboard to paste elsewhere.
+    if (result.telegramWebhook && shopSettings.telegramWebhook === asked) {
+      shopSettings.telegramWebhook = result.telegramWebhook;
+      saveShopSettings();
+      showTelegram();
+      applyShopSettings();
+      const copied = await navigator.clipboard?.writeText(result.telegramWebhook).then(() => true, () => false);
+      if (copied) text += ". The full webhook URL is on your clipboard";
+    }
+    telegramNote(text);
   });
   try {
     lens = await Lens.create({
       onState,
       onCard: (which, image) => show(which, image),
       onError: message => { $("fps").textContent = message; },
-      onNotify: result => { if (!result.ok) $("discord-note").textContent = result.text; },
+      onNotify: result => { if (!result.ok) $(result.service === "Telegram" ? "telegram-note" : "discord-note").textContent = result.text; },
       ocr: true,
     });
     setPill("engine-pill", true, `engine ${lens.version}`);

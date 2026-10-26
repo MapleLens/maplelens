@@ -22,7 +22,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lilita+One&display=swap">
-<link rel="stylesheet" href="assets/maple.css?v=737f62b708b3">
+<link rel="stylesheet" href="assets/maple.css?v=507c4b8ceb67">
 <style>
 /* ---------- hero: a field map ---------- */
 .hero{position:relative;padding:56px 0 150px;overflow:hidden}
@@ -307,7 +307,7 @@ const status = document.getElementById("demo-status");
 run.addEventListener("click", async () => {
   run.disabled = true;
   status.textContent = "loading the engine…";
-  const { Lens, paint } = await import("./app/lens.js?v=737f62b708b3");
+  const { Lens, paint } = await import("./app/lens.js?v=507c4b8ceb67");
   const img = document.querySelector("#demo .frame img");
   // The screenshot is lazy-loaded: a click before it scrolled into view would find no pixels yet.
   img.loading = "eager";

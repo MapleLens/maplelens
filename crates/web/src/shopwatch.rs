@@ -43,7 +43,7 @@ pub struct ShopRunner {
     notify: NotifySettings,
     pending: Vec<Notification>,
     pending_since: f64,
-    outbox: Vec<Request>,
+    outbox: Vec<(&'static str, Request)>,
     announcer: Announcer,
     /// How many looks were made, and how many of them were undone for want of text (for diagnosing a page).
     pub looks: u32,
@@ -191,24 +191,26 @@ impl ShopRunner {
             return;
         }
         for connector in connectors(&self.notify) {
-            self.outbox.extend(connector.requests(&batch, unix_now));
+            self.outbox.extend(connector.requests(&batch, unix_now).into_iter().map(|r| (connector.name(), r)));
         }
     }
 
-    /// The requests the page should send, as `[{"url", "body"}]` JSON.
+    /// The requests the page should send, as `[{"service", "url", "body"}]` JSON.
     pub fn take_requests(&mut self) -> String {
-        let requests: Vec<Value> =
-            std::mem::take(&mut self.outbox).into_iter().map(|r| json!({"url": r.url, "body": r.body})).collect();
+        let requests: Vec<Value> = std::mem::take(&mut self.outbox)
+            .into_iter()
+            .map(|(service, r)| json!({"service": service, "url": r.url, "body": r.body}))
+            .collect();
         Value::Array(requests).to_string()
     }
 
-    /// The test message of the first connector, as `{"url", "body"}` JSON, for settings not yet in use.
+    /// The test message of the first connector, as `{"service", "url", "body"}` JSON, for settings not yet in use.
     pub fn test_request(&self, settings: &NotifySettings, unix_now: f64) -> Option<String> {
         let owner = self.owner();
         let owner = owner.as_deref();
         let connector = connectors(settings).into_iter().next()?;
         let request = connector.test_request(owner, unix_now);
-        Some(json!({"url": request.url, "body": request.body}).to_string())
+        Some(json!({"service": connector.name(), "url": request.url, "body": request.body}).to_string())
     }
 }
 
