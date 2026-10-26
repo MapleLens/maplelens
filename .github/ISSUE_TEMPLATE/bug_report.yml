@@ -17,7 +17,7 @@ body:
     id: version
     attributes:
       label: MapleLens version
-      description: Output of `maplelens --version`
+      description: Output of `maplelens --version`, or "web" for the browser version
   - type: input
     id: env
     attributes:

@@ -1,0 +1,4 @@
+# The browser engine's pixel loops (template search, resizing, text drawing) run several times faster with 128-bit SIMD,
+# which every browser from 2021 on supports. Applies to the wasm build only (scripts/build-web.ps1 and CI alike).
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "target-feature=+simd128"]

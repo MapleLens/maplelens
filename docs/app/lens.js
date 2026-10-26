@@ -1,0 +1,180 @@
+// The page side of MapleLens in the browser: starts the engine worker, feeds it frames (dropping frames while
+// it is busy, so it never falls behind), keeps learnt letters in localStorage, and runs the OCR fallback.
+
+const base = new URL(".", import.meta.url);
+const FONTS = ["fonts/DejaVuSansCondensed.ttf", "fonts/DejaVuSansCondensed-Bold.ttf"].map(f => new URL(f, base).href);
+/** Tesseract (the browser's OCR engine), downloaded when the engine starts. */
+const TESSERACT = "https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.esm.min.js";
+/** Jobs the page keeps waiting for the OCR engine: a title or a name goes stale in a moment, but every line of a
+ *  shop's list is needed (a burst of sales is three lines each), so none of those is dropped. */
+const MAX_OCR_QUEUE = { title: 4, name: 4, shop: 48 };
+const GLYPHS_KEY = font => `maplelens.glyphs.${font}`;
+
+function storage(action) {
+  try { return action(window.localStorage); } catch { return undefined; } // private windows may refuse
+}
+
+export class Lens {
+  /**
+   * @param {object} options
+   * @param {(state: object, fps: number, ms: number) => void} options.onState  every processed frame (ms: the engine's time on it)
+   * @param {(which: "card"|"rank", image: ImageData) => void} options.onCard  a card was redrawn
+   * @param {(message: string) => void} [options.onError]
+   * @param {boolean} [options.ocr]  allow downloading the OCR fallback (~10 MB, once)
+   */
+  static create(options) {
+    return new Promise((resolve, reject) => {
+      const lens = new Lens(options, resolve, reject);
+      lens.worker.postMessage({
+        type: "init",
+        fonts: FONTS,
+        cardScale: window.devicePixelRatio || 1,
+        ocr: Boolean(options.ocr),
+        glyphs: Object.fromEntries(["title", "name"].map(f => [f, storage(s => s.getItem(GLYPHS_KEY(f)))]).filter(([, v]) => v)),
+      });
+    });
+  }
+
+  constructor(options, resolve, reject) {
+    this.options = options;
+    this.busy = false;
+    this.ocrEnabled = Boolean(options.ocr);
+    this.ocrQueue = [];
+    this.testResolvers = [];
+    this.catalogWaiters = new Map();
+    this.catalogCount = 0;
+    this.tesseract = null;
+    this.tesseractLoading = null;
+    this.worker = new Worker(new URL("worker.js?v=737f62b708b3", base), { type: "module" });
+    this.worker.onerror = event => reject(new Error(event.message || "the engine could not start"));
+    this.counts = {};
+    this.bytes = 0;
+    this.worker.onmessage = ({ data }) => {
+      this.counts[data.type] = (this.counts[data.type] || 0) + 1;
+      if (data.json) this.bytes += data.json.length;
+      switch (data.type) {
+        case "ready": this.version = data.version; this.items = data.items; if (this.ocrEnabled) this.loadTesseract(); resolve(this); break;
+        case "idle": this.busy = false; break;
+        case "state": options.onState(data.state, data.fps, data.ms); break;
+        case "card": options.onCard(data.which, new ImageData(new Uint8ClampedArray(data.pixels.buffer), data.width, data.height)); break;
+        case "glyphs": storage(s => s.setItem(GLYPHS_KEY(data.font), data.json)); break;
+        case "ocr-job": this.queueOcr(data); break;
+        case "notify-status": options.onNotify?.(data); break;
+        case "catalog-loaded": this.catalogWaiters.get(data.id)?.(data); this.catalogWaiters.delete(data.id); break;
+        case "notify-test-result": this.testResolvers.shift()?.(data); break;
+        case "error": (options.onError || console.error)(data.message); break;
+      }
+    };
+  }
+
+  /** Offer a frame (an ImageBitmap of the game window); dropped while the previous one is still being read. */
+  frame(bitmap, { inset = 0, scale = 0 } = {}) {
+    if (this.busy) {
+      bitmap.close();
+      return false;
+    }
+    this.busy = true;
+    this.worker.postMessage({ type: "frame", bitmap, inset, scale }, [bitmap]);
+    return true;
+  }
+
+  /** Hand the engine a MesoWatch price list; resolves to the number of items, rejects when it is not one. */
+  loadCatalog(json) {
+    const id = ++this.catalogCount;
+    return new Promise((resolve, reject) => {
+      this.catalogWaiters.set(id, ({ items, error }) => (error ? reject(new Error(error)) : resolve(items)));
+      this.worker.postMessage({ type: "catalog", id, json });
+    });
+  }
+
+  /** Follow the player's Store Permit in the frames (sales, visitors, the store opening and closing). */
+  setShop(enabled) {
+    this.worker.postMessage({ type: "shop", enabled });
+  }
+
+  /** Report sold items to this Discord webhook (the engine ignores anything that is not one). */
+  setNotify(webhook, sales, store) {
+    this.worker.postMessage({ type: "notify", webhook, sales, store });
+  }
+
+  /** Send a test message to `webhook`; resolves to {ok, text}. */
+  testNotify(webhook) {
+    return new Promise(resolve => {
+      this.testResolvers.push(resolve);
+      this.worker.postMessage({ type: "notify-test", webhook });
+    });
+  }
+
+  enableOcr(enabled) {
+    this.ocrEnabled = enabled;
+    this.worker.postMessage({ type: "ocr-enabled", enabled });
+    if (enabled) {
+      this.loadTesseract();
+      this.runOcr();
+    } else this.ocrQueue = [];
+  }
+
+  /** Download and start Tesseract (the script, its worker, the WebAssembly core and the English data: about 10 MB, then
+   *  cached by the browser). Started as soon as the engine is, so the first unknown text does not wait for it. */
+  loadTesseract() {
+    this.tesseractLoading ??= (async () => {
+      // The ESM build has only a default export (the whole API); a named import finds nothing.
+      const module = await import(TESSERACT);
+      const { createWorker } = module.default ?? module;
+      this.tesseract = await createWorker("eng");
+      await this.tesseract.setParameters({ tessedit_pageseg_mode: "6" }); // a block of text: one or two title lines
+    })();
+    this.tesseractLoading.catch(error => {
+      (this.options.onError || console.error)(`OCR fallback unavailable: ${error.message || error}`);
+      this.ocrEnabled = false;
+    });
+    return this.tesseractLoading;
+  }
+
+  /** Keep the newest few jobs: an older one is for a frame that is long gone. */
+  queueOcr(job) {
+    if (!this.ocrEnabled) return;
+    this.ocrQueue.push(job);
+    const limit = MAX_OCR_QUEUE[job.font] ?? 4;
+    const same = this.ocrQueue.filter(j => j.font === job.font);
+    if (same.length > limit) this.ocrQueue.splice(this.ocrQueue.indexOf(same[0]), 1);
+    this.runOcr();
+  }
+
+  async runOcr() {
+    if (!this.ocrEnabled || this.ocrRunning || !this.ocrQueue.length) return;
+    this.ocrRunning = true;
+    try {
+      await this.loadTesseract();
+      while (this.ocrQueue.length) {
+        const job = this.ocrQueue.shift();
+        // A shop's lines are one line each; a title may take two.
+        await this.tesseract.setParameters({ tessedit_pageseg_mode: job.font === "shop" ? "7" : "6" });
+        const canvas = new OffscreenCanvas(job.width, job.height);
+        canvas.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(job.pixels.buffer), job.width, job.height), 0, 0);
+        const { data } = await this.tesseract.recognize(await canvas.convertToBlob());
+        this.worker.postMessage({ type: "ocr-answer", id: job.id, text: data.text.replace(/\s+/g, " ").trim() });
+      }
+    } catch (error) {
+      (this.options.onError || console.error)(`OCR fallback unavailable: ${error.message || error}`);
+      this.ocrEnabled = false;
+    } finally {
+      this.ocrRunning = false;
+    }
+  }
+
+  close() {
+    this.worker.terminate();
+    this.tesseract?.terminate();
+  }
+}
+
+/** Draw `image` (device pixels) into `canvas`, shown at CSS width = device width / devicePixelRatio, or the
+ *  container's width if that is narrower; the height follows the image's proportions. */
+export function paint(canvas, image) {
+  canvas.width = image.width;
+  canvas.height = image.height;
+  canvas.style.width = `min(100%, ${image.width / (window.devicePixelRatio || 1)}px)`;
+  canvas.style.height = "auto";
+  canvas.getContext("2d").putImageData(image, 0, 0);
+}

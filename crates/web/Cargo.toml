@@ -1,0 +1,19 @@
+[package]
+name = "maplelens-web"
+description = "MapleLens in the browser: the core compiled to WebAssembly, driven by docs/app."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+maplelens-core.workspace = true
+serde_json.workspace = true
+wasm-bindgen = "=0.2.129"
+
+[lints]
+workspace = true

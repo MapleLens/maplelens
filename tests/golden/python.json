@@ -1,0 +1,216 @@
+{
+ "fixtures": {
+  "character_info_masterball.png": {
+   "present": false,
+   "width": null,
+   "title1": "",
+   "title_370": "",
+   "title_370_2": "",
+   "candidate_tops": [],
+   "info_window": [
+    41,
+    68
+   ]
+  },
+  "compare_zamadar_garnier_strip.png": {
+   "present": true,
+   "width": null,
+   "title1": "Beginner's Triangular Zamadar. Begi Ill",
+   "title_370": "Beginner's Triangular Zamadar",
+   "title_370_2": "Beginner's Triangular Zamadar",
+   "info_window": null
+  },
+  "strip_pushed_up_cash_ring.png": {
+   "present": true,
+   "width": 370,
+   "title1": "",
+   "title_370": "",
+   "title_370_2": "Ink-and-Wash Painting",
+   "candidate_tops": [
+    26
+   ],
+   "info_window": null
+  },
+  "strip_pushed_up_cash_ring_b.png": {
+   "present": true,
+   "width": 370,
+   "title1": "Ink-and-Wash Painting",
+   "title_370": "Ink-and-Wash Painting",
+   "title_370_2": "Ink-and-Wash Painting Name Tag Ring",
+   "candidate_tops": [
+    7
+   ],
+   "info_window": null
+  },
+  "tooltip_cash_two_line_title_ink_wash_ring.png": {
+   "present": true,
+   "width": 370,
+   "title1": "Ink-and-Wash Painting",
+   "title_370": "Ink-and-Wash Painting",
+   "title_370_2": "Ink-and-Wash Painting Name Tag Ring",
+   "candidate_tops": [
+    0
+   ],
+   "info_window": null
+  },
+  "tooltip_equip_kitty_camping_hat.png": {
+   "present": true,
+   "width": 370,
+   "title1": "Kitty Camping Hat",
+   "title_370": "Kitty Camping Hat",
+   "title_370_2": "Kitty Camping Hat",
+   "info_window": null
+  },
+  "tooltip_equip_shop_pants.png": {
+   "present": true,
+   "width": 370,
+   "title1": "Lined Hip-Hop Pants",
+   "title_370": "Lined Hip-Hop Pants",
+   "title_370_2": "Lined Hip-Hop Pants",
+   "info_window": null
+  },
+  "tooltip_mushroom_spore_busy_backdrop.png": {
+   "present": true,
+   "width": 450,
+   "title1": "Mushroom Spore",
+   "title_370": "Mushroom Spore",
+   "title_370_2": "Mushroom Spore The I'M a",
+   "info_window": null
+  },
+  "tooltip_native_octopus_leg.png": {
+   "present": true,
+   "width": 450,
+   "title1": "Octopus Leg",
+   "title_370": "Octopus Leg",
+   "title_370_2": "Octopus Leg Ip. rr\u2022l r 1 101",
+   "candidate_tops": [
+    1
+   ],
+   "info_window": null
+  },
+  "tooltip_native_over_sky.png": {
+   "present": true,
+   "width": 450,
+   "title1": "Emerald Ore",
+   "title_370": "Emerald Ore",
+   "title_370_2": "Emerald Ore T h p. l\u00aflt t \u2022l",
+   "candidate_tops": [
+    1
+   ],
+   "info_window": null
+  },
+  "tooltip_native_over_window.png": {
+   "present": true,
+   "width": 450,
+   "title1": "Emerald Ore",
+   "title_370": "Emerald Ore",
+   "title_370_2": "Emerald Ore",
+   "candidate_tops": [
+    1
+   ],
+   "info_window": null
+  },
+  "tooltip_native_silver_ore.png": {
+   "present": true,
+   "width": 450,
+   "title1": "Silver Ore",
+   "title_370": "Silver Ore",
+   "title_370_2": "Silver Ore",
+   "candidate_tops": [7],
+   "info_window": null
+  },
+  "tooltip_squishy_liquid.png": {
+   "present": true,
+   "width": null,
+   "title1": "",
+   "title_370": "",
+   "title_370_2": "Squishy Liquid",
+   "candidate_tops": [],
+   "info_window": null
+  }
+ },
+ "format_mesos": {
+  "0": "0",
+  "6": "6",
+  "9.5": "9.5",
+  "119.25": "119",
+  "999": "999",
+  "1000": "1k",
+  "1320": "1.32k",
+  "10500": "10.5k",
+  "159999": "160k",
+  "199999": "200k",
+  "999999": "1m",
+  "2300000": "2.3m",
+  "1500000000.0": "1.5b",
+  "250000000000.0": "250b",
+  "0.5": "0.5",
+  "12.345": "12.35"
+ },
+ "cards": {
+  "Emerald Ore|False|False": [
+   450,
+   294
+  ],
+  "Emerald Ore|False|True": [
+   450,
+   294
+  ],
+  "Emerald Ore|True|False": [
+   450,
+   632
+  ],
+  "Emerald Ore|True|True": [
+   750,
+   369
+  ],
+  "Tree Branch|False|False": [
+   450,
+   294
+  ],
+  "Tree Branch|False|True": [
+   450,
+   294
+  ],
+  "Tree Branch|True|False": [
+   450,
+   556
+  ],
+  "Tree Branch|True|True": [
+   750,
+   304
+  ],
+  "None": [
+   450,
+   153
+  ],
+  "rank|loading": [
+   204,
+   102
+  ],
+  "rank|missing": [
+   204,
+   102
+  ],
+  "rank|failed": [
+   204,
+   102
+  ]
+ },
+ "fuzzy": {
+  "Emerald 0re": "Emerald Ore",
+  "Stitt Feather": "Stiff Feather",
+  "emerald  ORE!": "Emerald Ore",
+  "Emerald Ore ii": "Emerald Ore",
+  "Octopus Lag": "Octopus Leg",
+  "Red Snail Shel": "Red Snail Shell",
+  "Beginners Garnier": "Beginner's Garnier",
+  "Dragon Scale": null,
+  "Tree": null,
+  "Emeraldore": "Emerald Ore"
+ },
+ "info_window_scaled_1_2": [
+  49,
+  81
+ ]
+}
