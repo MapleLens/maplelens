@@ -198,14 +198,33 @@ fn the_shop_is_followed_in_the_browser_and_its_sales_are_read_without_ocr() {
 #[test]
 fn sales_become_discord_requests_only_for_a_real_webhook() {
     let mut engine = engine();
-    engine.set_notify("https://evil.example/api/webhooks/1/x", true, true);
+    engine.set_notify("https://evil.example/api/webhooks/1/x", "123:short", 111.0, true, true);
     assert_eq!(engine.take_requests(), "[]");
     assert!(engine.notify_test_request("https://evil.example/api/webhooks/1/x", 0.0).is_none());
     let url = "https://discord.com/api/webhooks/12/abc_DEF";
     let test: Value = serde_json::from_str(&engine.notify_test_request(url, 0.0).unwrap()).unwrap();
     assert_eq!(test["url"], url);
+    assert_eq!(test["service"], "Discord");
     assert!(Engine::webhook_masked(url).ends_with("…_DEF") || Engine::webhook_masked(url).contains('…'));
     assert_eq!(Engine::webhook_masked("nonsense"), "");
+}
+
+#[test]
+fn a_telegram_bot_is_linked_to_its_chat_then_tested() {
+    let engine = engine();
+    let token = "123456789:AAFakeTokenForTests_abcdefghijklmnop-Q";
+    assert!(Engine::telegram_link_request("nonsense").is_none());
+    let link: Value = serde_json::from_str(&Engine::telegram_link_request(token).unwrap()).unwrap();
+    assert!(link["url"].as_str().unwrap().ends_with("/getUpdates"));
+    let answer = r#"{"ok":true,"result":[{"update_id":1,"message":{"chat":{"id":111,"type":"private"}}}]}"#;
+    assert_eq!(Engine::telegram_chat(answer), 111.0);
+    assert_eq!(Engine::telegram_chat(r#"{"ok":true,"result":[]}"#), 0.0);
+    assert!(engine.telegram_test_request(token, 0.0, 0.0).is_none(), "no chat yet");
+    let test: Value = serde_json::from_str(&engine.telegram_test_request(token, 111.0, 0.0).unwrap()).unwrap();
+    assert_eq!(test["service"], "Telegram");
+    assert!(test["url"].as_str().unwrap().ends_with("/sendMessage"));
+    assert_eq!(serde_json::from_str::<Value>(test["body"].as_str().unwrap()).unwrap()["chat_id"], 111);
+    assert_eq!(Engine::notify_refusal("Telegram", 401), "Telegram does not know that bot token (revoked?)");
 }
 
 #[test]
@@ -233,7 +252,7 @@ fn the_status_reads_as_the_windows_pill_reads() {
 fn a_store_found_open_is_announced_to_discord_after_its_owner_wait() {
     let mut loud = engine();
     loud.set_shop(true);
-    loud.set_notify("https://discord.com/api/webhooks/12/abc_DEF", true, true);
+    loud.set_notify("https://discord.com/api/webhooks/12/abc_DEF", "", 0.0, true, true);
     let open = shop_frame("025123");
     let mut requests = Vec::new();
     for i in 0..30 {
@@ -247,7 +266,7 @@ fn a_store_found_open_is_announced_to_discord_after_its_owner_wait() {
     // With the store switch off nothing about it is sent.
     let mut quiet = engine();
     quiet.set_shop(true);
-    quiet.set_notify("https://discord.com/api/webhooks/12/abc_DEF", true, false);
+    quiet.set_notify("https://discord.com/api/webhooks/12/abc_DEF", "", 0.0, true, false);
     for i in 0..30 {
         shop_state(&mut quiet, &open, f64::from(i) * 1.5);
     }

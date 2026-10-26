@@ -81,6 +81,8 @@ fn settings_default_roundtrip_and_validation() {
         check_updates: false,
         store_status_bar: false,
         discord_webhook: "https://discord.com/api/webhooks/12/abc_DEF-9".into(),
+        telegram_bot: "123456789:AAFakeTokenForTests_abcdefghijklmnop-Q".into(),
+        telegram_chat: -100_222,
         notify_sales: false,
         notify_store: false,
     };
@@ -96,6 +98,9 @@ fn settings_default_roundtrip_and_validation() {
         let json = format!("{{\"discord_webhook\": \"{bad}\"}}");
         assert_eq!(Settings::from_json(&json).discord_webhook, "", "{bad}");
     }
+    // A chat without a valid bot token is dropped with it.
+    let stray = Settings::from_json(r#"{"telegram_bot": "123:short", "telegram_chat": 111}"#);
+    assert_eq!((stray.telegram_bot.as_str(), stray.telegram_chat), ("", 0));
     assert!(
         Settings::default().notify_sales
             && Settings::default().notify_store

@@ -1,9 +1,9 @@
 // MapleLens Web: capture the game window (the page offers nothing else; the sample, video and frame-folder sources are
 // test hooks started by a URL parameter), feed frames to the engine, show the cards in the page and, on request, in a picture-in-picture window that floats over the game.
 
-import { Lens } from "./lens.js?v=737f62b708b3";
-import { CardView, floatingSize, openFloating } from "./cards.js?v=737f62b708b3";
-import { Prices } from "./prices.js?v=737f62b708b3";
+import { Lens } from "./lens.js?v=9842f296c749";
+import { CardView, floatingSize, openFloating } from "./cards.js?v=9842f296c749";
+import { Prices } from "./prices.js?v=9842f296c749";
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -19,6 +19,8 @@ const STATS_FRAMES = 300;
 const SHOP_KEY = "maplelens.web.shop";
 /** A Discord webhook URL, as the engine accepts one (it checks again; this is for the buttons). */
 const WEBHOOK = /^https:\/\/(discord\.com|discordapp\.com|ptb\.discord\.com|canary\.discord\.com)\/api\/webhooks\/\d+\/[A-Za-z0-9_-]+$/;
+/** A Telegram bot token, as the engine accepts one; found anywhere in what was pasted (@BotFather's whole message). */
+const BOT_TOKEN = /\b\d{1,20}:[A-Za-z0-9_-]{30,60}(?![A-Za-z0-9_-])/;
 const LOG_ROWS = 40;
 /** A still frame is held this long (and until its text is read, up to the maximum) before the next one. */
 const FRAME_HOLD_MS = 4000;
@@ -53,18 +55,23 @@ function storage(action) {
   try { return action(window.localStorage); } catch { return undefined; } // private windows may refuse
 }
 
-/** What the player set for the shop and Discord, kept in this browser. */
-const shopSettings = { shop: true, sales: true, store: true, webhook: "" };
+/** What the player set for the shop, Discord and Telegram, kept in this browser. */
+const shopSettings = { shop: true, sales: true, store: true, webhook: "", telegramBot: "", telegramChat: 0 };
 
 function loadShopSettings() {
   try {
     Object.assign(shopSettings, JSON.parse(storage(s => s.getItem(SHOP_KEY)) || "{}"));
   } catch { /* damaged: the defaults stay */ }
   if (typeof shopSettings.webhook !== "string" || !WEBHOOK.test(shopSettings.webhook)) shopSettings.webhook = "";
+  if (typeof shopSettings.telegramBot !== "string" || shopSettings.telegramBot.match(BOT_TOKEN)?.[0] !== shopSettings.telegramBot) {
+    shopSettings.telegramBot = "";
+  }
+  if (!shopSettings.telegramBot || !Number.isSafeInteger(shopSettings.telegramChat)) shopSettings.telegramChat = 0;
   $("shop").checked = shopSettings.shop !== false;
   $("notify-sales").checked = shopSettings.sales !== false;
   $("notify-store").checked = shopSettings.store !== false;
   showWebhook();
+  showTelegram();
 }
 
 function saveShopSettings() {
@@ -85,11 +92,26 @@ function showWebhook(editing = false) {
   if (editing) $("discord").focus();
 }
 
+/** The bot shows the same way; until its chat is found it says what to do next. */
+function showTelegram(editing = false) {
+  const set = Boolean(shopSettings.telegramBot);
+  const linked = set && shopSettings.telegramChat !== 0;
+  $("telegram-state").textContent = !set ? "Not connected" : `•••••••• ${shopSettings.telegramBot.slice(-4)}${linked ? "" : " · not linked yet"}`;
+  $("telegram-state").hidden = editing;
+  $("telegram").hidden = !editing;
+  $("telegram").value = "";
+  $("telegram-change").textContent = editing ? "Cancel" : set ? "Change" : "Add";
+  $("telegram-test").hidden = !set || editing;
+  $("telegram-clear").hidden = !set || editing;
+  if (editing) $("telegram").focus();
+}
+
 /** Pass the settings to the engine. */
 function applyShopSettings() {
   if (!lens) return;
   lens.setShop(shopSettings.shop);
-  lens.setNotify(shopSettings.webhook, shopSettings.sales, shopSettings.store);
+  const { webhook, telegramBot, telegramChat, sales, store } = shopSettings;
+  lens.setNotify({ webhook, telegramBot, telegramChat, sales, store });
 }
 
 /** Words for a shop event, for the log. */
@@ -541,14 +563,51 @@ async function main() {
   });
   $("discord-test").addEventListener("click", async () => {
     note("Sending…");
-    note((await lens.testNotify(shopSettings.webhook)).text);
+    note((await lens.testNotify("discord", { webhook: shopSettings.webhook })).text);
+  });
+  const telegramNote = text => { $("telegram-note").textContent = text; };
+  $("telegram-change").addEventListener("click", () => { telegramNote(""); showTelegram($("telegram").hidden); });
+  $("telegram").addEventListener("keydown", e => { if (e.key === "Escape") showTelegram(); });
+  $("telegram").addEventListener("change", e => {
+    const text = e.target.value.trim();
+    if (!text) return;
+    const token = text.match(BOT_TOKEN)?.[0];
+    if (!token) {
+      telegramNote("That is not a Telegram bot token (@BotFather gives it when you make a bot)");
+      return;
+    }
+    if (token !== shopSettings.telegramBot) Object.assign(shopSettings, { telegramBot: token, telegramChat: 0 });
+    saveShopSettings();
+    showTelegram();
+    applyShopSettings();
+    telegramNote("Saved. Send /start to your bot in Telegram, then press Test");
+  });
+  $("telegram-clear").addEventListener("click", () => {
+    Object.assign(shopSettings, { telegramBot: "", telegramChat: 0 });
+    saveShopSettings();
+    showTelegram();
+    applyShopSettings();
+    telegramNote("Removed");
+  });
+  $("telegram-test").addEventListener("click", async () => {
+    const bot = shopSettings.telegramBot;
+    telegramNote(shopSettings.telegramChat ? "Sending…" : "Looking for your chat with the bot…");
+    const result = await lens.testNotify("telegram", { telegramBot: bot, telegramChat: shopSettings.telegramChat });
+    // The chat found is kept for the bot it was found with (not one changed meanwhile).
+    if (result.chat && shopSettings.telegramBot === bot) {
+      shopSettings.telegramChat = result.chat;
+      saveShopSettings();
+      showTelegram();
+      applyShopSettings();
+    }
+    telegramNote(result.text);
   });
   try {
     lens = await Lens.create({
       onState,
       onCard: (which, image) => show(which, image),
       onError: message => { $("fps").textContent = message; },
-      onNotify: result => { if (!result.ok) $("discord-note").textContent = result.text; },
+      onNotify: result => { if (!result.ok) $(result.service === "Telegram" ? "telegram-note" : "discord-note").textContent = result.text; },
       ocr: true,
     });
     setPill("engine-pill", true, `engine ${lens.version}`);

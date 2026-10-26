@@ -16,6 +16,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     ShowWindow, WS_EX_APPWINDOW, WS_EX_LAYERED, WS_POPUP, WS_SYSMENU,
 };
 
+use crate::notify::Service;
 use crate::update::UpdateState;
 use crate::{layered, winclass};
 
@@ -33,8 +34,8 @@ pub enum SettingsEvent {
     /// The hotkey box started (true) or stopped (false) listening: the app releases the global hotkey meanwhile so
     /// the combo reaches the box.
     Capturing(bool),
-    /// "Test" beside the webhook: send a test message with these settings.
-    TestNotify(NotifySettings),
+    /// "Test" beside the webhook or the bot: send a test message there with these settings.
+    TestNotify(Service, NotifySettings),
     /// "Check now".
     CheckUpdates,
     /// "Update now" (or "View release" for a build that cannot update itself).
@@ -59,6 +60,8 @@ struct State {
     capturing: Option<String>,
     /// What the last webhook paste or test came to.
     notify_note: String,
+    /// What the last bot token paste or test came to.
+    telegram_note: String,
     dragging: bool,
     tracking_leave: bool,
     events: Vec<SettingsEvent>,
@@ -70,7 +73,7 @@ pub struct SettingsWindow {
 }
 
 /// What the picture depends on, besides the update state: a message that leaves it alone needs no redraw.
-type Look = (Settings, Option<Control>, Option<Control>, Option<Control>, bool, Option<String>, String);
+type Look = (Settings, Option<Control>, Option<Control>, Option<Control>, bool, Option<String>, String, String);
 
 impl State {
     fn look(&self) -> Look {
@@ -82,6 +85,7 @@ impl State {
             self.show_focus,
             self.capturing.clone(),
             self.notify_note.clone(),
+            self.telegram_note.clone(),
         )
     }
 
@@ -99,6 +103,7 @@ impl State {
         let view = View {
             settings: self.current.clone(),
             notify_note: &self.notify_note,
+            telegram_note: &self.telegram_note,
             version: env!("CARGO_PKG_VERSION"),
             update_text: &text,
             can_check,
@@ -162,9 +167,27 @@ impl State {
         }
     }
 
-    /// The answer to a test, shown under the webhook box.
-    fn set_note(&mut self, note: String) {
-        self.notify_note = note;
+    /// A bot token on the clipboard (alone, or in @BotFather's whole message). A new bot has no chat yet.
+    fn paste_telegram(&mut self) {
+        let text = crate::clipboard::text().unwrap_or_default();
+        match maplelens_core::notify::telegram::find_token(&text) {
+            Some(token) => {
+                if token != self.current.telegram_bot {
+                    (self.current.telegram_bot, self.current.telegram_chat) = (token.to_string(), 0);
+                    self.changed();
+                }
+                self.telegram_note = "Saved. Send /start to your bot in Telegram, then press Test".into();
+            }
+            None => self.telegram_note = "The clipboard has no Telegram bot token".into(),
+        }
+    }
+
+    /// The answer to a test, shown under its row.
+    fn set_note(&mut self, service: Service, note: String) {
+        match service {
+            Service::Discord => self.notify_note = note,
+            Service::Telegram => self.telegram_note = note,
+        }
     }
 
     fn activate(&mut self, control: Control) {
@@ -184,12 +207,32 @@ impl State {
                     return;
                 }
                 self.notify_note = "Sending a test message…".into();
-                return self.events.push(SettingsEvent::TestNotify(self.current.notify()));
+                return self.events.push(SettingsEvent::TestNotify(Service::Discord, self.current.notify()));
             }
             Control::ClearWebhook => {
                 if !self.current.discord_webhook.is_empty() {
                     self.current.discord_webhook.clear();
                     self.notify_note = "Webhook removed".into();
+                    self.changed();
+                }
+                return;
+            }
+            Control::PasteTelegram => return self.paste_telegram(),
+            Control::TestTelegram => {
+                if self.current.telegram_bot.is_empty() {
+                    return;
+                }
+                self.telegram_note = if self.current.telegram_chat == 0 {
+                    "Looking for your chat with the bot…".into()
+                } else {
+                    "Sending a test message…".into()
+                };
+                return self.events.push(SettingsEvent::TestNotify(Service::Telegram, self.current.notify()));
+            }
+            Control::ClearTelegram => {
+                if !self.current.telegram_bot.is_empty() {
+                    (self.current.telegram_bot, self.current.telegram_chat) = (String::new(), 0);
+                    self.telegram_note = "Bot removed".into();
                     self.changed();
                 }
                 return;
@@ -228,9 +271,9 @@ impl SettingsWindow {
         self.state.borrow().hwnd
     }
 
-    pub fn set_notify_note(&self, note: String) {
+    pub fn set_notify_note(&self, service: Service, note: String) {
         let mut state = self.state.borrow_mut();
-        state.set_note(note);
+        state.set_note(service, note);
         state.paint();
     }
 

@@ -45,7 +45,7 @@ export class Lens {
     this.catalogCount = 0;
     this.tesseract = null;
     this.tesseractLoading = null;
-    this.worker = new Worker(new URL("worker.js?v=737f62b708b3", base), { type: "module" });
+    this.worker = new Worker(new URL("worker.js?v=9842f296c749", base), { type: "module" });
     this.worker.onerror = event => reject(new Error(event.message || "the engine could not start"));
     this.counts = {};
     this.bytes = 0;
@@ -92,16 +92,18 @@ export class Lens {
     this.worker.postMessage({ type: "shop", enabled });
   }
 
-  /** Report sold items to this Discord webhook (the engine ignores anything that is not one). */
-  setNotify(webhook, sales, store) {
-    this.worker.postMessage({ type: "notify", webhook, sales, store });
+  /** Report sold items to a Discord webhook and a Telegram bot's chat (the engine ignores anything that is not a
+   *  webhook or a bot token): {webhook, telegramBot, telegramChat, sales, store}. */
+  setNotify(settings) {
+    this.worker.postMessage({ type: "notify", ...settings });
   }
 
-  /** Send a test message to `webhook`; resolves to {ok, text}. */
-  testNotify(webhook) {
+  /** Send a test message to "discord" or "telegram" with {webhook, telegramBot, telegramChat}; resolves to
+   *  {ok, text, chat?}: chat is the Telegram chat found for a bot that had none. */
+  testNotify(service, settings) {
     return new Promise(resolve => {
       this.testResolvers.push(resolve);
-      this.worker.postMessage({ type: "notify-test", webhook });
+      this.worker.postMessage({ type: "notify-test", service, ...settings });
     });
   }
 

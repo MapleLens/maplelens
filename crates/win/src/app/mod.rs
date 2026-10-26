@@ -26,7 +26,7 @@ use windows::Win32::Media::{timeBeginPeriod, timeEndPeriod};
 use windows::Win32::UI::WindowsAndMessaging::{DispatchMessageW, MSG, PM_REMOVE, PeekMessageW, TranslateMessage};
 
 use crate::layered::LayeredWindow;
-use crate::notify::Notifier;
+use crate::notify::{Notifier, TestAnswer};
 use crate::settings_window::{SettingsEvent, SettingsWindow};
 use crate::shop::ShopUpdate;
 use crate::tray::{Tray, TrayCommand};
@@ -119,7 +119,7 @@ pub struct App {
     /// Sends sold-item notifications; the settings window's Test button goes through it too.
     notifier: Notifier,
     /// The answer to a test message on its way back.
-    notify_test: Option<Receiver<String>>,
+    notify_test: Option<Receiver<TestAnswer>>,
     hover_events: Receiver<Option<Hover>>,
     info_events: Receiver<Option<InfoWindow>>,
     catalog_updates: Receiver<Catalog>,
@@ -163,7 +163,7 @@ impl App {
         maps::spawn_scanner(map_tx, rejects, flags, debug);
         let map = map::MapUi::new(map_events, reject_tx, item_showing, maps::service())?;
         // The Store Permit watcher always runs (the pill needs it); --debug also prints its events, and sold items
-        // go to the notification connectors (Discord).
+        // go to the notification connectors (Discord, Telegram).
         let notifier = Notifier::spawn(settings.notify());
         let (shop_notifier, shop_catalog) = (notifier.clone(), catalog.clone());
         let (shop_tx, shop_events) = mpsc::channel();
@@ -274,7 +274,9 @@ impl App {
                 SettingsEvent::Capturing(capturing) => {
                     self.tray.set_hotkey(if capturing { 0 } else { self.settings.toggle_hotkey });
                 }
-                SettingsEvent::TestNotify(settings) => self.notify_test = Some(self.notifier.test(settings)),
+                SettingsEvent::TestNotify(service, settings) => {
+                    self.notify_test = Some(self.notifier.test(service, settings));
+                }
                 SettingsEvent::CheckUpdates => self.check_for_update(),
                 SettingsEvent::Update => self.start_update(),
             }
@@ -284,7 +286,13 @@ impl App {
     fn tick(&mut self) {
         if let Some(answer) = self.notify_test.as_ref().and_then(|rx| rx.try_recv().ok()) {
             self.notify_test = None;
-            self.settings_window.set_notify_note(answer);
+            // A bot's chat found by the test is kept, for the bot it was found with.
+            if let Some(chat) = answer.telegram_chat
+                && !self.settings.telegram_bot.is_empty()
+            {
+                self.update_settings(Settings { telegram_chat: chat, ..self.settings.clone() });
+            }
+            self.settings_window.set_notify_note(answer.service, answer.text);
         }
         if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.follow_updates())).is_err() {
             crate::error!("update tick failed");

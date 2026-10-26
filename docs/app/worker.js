@@ -2,14 +2,15 @@
 //
 // Messages in:  {type: "init", fonts, glyphs, cardScale} · {type: "frame", bitmap, inset, scale} ·
 //               {type: "ocr-answer", id, text} · {type: "ocr-enabled", enabled} · {type: "shop", enabled} ·
-//               {type: "notify", webhook, sales, store} · {type: "notify-test", webhook} · {type: "catalog", id, json}
+//               {type: "notify", webhook, telegramBot, telegramChat, sales, store} ·
+//               {type: "notify-test", service, webhook, telegramBot, telegramChat} · {type: "catalog", id, json}
 // Messages out: {type: "ready", version, items} · {type: "state", state, fps, ms} · {type: "card", which, version,
 //               width, height, pixels} · {type: "ocr-job", id, font, width, height, pixels} · {type: "glyphs", font,
 //               json} · {type: "idle"} (ready for the next frame) · {type: "notify-status", text} ·
-//               {type: "notify-test-result", ok, text} · {type: "catalog-loaded", id, items | error} ·
+//               {type: "notify-test-result", ok, text, chat?} · {type: "catalog-loaded", id, items | error} ·
 //               {type: "error", message}
 
-import init, { Engine } from "./pkg/maplelens_web.js?v=737f62b708b3";
+import init, { Engine } from "./pkg/maplelens_web.js?v=9842f296c749";
 
 /** One rank lookup every two seconds stays under classicrank.com's 30 requests a minute. */
 const RANK_GAP_MS = 2000;
@@ -21,7 +22,8 @@ let lastCard = 0;
 let lastRank = 0;
 let lastRankFetch = 0;
 const askedOcr = new Set();
-/** Webhook messages waiting to go out, sent one at a time: a webhook takes about five messages in two seconds. */
+/** Messages waiting to go out, sent one at a time: a webhook takes about five messages in two seconds, a Telegram
+ *  chat about one a second. */
 const outbox = [];
 let sending = false;
 const SEND_GAP_MS = 600;
@@ -33,7 +35,7 @@ const post = (message, transfer = []) => self.postMessage(message, transfer);
 
 async function start({ fonts, glyphs, cardScale, ocr }) {
   // Named explicitly so scripts/stamp-web.ps1 can version it together with the glue.
-  await init({ module_or_path: new URL("./pkg/maplelens_web_bg.wasm?v=737f62b708b3", import.meta.url) });
+  await init({ module_or_path: new URL("./pkg/maplelens_web_bg.wasm?v=9842f296c749", import.meta.url) });
   const [regular, bold] = await Promise.all(fonts.map(url => fetch(url).then(r => r.arrayBuffer())));
   engine = new Engine(new Uint8Array(regular), new Uint8Array(bold));
   engine.card_scale = cardScale || 1;
@@ -44,27 +46,53 @@ async function start({ fonts, glyphs, cardScale, ocr }) {
   post({ type: "ready", version: Engine.version(), items: engine.item_count() });
 }
 
-/** POST one request to a webhook; resolves to {ok, text}: in words for the player, never with the URL (its token
- *  is a secret). A refusal for going too fast is retried after the wait the service asks for. */
-async function deliver({ url, body }) {
+/** POST one request to a service; resolves to {ok, text, answer}: text in words for the player, never with the URL
+ *  (its token is a secret). A refusal for going too fast is retried after the wait the service asks for (Discord
+ *  says `retry_after`, Telegram `parameters.retry_after`). */
+async function deliver({ service = "Discord", url, body }) {
   for (let attempt = 0; attempt <= SEND_RETRIES; attempt++) {
     let response;
     try {
       response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body });
     } catch {
-      return { ok: false, text: "Discord could not be reached" };
+      return { ok: false, text: `${service} could not be reached` };
     }
-    if (response.ok) return { ok: true, text: "Sent" };
+    if (response.ok) return { ok: true, text: "Sent", answer: await response.text().catch(() => "") };
     if (response.status === 429 && attempt < SEND_RETRIES) {
       const info = await response.json().catch(() => ({}));
-      const wait = Math.min(SEND_MAX_WAIT_MS, Math.max(100, (Number(info.retry_after) || 1) * 1000));
-      await new Promise(resolve => setTimeout(resolve, wait));
+      const seconds = Number(info.retry_after ?? info.parameters?.retry_after) || 1;
+      await new Promise(resolve => setTimeout(resolve, Math.min(SEND_MAX_WAIT_MS, Math.max(100, seconds * 1000))));
       continue;
     }
-    if (response.status === 401 || response.status === 404) return { ok: false, text: "Discord says that webhook does not exist (deleted?)" };
-    return { ok: false, text: `Discord answered HTTP ${response.status}` };
+    return { ok: false, text: Engine.notify_refusal(service, response.status) };
   }
-  return { ok: false, text: "Discord keeps refusing for going too fast" };
+  return { ok: false, text: `${service} keeps refusing for going too fast` };
+}
+
+/** A test message to one service; a Telegram bot whose chat is not known yet is first asked who wrote to it, and the
+ *  chat found comes back with the answer for the page to keep. */
+async function testNotify({ service, webhook, telegramBot, telegramChat }) {
+  const now = Date.now() / 1000;
+  if (service !== "telegram") {
+    const request = engine.notify_test_request(webhook, now);
+    if (!request) return { ok: false, text: "Paste a Discord webhook URL first" };
+    const r = await deliver(JSON.parse(request));
+    return { ok: r.ok, text: r.ok ? "Sent: check your Discord channel" : `Not sent: ${r.text}` };
+  }
+  let chat = Number(telegramChat) || 0;
+  let found;
+  if (!chat) {
+    const link = Engine.telegram_link_request(telegramBot);
+    if (!link) return { ok: false, text: "Paste your bot's token first" };
+    const r = await deliver({ service: "Telegram", ...JSON.parse(link) });
+    if (!r.ok) return { ok: false, text: `Not linked: ${r.text}` };
+    found = chat = Engine.telegram_chat(r.answer);
+    if (!chat) return { ok: false, text: "No message to the bot yet: send it /start in Telegram, then Test again" };
+  }
+  const request = engine.telegram_test_request(telegramBot, chat, now);
+  if (!request) return { ok: false, text: "Paste your bot's token first" };
+  const r = await deliver(JSON.parse(request));
+  return { ok: r.ok, text: r.ok ? "Sent: check your Telegram chat" : `Not sent: ${r.text}`, chat: found };
 }
 
 async function drainOutbox() {
@@ -72,8 +100,9 @@ async function drainOutbox() {
   sending = true;
   try {
     while (outbox.length) {
-      const result = await deliver(outbox.shift());
-      post({ type: "notify-status", ok: result.ok, text: result.ok ? "Last message sent to Discord" : result.text });
+      const request = outbox.shift();
+      const result = await deliver(request);
+      post({ type: "notify-status", service: request.service, ok: result.ok, text: result.ok ? `Last message sent to ${request.service}` : result.text });
       await new Promise(resolve => setTimeout(resolve, SEND_GAP_MS));
     }
   } finally {
@@ -157,12 +186,10 @@ self.onmessage = async ({ data }) => {
       }
     }
     else if (data.type === "shop" && engine) engine.set_shop(data.enabled);
-    else if (data.type === "notify" && engine) engine.set_notify(data.webhook, data.sales, data.store);
-    else if (data.type === "notify-test" && engine) {
-      const request = engine.notify_test_request(data.webhook, Date.now() / 1000);
-      if (!request) post({ type: "notify-test-result", ok: false, text: "Paste a Discord webhook URL first" });
-      else deliver(JSON.parse(request)).then(r => post({ type: "notify-test-result", ok: r.ok, text: r.ok ? "Sent: check your Discord channel" : `Not sent: ${r.text}` }));
+    else if (data.type === "notify" && engine) {
+      engine.set_notify(data.webhook, data.telegramBot, Number(data.telegramChat) || 0, data.sales, data.store);
     }
+    else if (data.type === "notify-test" && engine) testNotify(data).then(r => post({ type: "notify-test-result", ...r }));
   } catch (error) {
     post({ type: "error", message: String(error?.message || error) });
   } finally {

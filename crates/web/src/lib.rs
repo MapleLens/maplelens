@@ -13,7 +13,7 @@ use maplelens_core::image::RgbImage;
 use maplelens_core::market::catalog::Catalog;
 use maplelens_core::market::sample::sample_items;
 use maplelens_core::market::snapshot::parse_snapshot;
-use maplelens_core::notify::{NotifySettings, discord};
+use maplelens_core::notify::{NotifySettings, discord, refusal, telegram};
 use maplelens_core::pipeline::FrameScreen;
 use maplelens_core::pipeline::hover::{Hover, HoverDetector};
 use maplelens_core::pipeline::info::{InfoDetector, InfoWindow};
@@ -151,11 +151,14 @@ impl Engine {
         self.shop.set_enabled(enabled);
     }
 
-    /// Where sold items and the store opening or closing are reported: a Discord webhook URL (anything else is ignored),
-    /// and whether to report sales and store changes.
-    pub fn set_notify(&mut self, webhook: &str, sales: bool, store: bool) {
+    /// Where sold items and the store opening or closing are reported: a Discord webhook URL and a Telegram bot token
+    /// with its chat (0 = not linked yet; anything that is not a webhook or a token is ignored), and whether to report
+    /// sales and store changes.
+    pub fn set_notify(&mut self, webhook: &str, telegram_bot: &str, telegram_chat: f64, sales: bool, store: bool) {
         let discord_webhook = discord::valid_webhook(webhook).unwrap_or_default().to_string();
-        self.shop.set_notify(NotifySettings { discord_webhook, sales, store });
+        let telegram_bot = telegram::valid_token(telegram_bot).unwrap_or_default().to_string();
+        let telegram_chat = telegram_chat as i64;
+        self.shop.set_notify(NotifySettings { discord_webhook, telegram_bot, telegram_chat, sales, store });
     }
 
     /// The webhook URL as it may be shown (its token hidden), or "" when it is not a Discord webhook.
@@ -168,10 +171,41 @@ impl Engine {
         self.shop.take_requests()
     }
 
-    /// The test message for `webhook` as `{"url", "body"}` JSON, or undefined when it is not a Discord webhook.
+    /// The test message for `webhook` as `{"service", "url", "body"}` JSON, or undefined when it is not a Discord
+    /// webhook.
     pub fn notify_test_request(&self, webhook: &str, unix_now: f64) -> Option<String> {
-        let settings = NotifySettings { discord_webhook: webhook.to_string(), sales: true, store: true };
+        let settings =
+            NotifySettings { discord_webhook: webhook.to_string(), sales: true, store: true, ..Default::default() };
         self.shop.test_request(&settings, unix_now)
+    }
+
+    /// The test message for the bot `token` writing to `chat`, as `{"service", "url", "body"}` JSON, or undefined when
+    /// the token is not one or the chat is not known.
+    pub fn telegram_test_request(&self, token: &str, chat: f64, unix_now: f64) -> Option<String> {
+        let settings = NotifySettings {
+            telegram_bot: token.to_string(),
+            telegram_chat: chat as i64,
+            sales: true,
+            store: true,
+            ..Default::default()
+        };
+        self.shop.test_request(&settings, unix_now)
+    }
+
+    /// The request asking the bot `token` who wrote to it lately, as `{"url", "body"}` JSON (POST); its answer goes to
+    /// `telegram_chat`.
+    pub fn telegram_link_request(token: &str) -> Option<String> {
+        telegram::link_request(token).map(|r| serde_json::json!({"url": r.url, "body": r.body}).to_string())
+    }
+
+    /// The chat that last wrote to the bot, from the answer to `telegram_link_request`; 0 when none did lately.
+    pub fn telegram_chat(answer: &str) -> f64 {
+        telegram::chat_from_updates(answer).unwrap_or(0) as f64
+    }
+
+    /// A service's refusal (HTTP `status`) in words for the player.
+    pub fn notify_refusal(service: &str, status: u16) -> String {
+        refusal(service, status)
     }
 
     /// The atlas of `font` as JSON when it learnt something since the last call, else undefined.

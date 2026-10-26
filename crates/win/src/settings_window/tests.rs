@@ -12,6 +12,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use super::{SettingsEvent, SettingsWindow};
 use crate::icon;
+use crate::notify::Service;
 
 fn send(hwnd: HWND, msg: u32, wparam: usize, lparam: isize) {
     // SAFETY: a message to our own window, handled on this thread.
@@ -80,8 +81,29 @@ fn the_webhook_buttons_do_nothing_without_a_webhook_and_clear_one() {
     let with = Settings { discord_webhook: "https://discord.com/api/webhooks/12/abc".into(), ..Settings::default() };
     window.sync(with.clone());
     click(hwnd, Control::TestWebhook);
-    assert_eq!(window.take_events(), [SettingsEvent::TestNotify(with.notify())]);
+    assert_eq!(window.take_events(), [SettingsEvent::TestNotify(Service::Discord, with.notify())]);
     click(hwnd, Control::ClearWebhook);
+    assert_eq!(window.take_events(), [SettingsEvent::Changed(Settings::default())]);
+}
+
+#[test]
+fn the_telegram_buttons_do_nothing_without_a_bot_and_clear_one_with_its_chat() {
+    let window = opened();
+    let hwnd = window.hwnd();
+    window.sync(Settings::default());
+    for control in [Control::TestTelegram, Control::ClearTelegram] {
+        click(hwnd, control);
+    }
+    assert_eq!(window.take_events(), []);
+    let with = Settings {
+        telegram_bot: "123456789:AAFakeTokenForTests_abcdefghijklmnop-Q".into(),
+        telegram_chat: 111,
+        ..Settings::default()
+    };
+    window.sync(with.clone());
+    click(hwnd, Control::TestTelegram);
+    assert_eq!(window.take_events(), [SettingsEvent::TestNotify(Service::Telegram, with.notify())]);
+    click(hwnd, Control::ClearTelegram);
     assert_eq!(window.take_events(), [SettingsEvent::Changed(Settings::default())]);
 }
 
