@@ -18,6 +18,9 @@ reviews:
     - "!.claude/skills/**"
     - "!docs/showcase/**"
     - "!tests/fixtures/**"
+    - "!docs/app/pkg/**"
+    - "!docs/app/fonts/**"
+    - "!crates/core/assets/glyphs/**"
   path_instructions:
     - path: "**"
       instructions: |
@@ -28,13 +31,16 @@ reviews:
            (scripts, env, install), secrets or personal data in the diff.
         2. Code quality: look for restructurings that delete complexity; flag ad-hoc conditionals
            in unrelated flows, thin pass-through wrappers, copy-pasted logic, and logic in the wrong
-           layer. Flag a file this PR pushes past ~150 lines (this repo's limit, see AGENTS.md; it
+           layer. Flag a file this PR pushes past ~300 lines (this repo's limit, see AGENTS.md; it
            overrides the skills' 1000-line figure) or that is already over and grows further.
         3. Enforce AGENTS.md "Hard rules": screen pixels only (no process injection or memory
-           reads), no MesoWatch data or download instructions committed, overlay click-through
-           and never steals focus, no per-frame guessing, UI calls only on the main thread.
-    - path: "src/maplelens/{market/**,vision/tooltip.py,overlay/{card,canvas,glance,details,placement}.py}"
-      instructions: "Pure modules: no win32/Windows APIs. File I/O only in market/snapshot.py. Time-dependent code takes `now` as a parameter."
+           reads, no opening the game process, no input of any kind), no MesoWatch data or download
+           instructions committed, overlay click-through and never steals focus, no per-frame
+           guessing, UI calls only on the main thread. Every `unsafe` block needs a SAFETY comment.
+    - path: "crates/core/**"
+      instructions: "Platform-free core: no Win32, no threads, no file or network I/O, no clock. Time-dependent code takes `now` as a parameter."
+    - path: "docs/app/**"
+      instructions: "The web app must never fetch MesoWatch data and never upload frames; its only requests are classicrank.com and the opt-in OCR data."
     - path: "tests/**"
       instructions: "Fixtures must be native-resolution captures; do not accept loosened thresholds in place of new fixtures."
 knowledge_base:

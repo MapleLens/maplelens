@@ -1,0 +1,90 @@
+/* MapleLens site theme: the classic client's sky, windows, tooltips and orange buttons. Shared by the landing
+   page and the web app. */
+:root{
+  --sky-1:#3d8fe0; --sky-2:#8fd0ff; --sky-3:#d9f1ff;
+  --win:#eef1f6; --win-2:#d7dde8; --win-edge:#56607a; --win-dark:#2c3247;
+  --title-1:#8ea2c9; --title-2:#5b6f9f;
+  --tip:rgba(16,26,62,.9); --tip-edge:#c9d4f2;
+  --btn-1:#ffe07a; --btn-2:#ffad1f; --btn-edge:#9a5200;
+  --ink:#1e2740; --muted:#55607d; --gold:#ffcc33; --ok:#3f9b3a; --warn:#c0661a;
+  --grass:#78c850; --grass-d:#3e8f2a; --dirt:#a2703c; --dirt-d:#7a4f25;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{margin:0;color:var(--ink);font:15px/1.6 Tahoma,Verdana,"Segoe UI",sans-serif;overflow-x:hidden;
+  background:linear-gradient(var(--sky-1),var(--sky-2) 700px,var(--sky-3) 1400px,#eaf7ff)}
+img{max-width:100%}
+a{color:#1d5bb8}
+.px{image-rendering:pixelated}
+.wrap{max-width:1140px;margin:0 auto;padding:0 20px}
+.display{font-family:"Lilita One",Tahoma,sans-serif;font-weight:400;letter-spacing:.3px}
+/* the game's outlined white lettering (map names, damage-style titles) */
+.outline{color:#fff;text-shadow:
+  -2px -2px 0 var(--win-dark),2px -2px 0 var(--win-dark),-2px 2px 0 var(--win-dark),2px 2px 0 var(--win-dark),
+  0 -2px 0 var(--win-dark),0 2px 0 var(--win-dark),-2px 0 0 var(--win-dark),2px 0 0 var(--win-dark),0 5px 0 rgba(20,30,60,.35)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+/* ---------- game window ---------- */
+.win{background:var(--win);border:2px solid var(--win-edge);border-radius:7px;
+  box-shadow:0 0 0 2px #fff inset,0 0 0 1px var(--win-dark),0 14px 30px -10px rgba(20,40,80,.55);overflow:hidden}
+.win-h{display:flex;align-items:center;gap:8px;min-height:30px;padding:0 6px 0 12px;
+  background:linear-gradient(var(--title-1),var(--title-2));border-bottom:2px solid var(--win-edge);
+  font:bold 13px Tahoma,sans-serif;color:#fff;text-shadow:0 1px 0 var(--win-dark);letter-spacing:.6px;text-transform:uppercase}
+.win-h .x{margin-left:auto;width:18px;height:18px;border-radius:3px;border:1px solid var(--win-dark);
+  background:linear-gradient(#ff8a8a,#e04040);box-shadow:0 1px 0 #fff8 inset;display:grid;place-items:center;font-size:11px;line-height:1}
+.win-h .tag{margin-left:auto;font-size:11px;letter-spacing:.3px;text-transform:none;background:#ffffff2a;border:1px solid #ffffff55;
+  border-radius:9px;padding:0 8px;line-height:18px;min-width:0;max-width:60%;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+.win-b{padding:14px}
+
+/* ---------- buttons (the orange "OK" button) ---------- */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 22px;border-radius:8px;cursor:pointer;
+  font:20px "Lilita One",Tahoma,sans-serif;letter-spacing:.4px;text-decoration:none;color:#fff;
+  background:linear-gradient(var(--btn-1),var(--btn-2) 55%,#f08a00);border:2px solid var(--btn-edge);
+  box-shadow:0 2px 0 #fff9 inset,0 4px 0 var(--btn-edge),0 8px 14px rgba(0,0,0,.2);
+  text-shadow:-1px -1px 0 var(--btn-edge),1px -1px 0 var(--btn-edge),-1px 1px 0 var(--btn-edge),1px 1px 0 var(--btn-edge),0 2px 0 var(--btn-edge);
+  transition:transform .08s,box-shadow .08s}
+.btn:hover{filter:brightness(1.06);transform:translateY(-1px)}
+.btn:active{transform:translateY(3px);box-shadow:0 2px 0 #fff9 inset,0 1px 0 var(--btn-edge)}
+.btn:focus-visible{outline:3px solid #1d5bb8;outline-offset:3px}
+.btn[disabled]{filter:grayscale(.8);opacity:.6;cursor:not-allowed;transform:none}
+.btn.grey{--btn-edge:#4d5670;color:var(--win-dark);text-shadow:0 1px 0 #fff;background:linear-gradient(#fff,#e3e8f1 55%,#c9d0de)}
+.btn.blue{--btn-edge:#1d3f7a;background:linear-gradient(#8fd0ff,#3d8fe0 55%,#2a6fc0)}
+.btn.sm{font-size:16px;padding:5px 14px}
+.btn img{width:20px;height:20px}
+
+/* ---------- top menu bar ---------- */
+nav{position:sticky;top:0;z-index:10;background:linear-gradient(#4b5878,#2c3247);border-bottom:2px solid #11152a;box-shadow:0 2px 0 #7f8db0 inset}
+nav .wrap{display:flex;align-items:center;gap:18px;height:52px}
+.brand{display:flex;align-items:center;gap:8px;text-decoration:none;font:22px "Lilita One",sans-serif;color:#fff}
+.brand img{width:26px;height:26px}
+nav .sp{flex:1}
+nav a.l{color:#dfe6ff;text-decoration:none;font-weight:bold;font-size:13px}
+nav a.l:hover,nav a.l[aria-current]{color:var(--gold)}
+
+/* ---------- the game's item tooltip, as a content box ---------- */
+.tip{background:var(--tip);border:1px solid var(--tip-edge);border-radius:5px;box-shadow:0 0 0 1px #0a1230,0 10px 24px -8px rgba(0,0,0,.45);
+  color:#fff;padding:12px 14px}
+.tip .t{text-align:center;font-weight:bold;font-size:15px;color:#ffd75a;margin-bottom:8px}
+.tip .r{display:flex;gap:12px;align-items:flex-start}
+.tip .ic{flex:none;width:52px;height:52px;border-radius:4px;background:#fff;display:grid;place-items:center}
+.tip .ic img{width:32px;height:32px}
+.tip p{margin:0;color:#dbe3ff;font-size:13.5px;line-height:1.5}
+.tip a{color:#9fd0ff}
+
+/* ---------- status pills ---------- */
+.pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:bold;
+  background:#fff;border:1px solid var(--win-2);color:var(--muted)}
+.pill:before{content:"";width:8px;height:8px;border-radius:50%;background:#b8c0d4}
+.pill.on:before{background:var(--ok);box-shadow:0 0 0 3px #3f9b3a33}
+.pill.warn:before{background:var(--warn)}
+
+footer{margin-top:80px}
+.fine{background:#1b1f2d;color:#98a2c2;font-size:12px;padding:14px 0 18px}
+.fine .wrap{display:flex;flex-wrap:wrap;gap:6px 18px;justify-content:space-between}
+.fine a{color:#dfe6ff}
+
+@media (max-width:600px){nav a.l{display:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}

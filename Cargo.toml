@@ -1,0 +1,50 @@
+[workspace]
+resolver = "3"
+members = ["crates/core", "crates/win", "crates/web"]
+default-members = ["crates/core", "crates/win"]
+
+[workspace.package]
+version = "0.2.2"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+repository = "https://github.com/maplelens/maplelens"
+
+[workspace.dependencies]
+maplelens-core = { path = "crates/core" }
+ab_glyph = "0.2.32"
+png = "0.18.1"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+tiny-skia = { version = "0.11.4", default-features = false, features = ["std", "simd"] }
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+rust_2018_idioms = { level = "warn", priority = -1 }
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+# AGENTS.md: every unsafe block says why it is sound.
+undocumented_unsafe_blocks = "warn"
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+semicolon_if_nothing_returned = "warn"
+redundant_clone = "warn"
+cloned_instead_of_copied = "warn"
+inefficient_to_string = "warn"
+manual_let_else = "warn"
+uninlined_format_args = "warn"
+
+# Vision code is pixel loops: unoptimised test builds would be 30x slower than the app.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

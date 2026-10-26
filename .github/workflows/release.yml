@@ -1,6 +1,6 @@
 name: Release
 
-# Push a tag like v0.2.0 (see scripts/bump_version.py) to build maplelens.exe and publish a GitHub Release.
+# Push a tag like v0.2.0 (see scripts/bump-version.ps1) to build maplelens.exe and publish a GitHub Release.
 on:
   push:
     tags: ["v*.*.*"]
@@ -8,50 +8,65 @@ on:
 permissions:
   contents: write
 
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
 jobs:
   release:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          python-version: "3.11"
-          cache: pip
+          components: clippy, rustfmt
+      # The test job's cache from main: a release builds on what CI already compiled.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: test
+          save-if: false
 
       - name: Check the tag matches the code version
         shell: bash
         run: |
-          code_version=$(python -c "import re,pathlib;print(re.search(r'__version__ = \"(.+?)\"', pathlib.Path('src/maplelens/__init__.py').read_text()).group(1))")
+          code_version=$(cargo pkgid -p maplelens | sed 's/.*[#@]//')
           if [ "v$code_version" != "$GITHUB_REF_NAME" ]; then
-            echo "Tag $GITHUB_REF_NAME does not match __version__ $code_version"; exit 1
+            echo "Tag $GITHUB_REF_NAME does not match the workspace version $code_version"; exit 1
           fi
           echo "VERSION=$code_version" >> "$GITHUB_ENV"
 
-      - run: pip install -e ".[dev,build]"
-      - run: ruff check .
-      - run: pytest
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # (cargo-deny-action is a container action, which Windows runners cannot run.)
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - name: Dependencies (advisories, licences, sources)
+        run: cargo deny --locked check
 
       - name: Build exe
-        run: pyinstaller maplelens.spec --noconfirm
+        run: cargo build --release -p maplelens --locked
+      # After the build: the updater's self-test runs this exe.
+      - run: cargo test --workspace --locked
 
       - name: Smoke test the exe
-        run: ./dist/maplelens.exe --version
+        run: ./target/release/maplelens.exe --version
 
       - name: Package
         shell: pwsh
         run: |
           $name = "maplelens-v$env:VERSION-windows"
           New-Item -ItemType Directory $name | Out-Null
-          Copy-Item dist/maplelens.exe, README.md, LICENSE $name
+          Copy-Item target/release/maplelens.exe, README.md, LICENSE $name
           Compress-Archive -Path $name -DestinationPath "$name.zip"
           (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower() + "  $name.zip" | Out-File "$name.zip.sha256" -Encoding ascii
 
-      # Players' copies only trust updates signed by the key built into them (see update/manifest.py).
-      - name: Sign update manifest
-        shell: bash
+      # The in-app updater only trusts a manifest signed with the key behind update::PUBLIC_KEY; this fails the
+      # release if the secret is missing or does not match it.
+      - name: Sign the update manifest
         env:
           UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
-        run: python scripts/sign_release.py "maplelens-v$VERSION-windows.zip"
+        run: ./target/release/maplelens.exe --sign-release "maplelens-v$env:VERSION-windows.zip"
 
       - name: Publish release
         uses: softprops/action-gh-release@v2

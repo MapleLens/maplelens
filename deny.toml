@@ -1,0 +1,27 @@
+# cargo deny check: known vulnerabilities, licences compatible with shipping an MIT exe, crates.io only.
+
+[graph]
+targets = ["x86_64-pc-windows-msvc", "wasm32-unknown-unknown"]
+all-features = false
+
+[advisories]
+yanked = "deny"
+ignore = [
+    # ttf-parser (under ab_glyph) is unmaintained. It only parses Windows' own Tahoma or the bundled DejaVu, never
+    # untrusted fonts; revisit when ab_glyph moves to skrifa.
+    { id = "RUSTSEC-2026-0192", reason = "parses only system and bundled fonts" },
+]
+
+[licenses]
+allow = ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Zlib", "Unicode-3.0", "CDLA-Permissive-2.0"]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# The workspace's own crates are path dependencies without a version.
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

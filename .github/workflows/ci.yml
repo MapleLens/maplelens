@@ -4,16 +4,129 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push to the same branch or PR makes the running checks pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  # Incremental artefacts are useless in CI and bloat the cache.
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
 
 jobs:
-  test:
-    runs-on: windows-latest   # win32 + Windows OCR are required by the tests
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          python-version: "3.11"
-          cache: pip
-      - run: pip install -e ".[dev]"
-      - run: ruff check .
-      - run: pytest
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  workflows:
+    name: Workflow lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: actionlint
+        run: |
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
+          ./actionlint -color
+
+  deny:
+    name: Dependencies (advisories, licences, sources)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          arguments: --locked
+
+  lint:
+    name: Clippy and docs
+    # The Windows crate only builds on Windows.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: lint
+          # Pull requests reuse main's cache but do not overwrite it.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo clippy -p maplelens-web --target wasm32-unknown-unknown --locked -- -D warnings
+      - run: cargo doc --workspace --no-deps --document-private-items --locked
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  test:
+    name: Tests
+    # The Windows app's tests open real windows and use the registry, Windows OCR and Graphics Capture.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: test
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The updater's self-test runs the release exe, so build it first (it is cached like the rest).
+      - run: cargo build --release -p maplelens --locked
+      - run: cargo test --workspace --locked
+
+  msrv:
+    name: Minimum Rust (1.88)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: msrv
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo check --workspace --all-targets --locked
+
+  web:
+    name: Web engine
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: web
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@0.2.129
+      - run: cargo build --release -p maplelens-web --target wasm32-unknown-unknown --locked
+      - run: wasm-bindgen --target web --no-typescript --out-dir pkg target/wasm32-unknown-unknown/release/maplelens_web.wasm
+      # GitHub Pages serves the committed engine. Its JavaScript glue only changes with the engine's API, so a
+      # difference means docs/app/pkg was not rebuilt (scripts/build-web.ps1) after an API change.
+      - name: docs/app/pkg matches the engine's API
+        run: diff -u --strip-trailing-cr docs/app/pkg/maplelens_web.js pkg/maplelens_web.js
+      - name: The web app's cache stamps are current (scripts/stamp-web.ps1)
+        shell: pwsh
+        run: |
+          ./scripts/stamp-web.ps1
+          git diff --ignore-cr-at-eol --exit-code -- docs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-engine
+          path: pkg/
+          retention-days: 14

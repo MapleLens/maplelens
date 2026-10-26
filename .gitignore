@@ -1,17 +1,15 @@
-__pycache__/
-*.py[cod]
-*.egg-info/
-.venv/
-.pytest_cache/
-.ruff_cache/
-dist/
-build/
+# Rust build output
+target/
 
 # MesoWatch data is not licensed for redistribution: every user saves their own snapshot.
 data/*.json
 !data/.gitkeep
 
+# Runtime output
 maplelens.log
-.pytest_tmp/
-run.out
+maplelens.log.*
 debug/
+
+# Game captures used by the tests: they show players' names, so they stay on the maintainer's machine. Tests that
+# need them are ignored without them (cfg(fixtures), set by each crate's build.rs).
+tests/fixtures/

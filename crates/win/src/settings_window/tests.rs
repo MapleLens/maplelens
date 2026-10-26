@@ -1,0 +1,151 @@
+//! The drawn settings window driven by window messages (as Windows would send them; no real input is made):
+//! every control reports what the app needs.
+
+use maplelens_core::render::settings_view::Control;
+use maplelens_core::settings::{EXPAND_DELAY_RANGE_S, Settings};
+use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+use windows::Win32::UI::HiDpi::GetDpiForWindow;
+use windows::Win32::UI::Input::KeyboardAndMouse::{VK_BACK, VK_ESCAPE, VK_SPACE, VK_TAB};
+use windows::Win32::UI::WindowsAndMessaging::{
+    IsWindowVisible, SendMessageW, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
+};
+
+use super::{SettingsEvent, SettingsWindow};
+use crate::icon;
+
+fn send(hwnd: HWND, msg: u32, wparam: usize, lparam: isize) {
+    // SAFETY: a message to our own window, handled on this thread.
+    unsafe { SendMessageW(hwnd, msg, Some(WPARAM(wparam)), Some(LPARAM(lparam))) };
+}
+
+/// Client pixel of design point (x, y), packed as mouse messages carry it.
+fn point(hwnd: HWND, (x, y): (f32, f32)) -> isize {
+    // SAFETY: plain query on our own window.
+    let factor = unsafe { GetDpiForWindow(hwnd) } as f32 / 96.0;
+    let (px, py) = ((x * factor).round() as isize, (y * factor).round() as isize);
+    (py << 16) | px
+}
+
+fn click_at(hwnd: HWND, at: (f32, f32)) {
+    let at = point(hwnd, at);
+    send(hwnd, WM_MOUSEMOVE, 0, at);
+    send(hwnd, WM_LBUTTONDOWN, 1, at);
+    send(hwnd, WM_LBUTTONUP, 0, at);
+}
+
+fn click(hwnd: HWND, control: Control) {
+    let (x, y, w, h) = control.area();
+    click_at(hwnd, (x + w / 2.0, y + h / 2.0));
+}
+
+fn key(hwnd: HWND, vk: u16) {
+    send(hwnd, WM_KEYDOWN, usize::from(vk), 0);
+}
+
+fn opened() -> SettingsWindow {
+    let window = SettingsWindow::new(icon::load(None), true);
+    window.show(Settings::default()).unwrap();
+    assert!(window.take_events().is_empty(), "opening is not an edit");
+    window
+}
+
+#[test]
+fn check_boxes_flip_their_setting() {
+    let window = opened();
+    let hwnd = window.hwnd();
+    let defaults = Settings::default();
+    for (control, expected) in [
+        (Control::Overlay, Settings { overlay_enabled: !defaults.overlay_enabled, ..defaults.clone() }),
+        (Control::StatusBar, Settings { store_status_bar: !defaults.store_status_bar, ..defaults.clone() }),
+        (Control::Startup, Settings { launch_at_startup: !defaults.launch_at_startup, ..defaults.clone() }),
+        (Control::AutoUpdate, Settings { check_updates: !defaults.check_updates, ..defaults.clone() }),
+        (Control::NotifySales, Settings { notify_sales: !defaults.notify_sales, ..defaults.clone() }),
+        (Control::NotifyStore, Settings { notify_store: !defaults.notify_store, ..defaults.clone() }),
+    ] {
+        window.sync(defaults.clone());
+        click(hwnd, control);
+        assert_eq!(window.take_events(), [SettingsEvent::Changed(expected)], "{control:?}");
+    }
+}
+
+#[test]
+fn the_webhook_buttons_do_nothing_without_a_webhook_and_clear_one() {
+    let window = opened();
+    let hwnd = window.hwnd();
+    window.sync(Settings::default());
+    for control in [Control::TestWebhook, Control::ClearWebhook] {
+        click(hwnd, control);
+    }
+    assert_eq!(window.take_events(), []);
+    let with = Settings { discord_webhook: "https://discord.com/api/webhooks/12/abc".into(), ..Settings::default() };
+    window.sync(with.clone());
+    click(hwnd, Control::TestWebhook);
+    assert_eq!(window.take_events(), [SettingsEvent::TestNotify(with.notify())]);
+    click(hwnd, Control::ClearWebhook);
+    assert_eq!(window.take_events(), [SettingsEvent::Changed(Settings::default())]);
+}
+
+#[test]
+fn the_slider_sets_the_delay_where_it_is_pressed() {
+    let window = opened();
+    let (x, y, w, h) = Control::Delay.area();
+    click_at(window.hwnd(), (x, y + h / 2.0));
+    let low = Settings { expand_delay_s: 0.0, ..Settings::default() };
+    assert_eq!(window.take_events(), [SettingsEvent::Changed(low)]);
+    click_at(window.hwnd(), (x + w - 1.0, y + h / 2.0));
+    let high = Settings { expand_delay_s: EXPAND_DELAY_RANGE_S.1, ..Settings::default() };
+    assert_eq!(window.take_events(), [SettingsEvent::Changed(high)]);
+}
+
+#[test]
+fn the_hotkey_box_listens_until_a_combo_escape_or_backspace() {
+    let window = opened();
+    let hwnd = window.hwnd();
+    click(hwnd, Control::Hotkey);
+    assert_eq!(window.take_events(), [SettingsEvent::Capturing(true)]);
+    key(hwnd, u16::from(b'K'));
+    assert!(window.take_events().is_empty(), "a bare key would fire while typing in the game");
+    key(hwnd, VK_ESCAPE.0);
+    assert_eq!(window.take_events(), [SettingsEvent::Capturing(false)]);
+    // SAFETY: plain query.
+    assert!(unsafe { IsWindowVisible(hwnd) }.as_bool(), "Esc in the box gives up listening, not the window");
+
+    click(hwnd, Control::Hotkey);
+    key(hwnd, VK_BACK.0);
+    let none = Settings { toggle_hotkey: 0, ..Settings::default() };
+    let events = window.take_events();
+    assert_eq!(events, [SettingsEvent::Capturing(true), SettingsEvent::Capturing(false), SettingsEvent::Changed(none)]);
+}
+
+#[test]
+fn clear_removes_the_hotkey_and_buttons_report_only_when_enabled() {
+    let window = opened();
+    let hwnd = window.hwnd();
+    click(hwnd, Control::ClearHotkey);
+    assert_eq!(window.take_events(), [SettingsEvent::Changed(Settings { toggle_hotkey: 0, ..Settings::default() })]);
+    click(hwnd, Control::Check);
+    assert_eq!(window.take_events(), [SettingsEvent::CheckUpdates]);
+    click(hwnd, Control::Update);
+    assert!(window.take_events().is_empty(), "nothing to install yet");
+}
+
+#[test]
+fn tab_and_space_work_the_controls() {
+    let window = opened();
+    let hwnd = window.hwnd();
+    key(hwnd, VK_TAB.0);
+    key(hwnd, VK_SPACE.0);
+    let overlay_off = Settings { overlay_enabled: false, ..Settings::default() };
+    assert_eq!(window.take_events(), [SettingsEvent::Changed(overlay_off)]);
+    key(hwnd, VK_ESCAPE.0);
+    // SAFETY: plain query.
+    assert!(!unsafe { IsWindowVisible(hwnd) }.as_bool(), "Esc closes the window");
+}
+
+#[test]
+fn the_close_box_hides_the_window() {
+    let window = opened();
+    click(window.hwnd(), Control::Close);
+    // SAFETY: plain query.
+    assert!(!unsafe { IsWindowVisible(window.hwnd()) }.as_bool());
+}
