@@ -8,9 +8,13 @@ on:
 permissions:
   contents: write
 
+# Exactly ci.yml's env block: rust-cache keys on every CARGO*/RUST* variable, and this job restores the cache CI's
+# release-cache job saves on main.
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: 0
+  RUST_BACKTRACE: 1
 
 jobs:
   release:
@@ -20,10 +24,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
-      # The test job's cache from main: a release builds on what CI already compiled.
+      # CI's release-cache job keeps this warm on main (a tag's own cache would reach no later run, so none is saved).
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: test
+          shared-key: release
           save-if: false
 
       - name: Check the tag matches the code version
