@@ -81,6 +81,9 @@ fn settings_default_roundtrip_and_validation() {
         check_updates: false,
         store_status_bar: false,
         discord_webhook: "https://discord.com/api/webhooks/12/abc_DEF-9".into(),
+        telegram_webhook:
+            "https://api.telegram.org/bot123456789:AAFakeTokenForTests_abcdefghijklmnop-Q/sendMessage?chat_id=-100222"
+                .into(),
         notify_sales: false,
         notify_store: false,
     };
@@ -96,6 +99,15 @@ fn settings_default_roundtrip_and_validation() {
         let json = format!("{{\"discord_webhook\": \"{bad}\"}}");
         assert_eq!(Settings::from_json(&json).discord_webhook, "", "{bad}");
     }
+    // Only a Telegram sendMessage URL (or a bot token) is kept, in the one URL form.
+    let bad = r#"{"telegram_webhook": "https://api.telegram.org/bot123:short/sendMessage?chat_id=1"}"#;
+    assert_eq!(Settings::from_json(bad).telegram_webhook, "");
+    let token = r#"{"telegram_webhook": " 123456789:AAFakeTokenForTests_abcdefghijklmnop-Q "}"#;
+    assert_eq!(
+        Settings::from_json(token).telegram_webhook,
+        "https://api.telegram.org/bot123456789:AAFakeTokenForTests_abcdefghijklmnop-Q/sendMessage"
+    );
+    assert_eq!(wanted.notify().telegram_chat, -100_222);
     assert!(
         Settings::default().notify_sales
             && Settings::default().notify_store

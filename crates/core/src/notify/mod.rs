@@ -1,10 +1,11 @@
 //! Notifications: things that happened (for now, an item sold in the player's Store Permit) sent out through
 //! connectors. A connector turns a batch of notifications into plain HTTP requests; sending them is the platform's
 //! (the Windows app's thread, the browser's `fetch`), so everything here is pure and testable, and a new connector
-//! (Telegram, a generic webhook) is one more type implementing `Connector` and one more field in the settings.
+//! is one more type implementing `Connector` and one more field in the settings.
 
 pub mod announce;
 pub mod discord;
+pub mod telegram;
 
 /// What happened.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -82,6 +83,10 @@ pub trait Connector: Send {
 pub struct NotifySettings {
     /// A Discord channel's webhook URL; empty = off.
     pub discord_webhook: String,
+    /// A Telegram bot's token; empty = off.
+    pub telegram_bot: String,
+    /// The chat the bot writes to, found once the player wrote to it; 0 = not yet.
+    pub telegram_chat: i64,
     /// Tell about sold items.
     pub sales: bool,
     /// Tell when the store is detected open or closes.
@@ -104,7 +109,28 @@ pub fn connectors(settings: &NotifySettings) -> Vec<Box<dyn Connector>> {
     if let Some(discord) = discord::Discord::new(&settings.discord_webhook) {
         found.push(Box::new(discord));
     }
+    if let Some(telegram) = telegram::Telegram::new(&settings.telegram_bot, settings.telegram_chat) {
+        found.push(Box::new(telegram));
+    }
     found
+}
+
+/// A service's answer to a request, in words for the player (never with the URL: its token is a secret).
+pub fn refusal(service: &str, status: u16) -> String {
+    match (service, status) {
+        ("Telegram", 401 | 404) => "Telegram does not know that bot token (revoked?)".into(),
+        ("Telegram", 403) => "The bot may not write there: send it /start (or add it to the group) again".into(),
+        ("Telegram", 400) => "Telegram cannot find that chat: Clear, then Paste the token again".into(),
+        (_, 401 | 404) => format!("{service} says that webhook does not exist (deleted?)"),
+        _ => format!("{service} answered HTTP {status}"),
+    }
+}
+
+/// How long a service that refused for going too fast asks us to wait, in seconds: Discord says `retry_after`,
+/// Telegram `parameters.retry_after`.
+pub fn retry_after(answer: &str) -> Option<f64> {
+    let answer: serde_json::Value = serde_json::from_str(answer).ok()?;
+    answer["retry_after"].as_f64().or_else(|| answer["parameters"]["retry_after"].as_f64())
 }
 
 /// `unix` seconds as an ISO-8601 UTC time ("2026-10-25T13:33:31Z"): what Discord's embeds take.
@@ -140,7 +166,23 @@ mod tests {
             discord_webhook: "https://discord.com/api/webhooks/1/abc".into(),
             sales: true,
             store: true,
+            ..NotifySettings::default()
         };
         assert_eq!(connectors(&on).iter().map(|c| c.name()).collect::<Vec<_>>(), ["Discord"]);
+        let token = "123456789:AAFakeTokenForTests_abcdefghijklmnop-Q".to_string();
+        let unlinked = NotifySettings { telegram_bot: token.clone(), ..on.clone() };
+        assert_eq!(connectors(&unlinked).len(), 1, "a bot is only used once its chat is known");
+        let both = NotifySettings { telegram_bot: token, telegram_chat: 111, ..on };
+        assert_eq!(connectors(&both).iter().map(|c| c.name()).collect::<Vec<_>>(), ["Discord", "Telegram"]);
+    }
+
+    #[test]
+    fn refusals_are_in_words_and_waits_are_found() {
+        assert_eq!(refusal("Discord", 404), "Discord says that webhook does not exist (deleted?)");
+        assert_eq!(refusal("Telegram", 401), "Telegram does not know that bot token (revoked?)");
+        assert_eq!(refusal("Telegram", 500), "Telegram answered HTTP 500");
+        assert_eq!(retry_after(r#"{"retry_after": 1.5}"#), Some(1.5));
+        assert_eq!(retry_after(r#"{"ok":false,"error_code":429,"parameters":{"retry_after":5}}"#), Some(5.0));
+        assert_eq!(retry_after("busy"), None);
     }
 }
