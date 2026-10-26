@@ -22,10 +22,9 @@ pub struct Settings {
     pub store_status_bar: bool,
     /// A Discord channel's webhook URL, where sold items are reported; empty = off.
     pub discord_webhook: String,
-    /// A Telegram bot's token, whose chat gets the same messages; empty = off.
-    pub telegram_bot: String,
-    /// The chat the bot writes to, found when the player tests it after writing to the bot; 0 = not yet.
-    pub telegram_chat: i64,
+    /// A Telegram bot's `sendMessage` URL with its `chat_id`, which gets the same messages; empty = off. Without the
+    /// chat until the player tests it after writing to the bot.
+    pub telegram_webhook: String,
     /// Tell about sold items (when a connector is set).
     pub notify_sales: bool,
     /// Tell when the store is detected open or closes.
@@ -42,8 +41,7 @@ impl Default for Settings {
             check_updates: true,
             store_status_bar: true,
             discord_webhook: String::new(),
-            telegram_bot: String::new(),
-            telegram_chat: 0,
+            telegram_webhook: String::new(),
             notify_sales: true,
             notify_store: true,
         }
@@ -79,12 +77,10 @@ impl Settings {
         {
             settings.discord_webhook = valid.to_string();
         }
-        if let Some(token) = raw.get("telegram_bot").and_then(Value::as_str)
-            && let Some(valid) = crate::notify::telegram::valid_token(token)
+        if let Some(url) = raw.get("telegram_webhook").and_then(Value::as_str)
+            && let Some((token, chat)) = crate::notify::telegram::parse_webhook(url)
         {
-            settings.telegram_bot = valid.to_string();
-            // A chat only means something with the bot that found it.
-            settings.telegram_chat = raw.get("telegram_chat").and_then(Value::as_i64).unwrap_or(0);
+            settings.telegram_webhook = crate::notify::telegram::webhook_url(token, chat);
         }
         if let Some(v) = raw.get("toggle_hotkey").and_then(Value::as_u64).filter(|&v| v <= 0xFFFF) {
             settings.toggle_hotkey = v as u32;
@@ -108,8 +104,7 @@ impl Settings {
         map.insert("notify_sales".into(), json!(self.notify_sales));
         map.insert("notify_store".into(), json!(self.notify_store));
         map.insert("discord_webhook".into(), json!(self.discord_webhook));
-        map.insert("telegram_bot".into(), json!(self.telegram_bot));
-        map.insert("telegram_chat".into(), json!(self.telegram_chat));
+        map.insert("telegram_webhook".into(), json!(self.telegram_webhook));
         serde_json::to_string_pretty(&Value::Object(map)).unwrap_or_default()
     }
 }
@@ -117,10 +112,11 @@ impl Settings {
 impl Settings {
     /// What the notification connectors are built from.
     pub fn notify(&self) -> crate::notify::NotifySettings {
+        let (bot, chat) = crate::notify::telegram::parse_webhook(&self.telegram_webhook).unwrap_or_default();
         crate::notify::NotifySettings {
             discord_webhook: self.discord_webhook.clone(),
-            telegram_bot: self.telegram_bot.clone(),
-            telegram_chat: self.telegram_chat,
+            telegram_bot: bot.to_string(),
+            telegram_chat: chat,
             sales: self.notify_sales,
             store: self.notify_store,
         }

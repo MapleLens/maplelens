@@ -96,8 +96,9 @@ fn the_telegram_buttons_do_nothing_without_a_bot_and_clear_one_with_its_chat() {
     }
     assert_eq!(window.take_events(), []);
     let with = Settings {
-        telegram_bot: "123456789:AAFakeTokenForTests_abcdefghijklmnop-Q".into(),
-        telegram_chat: 111,
+        telegram_webhook:
+            "https://api.telegram.org/bot123456789:AAFakeTokenForTests_abcdefghijklmnop-Q/sendMessage?chat_id=111"
+                .into(),
         ..Settings::default()
     };
     window.sync(with.clone());

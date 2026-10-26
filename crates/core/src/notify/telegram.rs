@@ -1,6 +1,7 @@
-//! Telegram bots: one POST of JSON to the Bot API (`sendMessage`), no account of ours and no server. The player makes
-//! a bot with @BotFather and gives us its token; the chat to write to is found by asking the bot who wrote to it last
-//! (`getUpdates`), so the player only has to send it /start.
+//! Telegram bots: one POST of JSON to the Bot API (`sendMessage`), no account of ours and no server. Like a Discord
+//! webhook, the player pastes one URL, `https://api.telegram.org/bot<token>/sendMessage?chat_id=<chat>`. A URL without
+//! the chat, or just the token from @BotFather, works too: the chat is then found by asking the bot who wrote to it
+//! last (`getUpdates`), so the player only has to send it /start, and the whole URL is built for them.
 
 use serde_json::{Value, json};
 
@@ -43,6 +44,34 @@ pub fn masked(token: &str) -> String {
         }
         None => String::new(),
     }
+}
+
+/// A bot and its chat as one URL, the setting's form; without `?chat_id=` while the chat is not known (0).
+pub fn webhook_url(token: &str, chat: i64) -> String {
+    match chat {
+        0 => format!("{API}{token}/sendMessage"),
+        chat => format!("{API}{token}/sendMessage?chat_id={chat}"),
+    }
+}
+
+/// The bot and its chat (0 = not known yet) in what was pasted: a `sendMessage` URL (other query parameters, a
+/// guide's `&text=hi`, are ignored), or a token alone or inside @BotFather's message. A chat that is not a number (a
+/// channel's @name) is refused: the messages would go nowhere the bot was told about.
+pub fn parse_webhook(text: &str) -> Option<(&str, i64)> {
+    let text = text.trim();
+    let Some(rest) = text.strip_prefix(API) else { return find_token(text).map(|token| (token, 0)) };
+    let (token, method) = rest.split_once('/')?;
+    let token = valid_token(token).filter(|t| t.len() == token.len())?;
+    let query = match method.split_once('?') {
+        Some(("sendMessage", query)) => query,
+        None if method == "sendMessage" => "",
+        _ => return None,
+    };
+    let chat = match query.split('&').find_map(|pair| pair.strip_prefix("chat_id=")) {
+        Some(chat) => chat.parse::<i64>().ok().filter(|&chat| chat != 0)?,
+        None => 0,
+    };
+    Some((token, chat))
 }
 
 /// The request that asks the bot for the messages people sent it lately (`getUpdates`; Telegram keeps them a day).
@@ -219,6 +248,29 @@ mod tests {
         assert_eq!(find_token(&message), Some(TOKEN));
         assert_eq!(find_token(&format!("`{TOKEN}`")), Some(TOKEN));
         assert_eq!(find_token("no token here: 12:ab"), None);
+    }
+
+    #[test]
+    fn one_url_holds_the_bot_and_its_chat() {
+        let url = format!("https://api.telegram.org/bot{TOKEN}/sendMessage?chat_id=-100222");
+        assert_eq!(parse_webhook(&format!(" {url}\n")), Some((TOKEN, -100_222)));
+        assert_eq!(webhook_url(TOKEN, -100_222), url);
+        assert_eq!(parse_webhook(&format!("{url}&text=hi")), Some((TOKEN, -100_222)));
+        let unlinked = webhook_url(TOKEN, 0);
+        assert_eq!(unlinked, format!("https://api.telegram.org/bot{TOKEN}/sendMessage"));
+        assert_eq!(parse_webhook(&unlinked), Some((TOKEN, 0)));
+        assert_eq!(parse_webhook(&format!("Use this token to access the HTTP API:\n{TOKEN}")), Some((TOKEN, 0)));
+        for bad in [
+            format!("https://api.telegram.org/bot{TOKEN}/sendMessage?chat_id=@mychannel"),
+            format!("https://api.telegram.org/bot{TOKEN}/sendMessage?chat_id=0"),
+            format!("https://api.telegram.org/bot{TOKEN}/deleteMessage?chat_id=1"),
+            format!("https://api.telegram.org/bot{TOKEN}!/sendMessage?chat_id=1"),
+            format!("http://api.telegram.org/bot{TOKEN}/sendMessage?chat_id=1"),
+            format!("https://api.telegram.org.evil.example/bot{TOKEN}/sendMessage?chat_id=1"),
+            "https://discord.com/api/webhooks/12/abc".to_string(),
+        ] {
+            assert_eq!(parse_webhook(&bad), None, "{bad}");
+        }
     }
 
     #[test]

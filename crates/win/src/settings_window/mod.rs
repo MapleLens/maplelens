@@ -167,18 +167,24 @@ impl State {
         }
     }
 
-    /// A bot token on the clipboard (alone, or in @BotFather's whole message). A new bot has no chat yet.
+    /// A bot's `sendMessage` URL on the clipboard, or its token alone (then the chat is found by Test).
     fn paste_telegram(&mut self) {
+        use maplelens_core::notify::telegram;
         let text = crate::clipboard::text().unwrap_or_default();
-        match maplelens_core::notify::telegram::find_token(&text) {
-            Some(token) => {
-                if token != self.current.telegram_bot {
-                    (self.current.telegram_bot, self.current.telegram_chat) = (token.to_string(), 0);
+        match telegram::parse_webhook(&text) {
+            Some((token, chat)) => {
+                let url = telegram::webhook_url(token, chat);
+                if url != self.current.telegram_webhook {
+                    self.current.telegram_webhook = url;
                     self.changed();
                 }
-                self.telegram_note = "Saved. Send /start to your bot in Telegram, then press Test".into();
+                self.telegram_note = if chat == 0 {
+                    "Saved. Send /start to your bot in Telegram, then press Test".into()
+                } else {
+                    "Saved. Press Test to check it".into()
+                };
             }
-            None => self.telegram_note = "The clipboard has no Telegram bot token".into(),
+            None => self.telegram_note = "The clipboard has no Telegram bot URL or token".into(),
         }
     }
 
@@ -219,10 +225,10 @@ impl State {
             }
             Control::PasteTelegram => return self.paste_telegram(),
             Control::TestTelegram => {
-                if self.current.telegram_bot.is_empty() {
+                if self.current.telegram_webhook.is_empty() {
                     return;
                 }
-                self.telegram_note = if self.current.telegram_chat == 0 {
+                self.telegram_note = if self.current.notify().telegram_chat == 0 {
                     "Looking for your chat with the bot…".into()
                 } else {
                     "Sending a test message…".into()
@@ -230,8 +236,8 @@ impl State {
                 return self.events.push(SettingsEvent::TestNotify(Service::Telegram, self.current.notify()));
             }
             Control::ClearTelegram => {
-                if !self.current.telegram_bot.is_empty() {
-                    (self.current.telegram_bot, self.current.telegram_chat) = (String::new(), 0);
+                if !self.current.telegram_webhook.is_empty() {
+                    self.current.telegram_webhook.clear();
                     self.telegram_note = "Bot removed".into();
                     self.changed();
                 }

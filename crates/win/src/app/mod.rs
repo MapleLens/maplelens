@@ -286,13 +286,20 @@ impl App {
     fn tick(&mut self) {
         if let Some(answer) = self.notify_test.as_ref().and_then(|rx| rx.try_recv().ok()) {
             self.notify_test = None;
-            // A bot's chat found by the test is kept, for the bot it was found with.
+            let mut text = answer.text;
+            // A chat found by the test completes the bot's URL (the bot still set: not one cleared meanwhile), and the
+            // whole URL goes on the clipboard for the player to keep or paste elsewhere.
+            let bot = self.settings.notify().telegram_bot;
             if let Some(chat) = answer.telegram_chat
-                && !self.settings.telegram_bot.is_empty()
+                && !bot.is_empty()
             {
-                self.update_settings(Settings { telegram_chat: chat, ..self.settings.clone() });
+                let url = maplelens_core::notify::telegram::webhook_url(&bot, chat);
+                if crate::clipboard::set_text(&url) {
+                    text = format!("{text}. The full webhook URL is on your clipboard");
+                }
+                self.update_settings(Settings { telegram_webhook: url, ..self.settings.clone() });
             }
-            self.settings_window.set_notify_note(answer.service, answer.text);
+            self.settings_window.set_notify_note(answer.service, text);
         }
         if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.follow_updates())).is_err() {
             crate::error!("update tick failed");

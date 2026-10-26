@@ -58,7 +58,7 @@ pub enum Control {
     /// Send a test message to it.
     TestWebhook,
     ClearWebhook,
-    /// Take a Telegram bot token from the clipboard.
+    /// Take a Telegram bot's `sendMessage` URL (or its token alone) from the clipboard.
     PasteTelegram,
     /// Find the chat that wrote to the bot, then send a test message to it.
     TestTelegram,
@@ -182,7 +182,7 @@ impl View<'_> {
             Control::Update => !self.can_update,
             Control::ClearHotkey => self.settings.toggle_hotkey == 0 && self.capturing.is_none(),
             Control::TestWebhook | Control::ClearWebhook => self.settings.discord_webhook.is_empty(),
-            Control::TestTelegram | Control::ClearTelegram => self.settings.telegram_bot.is_empty(),
+            Control::TestTelegram | Control::ClearTelegram => self.settings.telegram_webhook.is_empty(),
             _ => false,
         };
         Touch { hover: self.hover == Some(control), pressed: self.pressed == Some(control) && !disabled, disabled }
@@ -297,16 +297,17 @@ fn webhook(cv: &mut Canvas<'_>, view: &View<'_>) {
 }
 
 fn telegram_bot(cv: &mut Canvas<'_>, view: &View<'_>) {
-    let s = &view.settings;
+    let url = &view.settings.telegram_webhook;
+    let (bot, chat) = telegram::parse_webhook(url).unwrap_or_default();
     // The note below says what linking takes; the box has room for little more than this.
-    let value = (!s.telegram_bot.is_empty()).then(|| match s.telegram_chat {
-        0 => "Not linked yet".to_string(),
-        _ => format!("Linked · {}", telegram::masked(&s.telegram_bot)),
+    let value = (!url.is_empty()).then(|| match chat {
+        0 => "No chat yet".to_string(),
+        _ => format!("Set · {}", telegram::masked(bot)),
     });
     let hint = match view.telegram_note {
-        "" if s.telegram_bot.is_empty() => "Copy your bot's token from @BotFather, then Paste",
-        "" if s.telegram_chat == 0 => "Send /start to your bot in Telegram, then press Test",
-        "" => "Messages go to the chat that last wrote to the bot",
+        "" if url.is_empty() => "Copy your bot's sendMessage URL (or its token), then Paste",
+        "" if chat == 0 => "Send /start to your bot in Telegram, then press Test",
+        "" => "Messages go to the chat_id in the URL",
         note => note,
     };
     let buttons = [Control::PasteTelegram, Control::TestTelegram, Control::ClearTelegram];

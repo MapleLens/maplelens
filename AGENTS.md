@@ -210,12 +210,13 @@ same frames through the Rust watcher (373 real captures, 22 ms a frame against P
 - Notifications (`core::notify`): `Connector` turns a batch into HTTP requests, the platform sends them (Windows: the
   `notifier` thread, batching a burst, pacing, waiting out 429s; browser: the worker's `fetch`). `Discord` accepts only
   `discord.com/api/webhooks/<id>/<token>` URLs, sends embeds with `allowed_mentions` empty and names escaped, and its
-  token is never logged or shown whole. `Telegram` takes a bot token (`<id>:<secret>`, found anywhere in a paste of
-  @BotFather's message) and writes to one chat: the player sends the bot /start, and Test asks the bot who wrote last
-  (`getUpdates`, POSTed like everything else) and keeps that chat (`telegram_chat`; a new token resets it). Its
+  token is never logged or shown whole. `Telegram` is one URL like a Discord webhook,
+  `https://api.telegram.org/bot<token>/sendMessage?chat_id=<chat>` (`telegram::parse_webhook` / `webhook_url`). A URL
+  without the chat, or a token alone (found in a paste of @BotFather's message), is kept without it: the player sends
+  the bot /start, and Test asks the bot who wrote last (`getUpdates`, POSTed like everything else), completes the URL
+  and puts it on the clipboard. Its
   messages are HTML with names escaped and '@' kept from mentioning. Telegram's Bot API allows any origin, so the
-  browser sends straight to it too. Settings: `discord_webhook`, `telegram_bot`, `telegram_chat`, `notify_sales`,
-  `notify_store`. Refusals are worded by `notify::refusal`, waits read by `notify::retry_after`, for both platforms.
+  browser sends straight to it too. Settings: `discord_webhook`, `telegram_webhook`, `notify_sales`, `notify_store`. Refusals are worded by `notify::refusal`, waits read by `notify::retry_after`, for both platforms.
   A new connector is a type and a settings field. `cargo test -p maplelens live_discord -- --ignored` sends to
   `MAPLELENS_DISCORD_WEBHOOK`; `live_telegram` links and writes through the bot in `MAPLELENS_TELEGRAM_BOT`.
 - The browser runs the same watcher (`web/src/shopwatch.rs`). Its OCR is asynchronous: the reader answers None while

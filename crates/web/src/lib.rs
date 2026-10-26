@@ -151,13 +151,13 @@ impl Engine {
         self.shop.set_enabled(enabled);
     }
 
-    /// Where sold items and the store opening or closing are reported: a Discord webhook URL and a Telegram bot token
-    /// with its chat (0 = not linked yet; anything that is not a webhook or a token is ignored), and whether to report
-    /// sales and store changes.
-    pub fn set_notify(&mut self, webhook: &str, telegram_bot: &str, telegram_chat: f64, sales: bool, store: bool) {
+    /// Where sold items and the store opening or closing are reported: a Discord webhook URL and a Telegram bot's
+    /// `sendMessage` URL with its `chat_id` (anything else is ignored, and a Telegram URL without its chat sends
+    /// nothing yet), and whether to report sales and store changes.
+    pub fn set_notify(&mut self, webhook: &str, telegram_webhook: &str, sales: bool, store: bool) {
         let discord_webhook = discord::valid_webhook(webhook).unwrap_or_default().to_string();
-        let telegram_bot = telegram::valid_token(telegram_bot).unwrap_or_default().to_string();
-        let telegram_chat = telegram_chat as i64;
+        let (bot, telegram_chat) = telegram::parse_webhook(telegram_webhook).unwrap_or_default();
+        let telegram_bot = bot.to_string();
         self.shop.set_notify(NotifySettings { discord_webhook, telegram_bot, telegram_chat, sales, store });
     }
 
@@ -179,12 +179,13 @@ impl Engine {
         self.shop.test_request(&settings, unix_now)
     }
 
-    /// The test message for the bot `token` writing to `chat`, as `{"service", "url", "body"}` JSON, or undefined when
-    /// the token is not one or the chat is not known.
-    pub fn telegram_test_request(&self, token: &str, chat: f64, unix_now: f64) -> Option<String> {
+    /// The test message for a Telegram webhook URL as `{"service", "url", "body"}` JSON, or undefined when it is not
+    /// one or has no chat yet.
+    pub fn telegram_test_request(&self, url: &str, unix_now: f64) -> Option<String> {
+        let (bot, telegram_chat) = telegram::parse_webhook(url)?;
         let settings = NotifySettings {
-            telegram_bot: token.to_string(),
-            telegram_chat: chat as i64,
+            telegram_bot: bot.to_string(),
+            telegram_chat,
             sales: true,
             store: true,
             ..Default::default()
@@ -192,15 +193,25 @@ impl Engine {
         self.shop.test_request(&settings, unix_now)
     }
 
-    /// The request asking the bot `token` who wrote to it lately, as `{"url", "body"}` JSON (POST); its answer goes to
-    /// `telegram_chat`.
-    pub fn telegram_link_request(token: &str) -> Option<String> {
-        telegram::link_request(token).map(|r| serde_json::json!({"url": r.url, "body": r.body}).to_string())
+    /// The request asking the bot in `url` (a webhook URL or a token) who wrote to it lately, as `{"url", "body"}` JSON
+    /// (POST); its answer goes to `telegram_linked`.
+    pub fn telegram_link_request(url: &str) -> Option<String> {
+        let (bot, _) = telegram::parse_webhook(url)?;
+        telegram::link_request(bot).map(|r| serde_json::json!({"url": r.url, "body": r.body}).to_string())
     }
 
-    /// The chat that last wrote to the bot, from the answer to `telegram_link_request`; 0 when none did lately.
-    pub fn telegram_chat(answer: &str) -> f64 {
-        telegram::chat_from_updates(answer).unwrap_or(0) as f64
+    /// The whole webhook URL of the bot in `url` with the chat that last wrote to it, from the answer to
+    /// `telegram_link_request`; "" when none did lately.
+    pub fn telegram_linked(url: &str, answer: &str) -> String {
+        match (telegram::parse_webhook(url), telegram::chat_from_updates(answer)) {
+            (Some((bot, _)), Some(chat)) => telegram::webhook_url(bot, chat),
+            _ => String::new(),
+        }
+    }
+
+    /// What was pasted as a Telegram webhook URL in its one form ("" when it holds no bot), for the page to keep.
+    pub fn telegram_webhook(text: &str) -> String {
+        telegram::parse_webhook(text).map(|(bot, chat)| telegram::webhook_url(bot, chat)).unwrap_or_default()
     }
 
     /// A service's refusal (HTTP `status`) in words for the player.

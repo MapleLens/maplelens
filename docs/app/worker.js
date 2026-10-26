@@ -2,15 +2,15 @@
 //
 // Messages in:  {type: "init", fonts, glyphs, cardScale} · {type: "frame", bitmap, inset, scale} ·
 //               {type: "ocr-answer", id, text} · {type: "ocr-enabled", enabled} · {type: "shop", enabled} ·
-//               {type: "notify", webhook, telegramBot, telegramChat, sales, store} ·
-//               {type: "notify-test", service, webhook, telegramBot, telegramChat} · {type: "catalog", id, json}
+//               {type: "notify", webhook, telegramWebhook, sales, store} ·
+//               {type: "notify-test", service, webhook, telegramWebhook} · {type: "catalog", id, json}
 // Messages out: {type: "ready", version, items} · {type: "state", state, fps, ms} · {type: "card", which, version,
 //               width, height, pixels} · {type: "ocr-job", id, font, width, height, pixels} · {type: "glyphs", font,
 //               json} · {type: "idle"} (ready for the next frame) · {type: "notify-status", text} ·
-//               {type: "notify-test-result", ok, text, chat?} · {type: "catalog-loaded", id, items | error} ·
+//               {type: "notify-test-result", ok, text, telegramWebhook?} · {type: "catalog-loaded", id, items | error} ·
 //               {type: "error", message}
 
-import init, { Engine } from "./pkg/maplelens_web.js?v=9842f296c749";
+import init, { Engine } from "./pkg/maplelens_web.js?v=b3be61b47b2d";
 
 /** One rank lookup every two seconds stays under classicrank.com's 30 requests a minute. */
 const RANK_GAP_MS = 2000;
@@ -35,7 +35,7 @@ const post = (message, transfer = []) => self.postMessage(message, transfer);
 
 async function start({ fonts, glyphs, cardScale, ocr }) {
   // Named explicitly so scripts/stamp-web.ps1 can version it together with the glue.
-  await init({ module_or_path: new URL("./pkg/maplelens_web_bg.wasm?v=9842f296c749", import.meta.url) });
+  await init({ module_or_path: new URL("./pkg/maplelens_web_bg.wasm?v=b3be61b47b2d", import.meta.url) });
   const [regular, bold] = await Promise.all(fonts.map(url => fetch(url).then(r => r.arrayBuffer())));
   engine = new Engine(new Uint8Array(regular), new Uint8Array(bold));
   engine.card_scale = cardScale || 1;
@@ -69,9 +69,9 @@ async function deliver({ service = "Discord", url, body }) {
   return { ok: false, text: `${service} keeps refusing for going too fast` };
 }
 
-/** A test message to one service; a Telegram bot whose chat is not known yet is first asked who wrote to it, and the
- *  chat found comes back with the answer for the page to keep. */
-async function testNotify({ service, webhook, telegramBot, telegramChat }) {
+/** A test message to one service; a Telegram URL without its chat is first completed by asking the bot who wrote to
+ *  it, and the whole URL comes back with the answer for the page to keep. */
+async function testNotify({ service, webhook, telegramWebhook }) {
   const now = Date.now() / 1000;
   if (service !== "telegram") {
     const request = engine.notify_test_request(webhook, now);
@@ -79,20 +79,18 @@ async function testNotify({ service, webhook, telegramBot, telegramChat }) {
     const r = await deliver(JSON.parse(request));
     return { ok: r.ok, text: r.ok ? "Sent: check your Discord channel" : `Not sent: ${r.text}` };
   }
-  let chat = Number(telegramChat) || 0;
+  let url = telegramWebhook;
   let found;
-  if (!chat) {
-    const link = Engine.telegram_link_request(telegramBot);
-    if (!link) return { ok: false, text: "Paste your bot's token first" };
+  if (!engine.telegram_test_request(url, now)) {
+    const link = Engine.telegram_link_request(url);
+    if (!link) return { ok: false, text: "Paste your bot's URL or token first" };
     const r = await deliver({ service: "Telegram", ...JSON.parse(link) });
     if (!r.ok) return { ok: false, text: `Not linked: ${r.text}` };
-    found = chat = Engine.telegram_chat(r.answer);
-    if (!chat) return { ok: false, text: "No message to the bot yet: send it /start in Telegram, then Test again" };
+    found = url = Engine.telegram_linked(url, r.answer);
+    if (!url) return { ok: false, text: "No message to the bot yet: send it /start in Telegram, then Test again" };
   }
-  const request = engine.telegram_test_request(telegramBot, chat, now);
-  if (!request) return { ok: false, text: "Paste your bot's token first" };
-  const r = await deliver(JSON.parse(request));
-  return { ok: r.ok, text: r.ok ? "Sent: check your Telegram chat" : `Not sent: ${r.text}`, chat: found };
+  const r = await deliver(JSON.parse(engine.telegram_test_request(url, now)));
+  return { ok: r.ok, text: r.ok ? "Sent: check your Telegram chat" : `Not sent: ${r.text}`, telegramWebhook: found };
 }
 
 async function drainOutbox() {
@@ -187,7 +185,7 @@ self.onmessage = async ({ data }) => {
     }
     else if (data.type === "shop" && engine) engine.set_shop(data.enabled);
     else if (data.type === "notify" && engine) {
-      engine.set_notify(data.webhook, data.telegramBot, Number(data.telegramChat) || 0, data.sales, data.store);
+      engine.set_notify(data.webhook, data.telegramWebhook, data.sales, data.store);
     }
     else if (data.type === "notify-test" && engine) testNotify(data).then(r => post({ type: "notify-test-result", ...r }));
   } catch (error) {

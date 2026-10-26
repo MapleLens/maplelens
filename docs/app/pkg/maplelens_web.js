@@ -339,21 +339,20 @@ export class Engine {
         return ret >>> 0;
     }
     /**
-     * Where sold items and the store opening or closing are reported: a Discord webhook URL and a Telegram bot token
-     * with its chat (0 = not linked yet; anything that is not a webhook or a token is ignored), and whether to report
-     * sales and store changes.
+     * Where sold items and the store opening or closing are reported: a Discord webhook URL and a Telegram bot's
+     * `sendMessage` URL with its `chat_id` (anything else is ignored, and a Telegram URL without its chat sends
+     * nothing yet), and whether to report sales and store changes.
      * @param {string} webhook
-     * @param {string} telegram_bot
-     * @param {number} telegram_chat
+     * @param {string} telegram_webhook
      * @param {boolean} sales
      * @param {boolean} store
      */
-    set_notify(webhook, telegram_bot, telegram_chat, sales, store) {
+    set_notify(webhook, telegram_webhook, sales, store) {
         const ptr0 = passStringToWasm0(webhook, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
         const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(telegram_bot, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+        const ptr1 = passStringToWasm0(telegram_webhook, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
         const len1 = WASM_VECTOR_LEN;
-        wasm.engine_set_notify(this.__wbg_ptr, ptr0, len0, ptr1, len1, telegram_chat, sales, store);
+        wasm.engine_set_notify(this.__wbg_ptr, ptr0, len0, ptr1, len1, sales, store);
     }
     /**
      * Whether the page can recognise images the atlas cannot read (the OCR fallback): without it no jobs are made.
@@ -390,26 +389,15 @@ export class Engine {
         }
     }
     /**
-     * The chat that last wrote to the bot, from the answer to `telegram_link_request`; 0 when none did lately.
-     * @param {string} answer
-     * @returns {number}
-     */
-    static telegram_chat(answer) {
-        const ptr0 = passStringToWasm0(answer, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.engine_telegram_chat(ptr0, len0);
-        return ret;
-    }
-    /**
-     * The request asking the bot `token` who wrote to it lately, as `{"url", "body"}` JSON (POST); its answer goes to
-     * `telegram_chat`.
-     * @param {string} token
+     * The request asking the bot in `url` (a webhook URL or a token) who wrote to it lately, as `{"url", "body"}` JSON
+     * (POST); its answer goes to `telegram_linked`.
+     * @param {string} url
      * @returns {string | undefined}
      */
-    static telegram_link_request(token) {
+    static telegram_link_request(url) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passStringToWasm0(token, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+            const ptr0 = passStringToWasm0(url, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
             const len0 = WASM_VECTOR_LEN;
             wasm.engine_telegram_link_request(retptr, ptr0, len0);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
@@ -425,19 +413,45 @@ export class Engine {
         }
     }
     /**
-     * The test message for the bot `token` writing to `chat`, as `{"service", "url", "body"}` JSON, or undefined when
-     * the token is not one or the chat is not known.
-     * @param {string} token
-     * @param {number} chat
+     * The whole webhook URL of the bot in `url` with the chat that last wrote to it, from the answer to
+     * `telegram_link_request`; "" when none did lately.
+     * @param {string} url
+     * @param {string} answer
+     * @returns {string}
+     */
+    static telegram_linked(url, answer) {
+        let deferred3_0;
+        let deferred3_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passStringToWasm0(url, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+            const len0 = WASM_VECTOR_LEN;
+            const ptr1 = passStringToWasm0(answer, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+            const len1 = WASM_VECTOR_LEN;
+            wasm.engine_telegram_linked(retptr, ptr0, len0, ptr1, len1);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            deferred3_0 = r0;
+            deferred3_1 = r1;
+            return getStringFromWasm0(r0, r1);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export(deferred3_0, deferred3_1, 1);
+        }
+    }
+    /**
+     * The test message for a Telegram webhook URL as `{"service", "url", "body"}` JSON, or undefined when it is not
+     * one or has no chat yet.
+     * @param {string} url
      * @param {number} unix_now
      * @returns {string | undefined}
      */
-    telegram_test_request(token, chat, unix_now) {
+    telegram_test_request(url, unix_now) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passStringToWasm0(token, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+            const ptr0 = passStringToWasm0(url, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
             const len0 = WASM_VECTOR_LEN;
-            wasm.engine_telegram_test_request(retptr, this.__wbg_ptr, ptr0, len0, chat, unix_now);
+            wasm.engine_telegram_test_request(retptr, this.__wbg_ptr, ptr0, len0, unix_now);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             let v2;
@@ -448,6 +462,29 @@ export class Engine {
             return v2;
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * What was pasted as a Telegram webhook URL in its one form ("" when it holds no bot), for the page to keep.
+     * @param {string} text
+     * @returns {string}
+     */
+    static telegram_webhook(text) {
+        let deferred2_0;
+        let deferred2_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passStringToWasm0(text, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.engine_telegram_webhook(retptr, ptr0, len0);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            deferred2_0 = r0;
+            deferred2_1 = r1;
+            return getStringFromWasm0(r0, r1);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export(deferred2_0, deferred2_1, 1);
         }
     }
     /**
