@@ -44,8 +44,6 @@ const PACE = 2;
  *  appear); while a tooltip or window is being read, the full rate. */
 const IDLE_GAP_MS = 250;
 const IDLE_AFTER_MS = 1500;
-/** Reading nothing for this long while a source runs: say what to check. */
-const NOTHING_AFTER_MS = 25000;
 
 let lens = null;
 let source = null; // {stop(), next(): Promise<ImageBitmap|null>, scale, label, fullFrame}
@@ -58,7 +56,6 @@ let pageView = null;
 let lastMs = 0;
 let lastState = null;
 let lastSeen = 0; // when a tooltip or Character Info window was last in the state
-let startedAt = 0;
 let latest = { card: null, rank: null, title: "", note: "" };
 const images = { card: null, rank: null };
 const stats = { shopEvents: [], frames: 0, dropped: 0, ms: [], longTasks: 0, started: 0, cards: 0, hovers: 0, titles: {}, mainMs: 0, pumpMs: 0 };
@@ -334,22 +331,21 @@ async function pump() {
 function start(newSource) {
   stop();
   source = newSource;
-  startedAt = lastSeen = performance.now();
+  lastSeen = performance.now();
   Object.assign(stats, { frames: 0, dropped: 0, ms: [], longTasks: 0, cards: 0, hovers: 0, titles: {}, mainMs: 0, pumpMs: 0, started: performance.now() });
   $("start").hidden = true;
   $("view").hidden = false;
-  $("stop").hidden = false;
+  $("meter").hidden = false;
   $("source").textContent = source.label;
   pump();
 }
 
 function stop() {
-  $("nothing").hidden = true;
   source?.stop();
   source = null;
   $("start").hidden = false;
   $("view").hidden = true;
-  $("stop").hidden = true;
+  $("meter").hidden = true;
   $("boxes").replaceChildren();
   $("source").textContent = "not connected";
   setPill("tooltip-pill", false, "no tooltip");
@@ -509,18 +505,6 @@ function previewFloating() {
   floating = { window: { focus() {}, close() {} }, view };
 }
 
-/** Once a source has run a while without reading a tooltip or window, say what usually is the matter. */
-function watchForNothing() {
-  setInterval(() => {
-    const quiet = source && performance.now() - Math.max(startedAt, lastSeen) > NOTHING_AFTER_MS;
-    const note = $("nothing");
-    note.hidden = !quiet;
-    if (quiet) {
-      note.textContent = "Nothing read yet. Hover an item in the game window you shared.";
-    }
-  }, 1000);
-}
-
 let prices = null;
 
 /** Load prices (the cached copy, then MesoWatch when 30 minutes have passed) and say where they came from. */
@@ -536,7 +520,12 @@ async function updatePrices() {
 
 async function main() {
   checkSupport();
-  watchForNothing();
+  for (const button of document.querySelectorAll("[data-help]")) {
+    const guide = $(button.dataset.help);
+    button.addEventListener("click", () => guide.showModal());
+    // A click on the dimmed backdrop (the dialog itself, outside its window) closes it too.
+    guide.addEventListener("click", e => { if (e.target === guide) guide.close(); });
+  }
   pageView = new CardView(document, $("cards"), {
     emptyTitle: "Hover an item in the game",
     emptyText: "Its card appears here.",
