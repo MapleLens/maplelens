@@ -7,7 +7,33 @@ const PAIR_CACHE = "maplelens-phone";
 const PAIR_REQUEST = "pair-key";
 
 self.addEventListener("install", () => self.skipWaiting());
-self.addEventListener("activate", event => event.waitUntil(self.clients.claim()));
+self.addEventListener("activate", event =>
+  event.waitUntil(
+    (async () => {
+      // The page's request starts while the worker wakes, so handling navigations costs no wait.
+      await self.registration.navigationPreload?.enable();
+      await self.clients.claim();
+    })(),
+  ),
+);
+
+const OFFLINE_PAGE = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MapleLens</title><p style="font:16px system-ui,sans-serif;padding:24px">MapleLens needs an internet connection. Connect, then open it again.</p>`;
+
+// Chrome offers its install prompt only to a worker with a fetch handler (an empty one is ignored). Only the page itself
+// is handled: offline it gets a word of explanation instead of the browser's error; everything else goes straight out.
+self.addEventListener("fetch", event => {
+  if (event.request.mode !== "navigate") return;
+  event.respondWith(
+    (async () => {
+      try {
+        return (await event.preloadResponse) || (await fetch(event.request));
+      } catch {
+        return new Response(OFFLINE_PAGE, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+      }
+    })(),
+  );
+});
 
 self.addEventListener("push", event => {
   let message = {};

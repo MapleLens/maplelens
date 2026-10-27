@@ -5,8 +5,8 @@
 // Fastest path per phone: Android receives push in the browser tab itself (scan, tap, done; installing is optional).
 // iPhone only lets home-screen apps receive push, so the page is installed once, and the app can pair by scanning.
 
-import { pullToRefresh } from "./pull.js?v=564b2b48e7a0";
-import { KEY_SHAPE, PAIR_CACHE, PAIR_REQUEST, relay, RELAY_URL, unseal } from "./relay.js?v=564b2b48e7a0";
+import { pullToRefresh } from "./pull.js?v=cae61cd22445";
+import { KEY_SHAPE, PAIR_CACHE, PAIR_REQUEST, relay, RELAY_URL, unseal } from "./relay.js?v=cae61cd22445";
 
 const $ = id => document.getElementById(id);
 const STORED_KEY = "maplelens.phone.key";
@@ -30,6 +30,9 @@ const ONBOARD_VIEWS = ["no-key", "removed", "scanner", "install", "unsupported",
 const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 const pushable = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+// Chrome offers to install only a manifest with a start_url ("start-url-not-valid" otherwise). Its installed app
+// shares the browser's storage, so it finds the key kept there; an iPhone's does not, and keeps the one without.
+if (!ios) document.querySelector('link[rel="manifest"]').href = "install.webmanifest";
 const fromAddress = valid(new URLSearchParams(location.search).get("pair"));
 // An installed app always opens the address it was installed from, so there the key saved by the last pairing wins;
 // in a browser tab the address is a code just scanned and wins.
@@ -562,13 +565,17 @@ async function start() {
   // iPhone allows push only to home-screen apps, whatever the Safari tab exposes.
   if (ios && !standalone) return show("install", "add to home screen");
   if (!pushable) return show("unsupported", "not available");
+  // Registered before pairing too: Chrome's install prompt waits for a service worker that handles fetches. Not
+  // awaited yet: a phone that cannot register still sees how to pair, and learns why only when it tries.
+  const worker = registration();
+  worker.catch(() => {});
   $("scan-btn").hidden = $("rescan-btn").hidden = !navigator.mediaDevices?.getUserMedia;
   if (!key) return show("no-key", "not paired");
   // A code for another MapleLens than the one this phone follows: only a tap switches it (a link anyone can post
   // must not take the phone over).
   const stored = load(STORED_KEY);
   if (!standalone && !keptCurrent && fromAddress && stored && fromAddress !== stored) return show("switch", "already connected");
-  const sw = await registration();
+  const sw = await worker;
   const subscription = await sw.pushManager.getSubscription();
   const paired = Notification.permission === "granted" && subscription && (await caches.has(PAIR_CACHE));
   if (!paired) return show("enable", "not connected");
