@@ -37,6 +37,14 @@ export class StoreState {
     const phones = Array.isArray(meta.get("phones")) ? meta.get("phones") : [];
     const now = Date.now();
     if (op === "pair") return this.pair(hash, phones, phone, replaces, reply);
+    if (op === "remove") {
+      // Removed in MapleLens: this key never works again (a few bytes, kept for good: a phone that missed the
+      // "disconnected" push may come back with the key months later and re-pair). Also for a pairing the idle alarm
+      // already deleted, or a phone holding the key would bring it back. The phones are handed back to be told.
+      await this.forget();
+      await this.storage.put({ removed: true, hash });
+      return reply(200, { phones });
+    }
     if (!known) return reply(404, { error: "not paired" });
     switch (op) {
       case "phones":
@@ -49,12 +57,6 @@ export class StoreState {
         if (left.length < phones.length) await this.storage.put({ phones: left });
         return reply(200, { phones: left.length });
       }
-      case "remove":
-        // Removed in MapleLens: this key never works again (a few bytes, kept for good: a phone that missed the
-        // "disconnected" push may come back with the key months later). The phones are handed back to be told.
-        await this.forget();
-        await this.storage.put({ removed: true, hash });
-        return reply(200, { phones });
       case "put":
         await this.storage.put({ blob, at: now });
         this.seen = now;
@@ -98,10 +100,17 @@ export class StoreState {
   /** Pushes the idle alarm back, once a day at most. */
   async touch(now) {
     const due = await this.storage.getAlarm();
-    if (!due || due < now + IDLE_MS - TOUCH_MS) await this.storage.setAlarm(now + IDLE_MS);
+    if (!due || due < now + IDLE_MS - TOUCH_MS) {
+      await this.storage.setAlarm(now + IDLE_MS);
+      await this.storage.put({ touched: now });
+    }
   }
 
   async alarm() {
+    // An alarm set before the idle rule (a 14-day one for the snapshot) finds no `touched`: the pairing gets its
+    // 60 days from now rather than being deleted early.
+    const touched = await this.storage.get("touched");
+    if (!touched) return this.touch(Date.now());
     await this.forget();
   }
 

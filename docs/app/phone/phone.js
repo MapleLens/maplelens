@@ -5,11 +5,13 @@
 // Fastest path per phone: Android receives push in the browser tab itself (scan, tap, done; installing is optional).
 // iPhone only lets home-screen apps receive push, so the page is installed once, and the app can pair by scanning.
 
-import { KEY_SHAPE, PAIR_CACHE, PAIR_REQUEST, relay, RELAY_URL, unseal } from "./relay.js?v=baf725f719e6";
+import { KEY_SHAPE, PAIR_CACHE, PAIR_REQUEST, relay, RELAY_URL, unseal } from "./relay.js?v=f970eba269ab";
 
 const $ = id => document.getElementById(id);
 const STORED_KEY = "maplelens.phone.key";
 const TAB_KEY = "maplelens.phone.tab";
+/** A pairing this phone switched away from but could not yet leave (no connection, too many tries): left later. */
+const LEAVE_KEY = "maplelens.phone.leave";
 /** The QR decoder for phones without BarcodeDetector (iPhone), loaded only when the player scans. Served from this
  *  site (scripts/vendor.mjs), never a CDN: the page holds the pairing key. */
 const JSQR_URL = new URL("vendor/jsqr-1.4.0/jsQR.js", import.meta.url).href;
@@ -139,16 +141,12 @@ async function enable() {
       return;
     }
     if (!answer.ok) {
-      note.textContent =
-        answer.status === 404 ? "This code belongs to another pairing. Scan the one MapleLens shows now."
-        : answer.status === 409 ? "This MapleLens already has 5 phones. Press Remove next to Phone on the computer, then connect again."
-        : answer.status === 429 ? "Too many tries. Wait a minute, then try again."
-        : answer.status === 0 ? "No connection. Check the phone's internet, then try again."
-        : "Could not connect. Try again in a moment.";
+      note.textContent = pairProblem(answer.status);
       return;
     }
-    // A phone follows one MapleLens: once the new pairing has it, it leaves the one it was in.
-    if (before && before !== key) await relay("unpair", { key: before, endpoint: subscription.endpoint });
+    // A phone follows one MapleLens: once the new pairing has it, it leaves the one it was in (later if it can't now).
+    if (before && before !== key) store(LEAVE_KEY, before);
+    await leaveOld(subscription);
     await remember();
     note.textContent = "";
     dashboard();
@@ -160,6 +158,23 @@ async function enable() {
   }
 }
 
+/** What a refused pairing means to the player. */
+function pairProblem(status) {
+  return status === 404 ? "This code belongs to another pairing. Scan the one MapleLens shows now."
+    : status === 409 ? "This MapleLens already has 5 phones. Press Remove next to Phone on the computer, then connect again."
+    : status === 429 ? "Too many tries. Wait a minute, then try again."
+    : status === 0 ? "No connection. Check the phone's internet, then try again."
+    : "Could not connect. Try again in a moment.";
+}
+
+/** Leaves the pairing this phone switched away from, once the relay answers (gone already counts). */
+async function leaveOld(subscription) {
+  const old = load(LEAVE_KEY);
+  if (!old || !subscription) return;
+  const answer = await relay("unpair", { key: old, endpoint: subscription.endpoint });
+  if (answer.ok || answer.status === 404 || answer.status === 410) store(LEAVE_KEY, "");
+}
+
 /** Forget the key here (it no longer works anywhere) and say why. */
 async function removed() {
   stopRefreshing();
@@ -168,6 +183,7 @@ async function removed() {
   await (await sw?.pushManager.getSubscription())?.unsubscribe();
   await caches.delete(PAIR_CACHE);
   store(STORED_KEY, "");
+  store(LEAVE_KEY, "");
   key = "";
   snapshot = null;
   history.replaceState(null, "", "./");
@@ -183,6 +199,7 @@ async function unpair() {
   await subscription?.unsubscribe();
   await caches.delete(PAIR_CACHE);
   store(STORED_KEY, "");
+  store(LEAVE_KEY, "");
   key = "";
   snapshot = null;
   $("settings").close();
@@ -267,6 +284,17 @@ async function repair() {
   const answer = await relay("pair", { key, subscription: subscription.toJSON() });
   if (answer.status === 410) return removed();
   render();
+  return answer;
+}
+
+/** A fresh push subscription in place of one the push service no longer delivers to, paired in its place. */
+async function resubscribe() {
+  const sw = await navigator.serviceWorker.getRegistration("./");
+  const old = await sw?.pushManager.getSubscription();
+  if (!sw || !old) return { ok: false, status: 404 };
+  await old.unsubscribe();
+  const fresh = await sw.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: await vapidKey() });
+  return relay("pair", { key, subscription: fresh.toJSON(), replaces: old.endpoint });
 }
 
 // ---------- the dashboard ----------
@@ -473,9 +501,12 @@ async function test() {
   $("test-btn").disabled = false;
   if (answer.status === 410) return removed();
   if (answer.status === 404) {
-    // The relay had dropped this phone (its push service renewed or lost the subscription): pair it again.
-    await repair();
-    $("test-note").textContent = "This phone was reconnected. Press Test again.";
+    // The relay dropped this phone: its push service said the subscription is gone, so a new one is made and paired.
+    const again = await resubscribe().catch(() => ({ ok: false, status: -1 }));
+    if (again.status === 410) return removed();
+    $("test-note").textContent = again.ok ? "This phone was reconnected. Press Test again."
+      : again.status === -1 ? "Notifications could not be turned back on. Open the phone's settings for MapleLens."
+      : pairProblem(again.status);
     return;
   }
   $("test-note").textContent = answer.ok ? "Sent. It should arrive in a few seconds."
@@ -539,7 +570,14 @@ async function start() {
   // Re-pairing is harmless (the relay keeps one entry per phone, and writes nothing for an unchanged one) and heals
   // a pairing the relay dropped; a key removed on the computer answers 410.
   const answer = await relay("pair", { key, subscription: subscription.toJSON() });
-  if (answer.status === 410) removed();
+  if (answer.status === 410) return removed();
+  if (answer.status === 409) {
+    // Not in the pairing, and no room in it: say so rather than show a dashboard that gets no notifications.
+    show("enable", "not connected");
+    $("enable-note").textContent = pairProblem(409);
+    return;
+  }
+  await leaveOld(subscription);
 }
 
 // Android Chrome offers its install dialog when it judges the page installable: a home-screen icon, optional there.

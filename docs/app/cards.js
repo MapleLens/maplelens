@@ -5,7 +5,7 @@
 //             player "holds" it), so the numbers can still be read after the mouse moves on;
 //   empty     nothing to show: a short hint.
 
-import { paint } from "./lens.js?v=baf725f719e6";
+import { paint } from "./lens.js?v=f970eba269ab";
 
 const FIT_KEY = "maplelens.cards.fit";
 

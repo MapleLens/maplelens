@@ -233,7 +233,10 @@ same frames through the Rust watcher (373 real captures, 22 ms a frame against P
   sale; store changes share a tag. iPhone pushes
   only to home-screen apps, so the phone manifest has no `start_url` (the installed app opens the address with its
   key; an installed app's storage is its own) and the app can also pair by scanning in-page (BarcodeDetector, else
-  vendored jsQR). Android needs no install. The website's QR (`docs/assets/phone-qr.svg`) is
+  vendored jsQR). Android needs no install. A phone follows one pairing: a code for another one (a link anyone can
+  post) switches it only after a tap, joining the new pairing before leaving the old, and the key leaves the address
+  bar once kept (not in an iPhone Safari tab, which installs from that address). A pairing takes 5 phones; a sixth is
+  refused (409), never one dropped silently, and an unused pairing is deleted after 60 days. The website's QR (`docs/assets/phone-qr.svg`) is
   `cargo run -p maplelens-core --example phone_qr`. The Windows app keeps `phone_key` but has no pairing UI yet.
 - The phone app is also a dashboard of the store: the page keeps a store book (`docs/app/storebook.js`: sales with item
   pictures (the worker posts each one the engine finds: `Engine::picture_url`), chat, visits, who is inside, status, owner, mesos; kept in localStorage), seals it with AES-GCM under

@@ -32,7 +32,8 @@ self.addEventListener("push", event => {
       if (message.tag === "unpaired") {
         const stored = await (await caches.open(PAIR_CACHE)).match(PAIR_REQUEST);
         const held = stored ? await stored.text() : "";
-        unpaired = Boolean(held) && (!message.pairing || held.startsWith(`${message.pairing}.`));
+        const other = Boolean(held) && Boolean(message.pairing) && !held.startsWith(`${message.pairing}.`);
+        unpaired = !other;
         if (unpaired) await caches.delete(PAIR_CACHE);
         else Object.assign(options, { body: "An earlier MapleLens connection was removed. This phone is still connected.", tag: "old-pairing" });
       }
@@ -68,11 +69,20 @@ self.addEventListener("pushsubscriptionchange", event => {
         event.newSubscription ||
         (await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey }));
       // `replaces`: the same phone renewing, so the others get no "new phone" alert and the old one frees its place.
-      await fetch(`${RELAY_URL}/pair`, {
+      const answer = await fetch(`${RELAY_URL}/pair`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key, subscription, replaces: event.oldSubscription?.endpoint }),
       });
+      // Without the old address (Firefox) a full pairing has no room for the renewed one: the phone would go quiet.
+      if (answer.status === 409) {
+        await self.registration.showNotification("MapleLens stopped notifying this phone", {
+          body: "Its connection was renewed, and 5 phones are already connected. Press Remove next to Phone on the computer, then connect again.",
+          icon: "icon-192.png",
+          badge: "badge.png",
+          data: { url: self.registration.scope },
+        });
+      }
     })(),
   );
 });

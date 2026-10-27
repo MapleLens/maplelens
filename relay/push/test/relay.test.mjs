@@ -421,6 +421,42 @@ test("a pairing left unused for 60 days is forgotten; a removed key's tombstone 
   assert.equal(object.storage.alarm, null);
 });
 
+test("removing a pairing the idle alarm already deleted still leaves a tombstone", async () => {
+  const env = await environment();
+  pushService();
+  const phone = await subscription("a");
+  await call(env, "/pair", { key: KEY, subscription: phone });
+  await env.STORES.instances.get(KEY.split(".")[0]).alarm();
+  assert.deepEqual(await call(env, "/unpair", { key: KEY, remove: true }), { status: 200, json: { phones: 0 } });
+  // The phone still holding the key cannot bring the pairing back.
+  assert.equal((await call(env, "/pair", { key: KEY, subscription: phone })).status, 410);
+});
+
+test("the idle alarm moves once a day, and an alarm from before the idle rule does not delete early", async () => {
+  const env = await environment();
+  pushService();
+  const realNow = Date.now;
+  try {
+    let now = realNow();
+    Date.now = () => now;
+    await call(env, "/pair", { key: KEY, subscription: await subscription("a") });
+    const object = env.STORES.instances.get(KEY.split(".")[0]);
+    const first = object.storage.alarm;
+    now += 3600000;
+    await call(env, "/state/ping", { key: KEY });
+    assert.equal(object.storage.alarm, first, "an hour later: unchanged");
+    now += 2 * 86400000;
+    await call(env, "/state/ping", { key: KEY });
+    assert.equal(object.storage.alarm, now + 60 * 86400000, "two days later: pushed back");
+    // An object from before: no `touched`, an early alarm.
+    object.storage.data.delete("touched");
+    await object.alarm();
+    assert.equal((await call(env, "/state/ping", { key: KEY })).json.phones, 1, "the pairing stays");
+  } finally {
+    Date.now = realNow;
+  }
+});
+
 test("nobody but the relay can send its own tags (a phone forgets its key on \"unpaired\")", async () => {
   const env = await environment();
   const pushed = pushService();
