@@ -112,8 +112,10 @@ that file along with your report. Settings, cached prices and learnt letters liv
 ### In your browser
 
 Open **[MapleLens Web](https://maplelens.github.io/maplelens/app/)** in Chrome or Edge, click **Share game window**
-and pick MapleStory. Hover items as usual; the cards show in the page, or click **Pop out over the game** for a small
-window that floats on top. Everything runs in your browser tab: no frame is uploaded.
+and pick MapleStory. Hover items as usual; the cards show in the page, or click **Float over the game** for a small
+window that floats on top. A card stays a few seconds after you move on (longer while your pointer is over it), and the
+items you hovered are listed there to look at again. Open someone's Character Info and their ranks show with their
+name, level, job and picture from classicrank.com. Everything runs in your browser tab: no frame is uploaded.
 
 Differences from the Windows app: the browser cannot draw over another program or know where your mouse is, so the
 card shows in that floating window instead of beside the tooltip, and the tooltip is found by searching the frame.

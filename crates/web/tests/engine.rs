@@ -36,17 +36,35 @@ fn the_demo_frame_shows_a_price_card_and_a_rank_panel() {
     assert_eq!(state["info"]["name"], "masterball");
     assert!(state["card"].as_u64().is_some());
     assert_eq!(engine.card_pixels().len(), (engine.card_width() * engine.card_height() * 4) as usize);
+    // The page lists recent items by what their card is about.
+    let about: Value = serde_json::from_str(&engine.card_about()).unwrap();
+    assert_eq!(about["name"], "Emerald Ore");
+    assert!(about["price"].is_string() && about["trend"].is_number(), "{about}");
 
     // The rank lookup is the page's to make; its answer turns the "looking up" panel into ranks.
     let request: Value = serde_json::from_str(&engine.next_rank_request().expect("a lookup is due")).unwrap();
     assert_eq!(request["name"], "masterball");
     assert!(request["url"].as_str().unwrap().starts_with("https://classicrank.com/api/v1/characters/masterball?"));
     let loading_height = engine.rank_height();
-    let body = r#"{"data": {"name": "masterball", "overall_rank": 29516, "job_rank": 824, "fame_rank": 21312, "botting": false}}"#;
+    let about: Value = serde_json::from_str(&engine.rank_about()).unwrap();
+    assert_eq!(
+        (&about["read"], &about["status"], &about["rank"]),
+        (&"masterball".into(), &"loading".into(), &Value::Null)
+    );
+    let body = r#"{"data": {"name": "masterball", "level": 27, "job": "Rogue", "overall_rank": 29516, "job_rank": 824,
+        "fame_rank": 21312, "botting": false, "photo": "https://classicrank.com/api/avatar/masterball?v=1"}}"#;
     engine.rank_response("masterball", 200, body, 0.0, 0.1);
     let state: Value = serde_json::from_str(&engine.process(&rgba, w, h, 0, 1.0, 0.2, 1_761_000_000.0)).unwrap();
     assert!(state["rank"].as_u64().is_some());
     assert!(engine.rank_height() > loading_height);
+    // The page draws its own panel, with the character's photo and name.
+    let about: Value = serde_json::from_str(&engine.rank_about()).unwrap();
+    assert_eq!(about["status"], "found");
+    assert_eq!(
+        (&about["rank"]["name"], &about["rank"]["level"], &about["rank"]["job"]),
+        (&"masterball".into(), &27.into(), &"Rogue".into())
+    );
+    assert_eq!(about["rank"]["photo"], "https://classicrank.com/api/avatar/masterball?v=1");
 }
 
 #[test]

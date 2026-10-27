@@ -11,13 +11,14 @@ use std::sync::{Arc, Mutex};
 use maplelens_core::geometry::{Point, Rect};
 use maplelens_core::image::RgbImage;
 use maplelens_core::market::catalog::Catalog;
+use maplelens_core::market::format::format_mesos;
 use maplelens_core::market::sample::sample_items;
 use maplelens_core::market::snapshot::parse_snapshot;
 use maplelens_core::notify::{NotifySettings, discord, phone, refusal, telegram};
 use maplelens_core::pipeline::FrameScreen;
 use maplelens_core::pipeline::hover::{Hover, HoverDetector};
 use maplelens_core::pipeline::info::{InfoDetector, InfoWindow};
-use maplelens_core::ranking::{DEFAULT_RETRY_S, Fetched, RankCache, parse_response, rank_url};
+use maplelens_core::ranking::{DEFAULT_RETRY_S, Fetched, RankCache, RankResult, Status, parse_response, rank_url};
 use maplelens_core::render::RgbaImage;
 use maplelens_core::render::card::{CardSpec, render_card};
 use maplelens_core::render::font::Fonts;
@@ -48,6 +49,24 @@ struct Drawn<K> {
     version: u32,
 }
 
+/// The rank panel's subject as `Engine::rank_about` describes it.
+fn rank_json(read: &str, result: &RankResult) -> Value {
+    let status = match result.status {
+        Status::Loading => "loading",
+        Status::Found => "found",
+        Status::Missing => "missing",
+        Status::Failed => "failed",
+    };
+    let rank = result.rank.as_ref().map(|r| {
+        json!({
+            "name": r.name, "level": r.level, "job": r.job, "fame": r.fame,
+            "overall_rank": r.overall_rank, "job_rank": r.job_rank, "fame_rank": r.fame_rank, "botting": r.botting,
+            "last_checked": r.last_checked, "profile_url": r.profile_url, "photo": r.photo,
+        })
+    });
+    json!({"read": read, "status": status, "rank": rank})
+}
+
 /// Band `index` of `INFO_BANDS` of the game's area, each overlapping its neighbours.
 fn info_band(bounds: Rect, index: usize, scale: f32) -> Rect {
     let overlap = (INFO_BAND_OVERLAP as f32 * scale).ceil() as i32;
@@ -73,7 +92,11 @@ pub struct Engine {
     shop: ShopRunner,
     since: f64,
     card: Option<Drawn<(String, bool)>>,
+    /// What the price card is about, as JSON for the page's list of recent items.
+    card_about: String,
     rank_card: Option<Drawn<(String, String)>>,
+    /// Who the rank panel is about and their ranks, as JSON: the page draws its own panel from it.
+    rank_about: String,
     versions: u32,
     /// Device pixels per CSS pixel where the cards are shown.
     pub card_scale: f32,
@@ -108,7 +131,9 @@ impl Engine {
             shop: ShopRunner::new(),
             since: 0.0,
             card: None,
+            card_about: "{}".into(),
             rank_card: None,
+            rank_about: "{}".into(),
             versions: 0,
             card_scale: 1.0,
         })
@@ -376,6 +401,13 @@ impl Engine {
         let image = render_card(&self.fonts, &spec);
         let version = self.next_version();
         self.card = Some(Drawn { key, image, version });
+        self.card_about = json!({
+            "name": item.as_ref().map_or(hover.title.as_str(), |i| i.name.as_str()),
+            "price": item.as_ref().filter(|i| i.price.is_some())
+                .map(|i| format!("{}{}", if i.low_data { "~" } else { "" }, format_mesos(i.price))),
+            "trend": item.as_ref().and_then(|i| i.trend),
+        })
+        .to_string();
     }
 
     fn update_rank_card(&mut self, info: Option<&InfoWindow>, now: f64, unix_now: f64) {
@@ -391,6 +423,7 @@ impl Engine {
         if self.rank_card.as_ref().is_some_and(|c| c.key == key) {
             return;
         }
+        self.rank_about = rank_json(&key.0, &result).to_string();
         let image = render_rank_card(&self.fonts, &result, unix_now, self.card_scale);
         let version = self.next_version();
         self.rank_card = Some(Drawn { key, image, version });
@@ -409,6 +442,12 @@ impl Engine {
         self.card.as_ref().map_or_else(Vec::new, |c| c.image.data.clone())
     }
 
+    /// The item the price card is about, `{"name", "price", "trend"}` JSON: the catalog's name (the read title when
+    /// it names nothing), the price as the card writes it (null without sales), the week's trend as a fraction.
+    pub fn card_about(&self) -> String {
+        self.card_about.clone()
+    }
+
     pub fn rank_width(&self) -> u32 {
         self.rank_card.as_ref().map_or(0, |c| c.image.width as u32)
     }
@@ -419,6 +458,14 @@ impl Engine {
 
     pub fn rank_pixels(&self) -> Vec<u8> {
         self.rank_card.as_ref().map_or_else(Vec::new, |c| c.image.data.clone())
+    }
+
+    /// Who the rank panel is about, `{"read", "status", "rank"}` JSON: the name as read off the Character Info window,
+    /// "loading" / "found" / "missing" / "failed", and classicrank.com's answer (name, level, job, fame, the three
+    /// ranks, botting, last_checked, profile_url, photo) or null. The page draws its own panel from it, with the
+    /// character's photo and name: the floating window has no Character Info window beside it.
+    pub fn rank_about(&self) -> String {
+        self.rank_about.clone()
     }
 
     /// The next rank lookup the page should make, as `{"name", "url"}` JSON, or undefined. The page paces them

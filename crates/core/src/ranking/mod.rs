@@ -8,8 +8,9 @@ use serde_json::Value;
 use crate::config;
 
 pub const API_URL: &str = "https://classicrank.com/api/v1/characters/";
-/// The only fields the card uses; asking for less keeps responses tiny.
-pub const API_FIELDS: &str = "name,level,job,fame,overall_rank,job_rank,fame_rank,botting,last_checked,profile_url";
+/// The only fields the cards use (the photo is the web app's); asking for less keeps responses tiny.
+pub const API_FIELDS: &str =
+    "name,level,job,fame,overall_rank,job_rank,fame_rank,botting,last_checked,profile_url,photo";
 /// Retry a failure after this long unless the API said otherwise.
 pub const DEFAULT_RETRY_S: f64 = 30.0;
 
@@ -66,6 +67,8 @@ pub struct Rank {
     /// ISO-8601 UTC.
     pub last_checked: Option<String>,
     pub profile_url: Option<String>,
+    /// A PNG of the character (96 px square, transparent around it), when classicrank.com has one.
+    pub photo: Option<String>,
 }
 
 impl Rank {
@@ -87,6 +90,7 @@ impl Rank {
             botting: raw.get("botting").and_then(Value::as_bool).unwrap_or(false),
             last_checked: text("last_checked"),
             profile_url: text("profile_url"),
+            photo: text("photo"),
         })
     }
 }

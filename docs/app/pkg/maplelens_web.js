@@ -10,6 +10,27 @@ export class Engine {
         wasm.__wbg_engine_free(ptr, 0);
     }
     /**
+     * The item the price card is about, `{"name", "price", "trend"}` JSON: the catalog's name (the read title when
+     * it names nothing), the price as the card writes it (null without sales), the week's trend as a fraction.
+     * @returns {string}
+     */
+    card_about() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.engine_card_about(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            deferred1_0 = r0;
+            deferred1_1 = r1;
+            return getStringFromWasm0(r0, r1);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
      * @returns {number}
      */
     card_height() {
@@ -371,6 +392,29 @@ export class Engine {
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
             wasm.__wbindgen_export(deferred2_0, deferred2_1, 1);
+        }
+    }
+    /**
+     * Who the rank panel is about, `{"read", "status", "rank"}` JSON: the name as read off the Character Info window,
+     * "loading" / "found" / "missing" / "failed", and classicrank.com's answer (name, level, job, fame, the three
+     * ranks, botting, last_checked, profile_url, photo) or null. The page draws its own panel from it, with the
+     * character's photo and name: the floating window has no Character Info window beside it.
+     * @returns {string}
+     */
+    rank_about() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.engine_rank_about(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            deferred1_0 = r0;
+            deferred1_1 = r1;
+            return getStringFromWasm0(r0, r1);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export(deferred1_0, deferred1_1, 1);
         }
     }
     /**

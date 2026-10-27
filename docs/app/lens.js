@@ -20,7 +20,9 @@ export class Lens {
   /**
    * @param {object} options
    * @param {(state: object, fps: number, ms: number) => void} options.onState  every processed frame (ms: the engine's time on it)
-   * @param {(which: "card"|"rank", image: ImageData) => void} options.onCard  a card was redrawn
+   * @param {(which: "card"|"rank", image: ImageData, about: object) => void} options.onCard
+   *   a card was redrawn; `about` says what it shows (an item card: {name, price, trend}; the rank panel: {read,
+   *   status, rank}, see `Engine::rank_about`)
    * @param {(message: string) => void} [options.onError]
    * @param {boolean} [options.ocr]  allow downloading the OCR fallback (~10 MB, once)
    */
@@ -48,7 +50,7 @@ export class Lens {
     this.catalogCount = 0;
     this.tesseract = null;
     this.tesseractLoading = null;
-    this.worker = new Worker(new URL("worker.js?v=1f61e1c1afcc", base), { type: "module" });
+    this.worker = new Worker(new URL("worker.js?v=077d6e2c1efc", base), { type: "module" });
     this.worker.onerror = event => reject(new Error(event.message || "the engine could not start"));
     this.counts = {};
     this.bytes = 0;
@@ -59,7 +61,7 @@ export class Lens {
         case "ready": this.version = data.version; this.items = data.items; if (this.ocrEnabled) this.loadTesseract(); resolve(this); break;
         case "idle": this.busy = false; break;
         case "state": options.onState(data.state, data.fps, data.ms); break;
-        case "card": options.onCard(data.which, new ImageData(new Uint8ClampedArray(data.pixels.buffer), data.width, data.height)); break;
+        case "card": options.onCard(data.which, new ImageData(new Uint8ClampedArray(data.pixels.buffer), data.width, data.height), data.about); break;
         case "glyphs": storage(s => s.setItem(GLYPHS_KEY(data.font), data.json)); break;
         case "ocr-job": this.queueOcr(data); break;
         case "notify-status": options.onNotify?.(data); break;
