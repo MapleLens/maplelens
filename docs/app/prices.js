@@ -6,7 +6,7 @@
 /** MapleLens's relay (a Cloudflare Worker kept outside this repo): MesoWatch's list.json sends no CORS headers, so a page
  *  cannot read it directly. The relay asks MesoWatch at most every 30 minutes itself and is rate limited per client.
  *  `?prices=URL` points a test page at a copy instead. */
-export const PRICES_URL = "https://maplelens-prices.prices-proxy.workers.dev/prices.json";
+export const PRICES_URL = "https://prices.maple.observer/prices.json";
 /** The permission's condition: never more often than this. */
 export const MIN_GAP_MS = 30 * 60 * 1000;
 const CACHE_KEY = "maplelens.prices.v1";

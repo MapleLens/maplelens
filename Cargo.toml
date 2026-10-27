@@ -4,7 +4,7 @@ members = ["crates/core", "crates/win", "crates/web"]
 default-members = ["crates/core", "crates/win"]
 
 [workspace.package]
-version = "0.2.3"
+version = "0.2.4"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
@@ -14,6 +14,7 @@ repository = "https://github.com/maplelens/maplelens"
 maplelens-core = { path = "crates/core" }
 ab_glyph = "0.2.32"
 png = "0.18.1"
+qrcode = { version = "0.14.1", default-features = false }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 tiny-skia = { version = "0.12.0", default-features = false, features = ["std", "simd"] }

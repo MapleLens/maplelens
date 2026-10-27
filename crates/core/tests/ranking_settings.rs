@@ -84,6 +84,7 @@ fn settings_default_roundtrip_and_validation() {
         telegram_webhook:
             "https://api.telegram.org/bot123456789:AAFakeTokenForTests_abcdefghijklmnop-Q/sendMessage?chat_id=-100222"
                 .into(),
+        phone_key: "AbCdEfGhIjKlMnOp.qRsTuVwXyZ0123456789-_ab".into(),
         notify_sales: false,
         notify_store: false,
     };
@@ -102,6 +103,7 @@ fn settings_default_roundtrip_and_validation() {
     // Only a Telegram sendMessage URL (or a bot token) is kept, in the one URL form.
     let bad = r#"{"telegram_webhook": "https://api.telegram.org/bot123:short/sendMessage?chat_id=1"}"#;
     assert_eq!(Settings::from_json(bad).telegram_webhook, "");
+    assert_eq!(Settings::from_json(r#"{"phone_key": "a.b"}"#).phone_key, "");
     let token = r#"{"telegram_webhook": " 123456789:AAFakeTokenForTests_abcdefghijklmnop-Q "}"#;
     assert_eq!(
         Settings::from_json(token).telegram_webhook,

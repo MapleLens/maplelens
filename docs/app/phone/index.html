@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MapleLens Phone</title>
+<meta name="description" content="Your MapleStory store on your phone: sales, visitors, chat and notifications from MapleLens.">
+<meta name="theme-color" content="#ffad1f">
+<meta name="robots" content="noindex">
+<!-- The address carries the pairing key: no page it loads from learns it, and nothing it runs can send it elsewhere. -->
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://maplestory.io; connect-src https://push.maple.observer; worker-src 'self'; manifest-src 'self'; media-src 'self' blob:; base-uri 'none'; form-action 'none'; object-src 'none'">
+<!-- No start_url in the manifest: the app added to the home screen opens this very address, pairing key included
+     (on iPhone the home-screen app has its own storage, so the key must travel in the address). -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="../../assets/favicon.ico">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="MapleLens">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="application-name" content="MapleLens">
+<meta name="format-detection" content="telephone=no">
+<!-- iPhone shows these while the home-screen app starts (it has no manifest splash). -->
+<link rel="apple-touch-startup-image" media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="splash-1320x2868.png">
+<link rel="apple-touch-startup-image" media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="splash-1206x2622.png">
+<link rel="apple-touch-startup-image" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="splash-1290x2796.png">
+<link rel="apple-touch-startup-image" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="splash-1179x2556.png">
+<link rel="apple-touch-startup-image" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="splash-1284x2778.png">
+<link rel="apple-touch-startup-image" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="splash-1170x2532.png">
+<link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="splash-1125x2436.png">
+<link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="splash-1242x2688.png">
+<link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="splash-828x1792.png">
+<link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="splash-750x1334.png">
+<link rel="apple-touch-startup-image" media="(device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="splash-640x1136.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lilita+One&display=swap">
+<link rel="stylesheet" href="../../assets/maple.css">
+<style>
+:root{--good:#2f9e5a;--warn:#d9822b;--idle:#8a94b8;--gold:#b97800;--card:#fff;--line:#dfe4ee}
+body{min-height:100vh;min-height:100dvh;padding:0 0 max(24px,env(safe-area-inset-bottom));background:linear-gradient(var(--sky-1),var(--sky-2) 420px,var(--sky-3) 900px,#eaf7ff)}
+main{max-width:480px;margin:0 auto;padding:0 14px;display:grid;gap:14px}
+button{font:inherit}
+.bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;padding:max(10px,env(safe-area-inset-top)) 16px 10px;
+  background:linear-gradient(#4b5878,#2c3247);border-bottom:2px solid #11152a;box-shadow:0 2px 0 #7f8db0 inset;color:#fff}
+.bar .brand{display:flex;align-items:center;gap:8px;font:22px "Lilita One",Tahoma,sans-serif;letter-spacing:.3px;text-shadow:0 2px 0 #11152a}
+.bar .brand img{width:22px;height:23px}
+.bar .sp{flex:1}
+.icon-btn{display:grid;place-items:center;width:40px;height:40px;border-radius:10px;border:1px solid #ffffff40;background:#ffffff1a;color:#fff;cursor:pointer}
+.icon-btn:active{background:#ffffff33}
+.icon-btn svg{width:22px;height:22px}
+.onboard{padding-top:18px}
+.onboard h1{font-size:36px;line-height:1.05;margin:4px 0 0;text-align:center}
+.win-b{display:grid;gap:14px}
+.win-b p{margin:0}
+.big{font-size:22px;padding:12px 22px;width:100%}
+.note{font-size:13px;color:var(--muted);min-height:1.4em;margin:0}
+.steps{margin:0;padding-left:22px;display:grid;gap:8px}
+.share{display:inline-block;width:18px;height:18px;vertical-align:-3px}
+#scan-video{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;background:#0d1530}
+
+/* the dashboard */
+#dashboard{padding-top:14px}
+.hero{background:var(--card);border:2px solid var(--win-edge);border-radius:14px;padding:16px;display:grid;gap:12px;
+  box-shadow:0 0 0 2px #fff inset,0 12px 26px -12px rgba(20,40,80,.55)}
+.hero .top{display:flex;align-items:flex-start;gap:10px}
+.hero .who{flex:1;min-width:0}
+.hero .owner{font:26px/1.1 "Lilita One",Tahoma,sans-serif;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hero .live{font-size:12px;color:var(--muted);margin-top:2px}
+.hero .live .part{white-space:nowrap}
+.hero .live .part+.part{margin-left:.3em}
+.state{flex:none;display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 10px;font:bold 12px Tahoma,sans-serif;
+  color:#fff;background:var(--idle);white-space:nowrap}
+.state:before{content:"";width:8px;height:8px;border-radius:50%;background:#fff;opacity:.9}
+.state.ok{background:var(--good)}.state.ok:before{animation:pulse 2s infinite}
+.state.warn{background:var(--warn)}
+@keyframes pulse{50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.state.ok:before{animation:none}}
+.hint-line{font-size:13px;background:#fff7da;border:1px solid #e8c25a;border-radius:8px;padding:8px 10px;color:#5b4300}
+.till{display:flex;align-items:center;gap:12px;background:linear-gradient(#fff8dc,#ffeeb0);border:1px solid #e8c25a;border-radius:10px;padding:10px 12px}
+.till img{width:30px;height:31px;flex:none}
+.till b{display:block;font:28px/1 "Lilita One",Tahoma,sans-serif;color:#5b3a00;font-variant-numeric:tabular-nums}
+.till span{display:block;font:bold 11px Tahoma,sans-serif;color:#7a5a12;text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px}
+.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center;box-shadow:0 6px 14px -10px rgba(20,40,80,.5)}
+.stat b{display:block;font:22px/1.15 "Lilita One",Tahoma,sans-serif;color:var(--ink);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis}
+.stat span{display:block;white-space:nowrap;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.inside .win-b{padding:12px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:6px;background:#eef3ff;border:1px solid #c9d4f2;border-radius:999px;padding:3px 10px 3px 3px;font-size:13px;font-weight:bold}
+.chip i{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--title-2);color:#fff;font:bold 12px Tahoma,sans-serif;font-style:normal}
+.empty-line{font-size:13px;color:var(--muted)}
+.tabs{display:grid;grid-template-columns:repeat(3,1fr);background:#ffffff8c;border:1px solid var(--line);border-radius:12px;padding:4px;gap:4px;position:sticky;top:calc(max(10px,env(safe-area-inset-top)) + 62px);z-index:4;backdrop-filter:blur(6px)}
+.tabs button{border:0;border-radius:9px;background:none;padding:8px 4px;font:bold 13px Tahoma,sans-serif;color:var(--muted);cursor:pointer}
+.tabs button[aria-selected="true"]{background:#fff;color:var(--ink);box-shadow:0 1px 4px rgba(20,40,80,.25)}
+.tabs .n{display:inline-block;min-width:18px;margin-left:4px;padding:0 5px;border-radius:9px;background:var(--win-2);font-size:11px;line-height:18px}
+.list{display:grid;gap:8px}
+.day{font:bold 12px Tahoma,sans-serif;color:var(--win-dark);text-transform:uppercase;letter-spacing:.06em;margin:6px 4px 0}
+.row{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.slot{flex:none;display:grid;place-items:center;width:44px;height:44px;border-radius:9px;background:linear-gradient(#f4f6fb,#dde3ef);border:1px solid #b9c2d6;box-shadow:0 1px 0 #fff inset}
+.slot img{width:32px;height:32px;object-fit:contain;image-rendering:pixelated}
+.slot.q{font:22px "Lilita One",Tahoma,sans-serif;color:var(--idle)}
+.row .what{flex:1;min-width:0}
+.row .what b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .what span{font-size:12px;color:var(--muted)}
+.row .gain{flex:none;font:bold 15px Tahoma,sans-serif;color:var(--gold);font-variant-numeric:tabular-nums}
+.bubble{background:var(--card);border:1px solid var(--line);border-radius:4px 14px 14px 14px;padding:8px 12px;max-width:92%}
+.bubble b{font-size:13px;color:var(--title-2)}
+.bubble p{margin:2px 0 0;overflow-wrap:anywhere}
+.bubble time{display:block;font-size:11px;color:var(--muted);margin-top:2px}
+.visit{display:flex;align-items:center;gap:10px;font-size:14px;padding:6px 6px}
+.visit .dot{flex:none;display:grid;place-items:center;width:26px;height:26px;border-radius:50%;color:#fff;font:bold 13px Tahoma,sans-serif}
+.visit .dot.in{background:var(--good)}.visit .dot.out{background:var(--idle)}
+.visit time{margin-left:auto;font-size:12px;color:var(--muted)}
+.blank{text-align:center;color:var(--muted);font-size:14px;padding:26px 10px}
+.blank img{width:40px;opacity:.85;display:block;margin:0 auto 8px}
+.waiting{text-align:center;padding:30px 18px}
+.waiting img{width:48px;height:50px;animation:bob 2.4s ease-in-out infinite}
+@keyframes bob{50%{transform:translateY(-6px)}}
+@media (prefers-reduced-motion:reduce){.waiting img{animation:none}}
+.waiting h2{font:24px "Lilita One",Tahoma,sans-serif;margin:10px 0 6px}
+.waiting p{margin:0 0 6px;color:var(--muted);font-size:14px}
+
+/* settings sheet */
+dialog.sheet{width:100%;max-width:480px;margin:auto auto 0;padding:0;border:0;border-radius:18px 18px 0 0;background:var(--win);
+  box-shadow:0 -10px 30px rgba(0,0,0,.35);max-height:88dvh}
+dialog.sheet::backdrop{background:#0d153080}
+dialog.sheet[open]{animation:up .22s ease-out}
+@keyframes up{from{transform:translateY(40px);opacity:.4}}
+@media (prefers-reduced-motion:reduce){dialog.sheet[open]{animation:none}}
+.sheet .grab{width:42px;height:5px;border-radius:3px;background:#b9c2d6;margin:8px auto 0}
+.sheet header{display:flex;align-items:center;padding:8px 16px 4px}
+.sheet header h2{flex:1;margin:0;font:24px "Lilita One",Tahoma,sans-serif}
+.sheet .close{color:var(--win-dark);border-color:var(--win-2);background:#fff}
+.sheet .body{padding:6px 16px max(18px,env(safe-area-inset-bottom));display:grid;gap:14px}
+.group{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.group h3{margin:0;padding:10px 14px 0;font:bold 11px Tahoma,sans-serif;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.item{display:flex;align-items:center;gap:10px;padding:12px 14px;border-top:1px solid var(--line)}
+.group h3+.item{border-top:0}
+.item .label{flex:1;min-width:0}
+.item .label small{display:block;color:var(--muted);font-size:12px}
+.item .btn{flex:none}
+.danger{color:#b3261e;background:none;border:0;padding:0;font:bold 15px Tahoma,sans-serif;cursor:pointer}
+.pill-on{font:bold 12px Tahoma,sans-serif;color:var(--good)}
+.pill-off{font:bold 12px Tahoma,sans-serif;color:#b3261e}
+.about{text-align:center;font-size:12px;color:var(--muted)}
+.toast{position:fixed;left:50%;bottom:max(18px,env(safe-area-inset-bottom));transform:translateX(-50%);background:#2c3247;color:#fff;
+  padding:10px 16px;border-radius:999px;font-size:14px;box-shadow:0 6px 18px rgba(0,0,0,.3);z-index:20;max-width:90vw}
+</style>
+</head>
+<body>
+<header class="bar">
+  <span class="brand"><img class="px" src="../../assets/meso.png" alt="">MapleLens</span>
+  <span class="sp"></span>
+  <button class="icon-btn" id="settings-btn" type="button" aria-label="Settings" hidden>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+  </button>
+</header>
+
+<main>
+  <div class="onboard" id="onboard">
+    <div class="win">
+      <div class="win-h">Phone notifications<span class="tag" id="state">…</span></div>
+
+      <div class="win-b" id="no-key" hidden>
+        <p>On your computer, open <b>MapleLens Web</b> and press <b>Connect</b> next to Phone under Store Permit. Then scan the code it shows:</p>
+        <button class="btn big" id="scan-btn" type="button">Scan the code</button>
+        <p class="note" id="scan-note">Or scan it with the phone's camera app.</p>
+        <p class="note">MapleLens Web is at <b>maplelens.github.io/maplelens/app</b> on your computer.</p>
+      </div>
+
+      <div class="win-b" id="removed" hidden>
+        <p><b>This phone was disconnected.</b> It was removed in MapleLens on your computer, so it no longer gets your store's notifications.</p>
+        <button class="btn big" id="rescan-btn" type="button">Scan a new code</button>
+        <p class="note">On the computer, press Connect next to Phone to show a new code.</p>
+      </div>
+
+      <div class="win-b" id="scanner" hidden>
+        <video id="scan-video" playsinline muted></video>
+        <p class="note">Point the camera at the QR code on your computer.</p>
+        <button class="btn grey sm" id="scan-cancel" type="button">Cancel</button>
+      </div>
+
+      <div class="win-b" id="install" hidden>
+        <p>On iPhone, notifications only reach apps on the home screen. Add MapleLens there once (about 20 seconds):</p>
+        <ol class="steps">
+          <li>Tap <b>Share</b> <svg class="share" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5M5 12v8h14v-8"/></svg> in Safari. On iOS 26, tap <b>•••</b> at the bottom first.</li>
+          <li>Tap <b>Add to Home Screen</b> (scroll down, or look under <b>More</b>). Leave <b>Open as Web App</b> on.</li>
+          <li>Tap <b>Add</b>, then open <b>MapleLens</b> from your home screen.</li>
+        </ol>
+        <p class="note">Needs iOS 16.4 or newer. Already added? Open MapleLens from your home screen instead.</p>
+      </div>
+
+      <div class="win-b" id="unsupported" hidden>
+        <p>This browser cannot receive notifications. On Android use Chrome; on iPhone use Safari (iOS 16.4 or newer).</p>
+      </div>
+
+      <div class="win-b" id="switch" hidden>
+        <p><b>This phone is already connected to a MapleLens.</b> Switch it to the code you just scanned? The other one stops sending to this phone.</p>
+        <button class="btn big" id="switch-btn" type="button">Switch to this code</button>
+        <p class="note" id="switch-note"></p>
+        <button class="btn grey sm" id="keep-btn" type="button">Keep the current one</button>
+      </div>
+      <div class="win-b" id="enable" hidden>
+        <p>See your store from your phone, and get a notification when an item sells or the store opens or closes.</p>
+        <button class="btn big" id="enable-btn" type="button">Turn on notifications</button>
+        <p class="note" id="enable-note"></p>
+      </div>
+    </div>
+  </div>
+
+  <div id="dashboard" hidden>
+    <div class="waiting" id="waiting" hidden>
+      <img class="px" src="../../assets/meso.png" alt="">
+      <h2>Waiting for your computer</h2>
+      <p>Open <b>MapleLens Web</b> on your computer and share the game window. Your store shows up here as soon as MapleLens sees it.</p>
+      <p>Notifications are already on.</p>
+    </div>
+
+    <div id="store" hidden>
+      <div class="hero">
+        <div class="top">
+          <div class="who">
+            <div class="owner" id="owner">Your store</div>
+            <div class="live" id="live"></div>
+          </div>
+          <span class="state" id="status">…</span>
+        </div>
+        <div class="hint-line" id="hint" hidden></div>
+        <div class="till">
+          <img class="px" src="../../assets/meso.png" alt="">
+          <div><span>Store balance</span><b id="balance">–</b></div>
+        </div>
+      </div>
+
+      <div class="stats" style="margin-top:14px">
+        <div class="stat"><b id="stat-sold">0</b><span>Sold today</span></div>
+        <div class="stat"><b id="stat-earned">0</b><span>Earned today</span></div>
+        <div class="stat"><b id="stat-visitors">0</b><span>Visitors</span></div>
+      </div>
+
+      <div class="win inside" style="margin-top:14px">
+        <div class="win-h">In your store<span class="tag" id="inside-count">0</span></div>
+        <div class="win-b"><div class="chips" id="inside"></div></div>
+      </div>
+
+      <div class="tabs" role="tablist" style="margin-top:14px">
+        <button type="button" role="tab" id="tab-sales" aria-selected="true" aria-controls="list">Sales<span class="n" id="n-sales">0</span></button>
+        <button type="button" role="tab" id="tab-chat" aria-selected="false" aria-controls="list">Chat<span class="n" id="n-chat">0</span></button>
+        <button type="button" role="tab" id="tab-visits" aria-selected="false" aria-controls="list">Visitors<span class="n" id="n-visits">0</span></button>
+      </div>
+      <div class="list" id="list" role="tabpanel" aria-live="polite" style="margin-top:10px"></div>
+    </div>
+  </div>
+</main>
+
+<dialog class="sheet" id="settings" aria-labelledby="settings-title">
+  <div class="grab"></div>
+  <header>
+    <h2 id="settings-title">Settings</h2>
+    <button class="icon-btn close" id="settings-close" type="button" aria-label="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </header>
+  <div class="body">
+    <div class="group">
+      <h3>Notifications</h3>
+      <div class="item">
+        <div class="label">Notifications<small id="notify-state-note">Sales and your store opening or closing</small></div>
+        <span id="notify-state" class="pill-on">On</span>
+      </div>
+      <div class="item">
+        <div class="label">Send a test<small id="test-note">Check that this phone gets them</small></div>
+        <button class="btn blue sm" id="test-btn" type="button">Send</button>
+      </div>
+    </div>
+    <div class="group" id="install-group" hidden>
+      <h3>This phone</h3>
+      <div class="item">
+        <div class="label">Add to home screen<small>Open MapleLens like an app</small></div>
+        <button class="btn sm" id="install-btn" type="button">Add</button>
+      </div>
+    </div>
+    <div class="group">
+      <h3>Connection</h3>
+      <div class="item">
+        <div class="label">Paired with your computer<small id="paired-key">Store key</small></div>
+      </div>
+      <div class="item">
+        <div class="label"><button class="danger" id="unpair-btn" type="button">Disconnect this phone</button><small>It stops getting notifications. You can scan a new code any time.</small></div>
+      </div>
+    </div>
+    <p class="about"><a href="../../">MapleLens</a> · <a href="https://github.com/MapleLens/maplelens" rel="noopener">GitHub</a><br>Messages travel encrypted; the relay cannot read your store.</p>
+  </div>
+</dialog>
+
+<div class="toast" id="toast" role="status" hidden></div>
+<script type="module" src="phone.js?v=90ad6397ac36"></script>
+</body>
+</html>

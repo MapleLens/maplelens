@@ -318,6 +318,7 @@ mod tests {
             discord_webhook: "https://example.com/api/webhooks/1/x".into(),
             telegram_bot: "123:short".into(),
             telegram_chat: 111,
+            phone_key: "a.b".into(),
             sales: true,
             store: true,
         };

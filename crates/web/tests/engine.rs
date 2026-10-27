@@ -198,7 +198,13 @@ fn the_shop_is_followed_in_the_browser_and_its_sales_are_read_without_ocr() {
 #[test]
 fn sales_become_discord_requests_only_for_a_real_webhook() {
     let mut engine = engine();
-    engine.set_notify("https://evil.example/api/webhooks/1/x", "https://evil.example/bot1/sendMessage", true, true);
+    engine.set_notify(
+        "https://evil.example/api/webhooks/1/x",
+        "https://evil.example/bot1/sendMessage",
+        "a.b",
+        true,
+        true,
+    );
     assert_eq!(engine.take_requests(), "[]");
     assert!(engine.notify_test_request("https://evil.example/api/webhooks/1/x", 0.0).is_none());
     let url = "https://discord.com/api/webhooks/12/abc_DEF";
@@ -258,7 +264,7 @@ fn the_status_reads_as_the_windows_pill_reads() {
 fn a_store_found_open_is_announced_to_discord_after_its_owner_wait() {
     let mut loud = engine();
     loud.set_shop(true);
-    loud.set_notify("https://discord.com/api/webhooks/12/abc_DEF", "", true, true);
+    loud.set_notify("https://discord.com/api/webhooks/12/abc_DEF", "", "", true, true);
     let open = shop_frame("025123");
     let mut requests = Vec::new();
     for i in 0..30 {
@@ -272,9 +278,28 @@ fn a_store_found_open_is_announced_to_discord_after_its_owner_wait() {
     // With the store switch off nothing about it is sent.
     let mut quiet = engine();
     quiet.set_shop(true);
-    quiet.set_notify("https://discord.com/api/webhooks/12/abc_DEF", "", true, false);
+    quiet.set_notify("https://discord.com/api/webhooks/12/abc_DEF", "", "", true, false);
     for i in 0..30 {
         shop_state(&mut quiet, &open, f64::from(i) * 1.5);
     }
     assert_eq!(quiet.take_requests(), "[]");
+}
+
+#[test]
+fn a_phone_key_tests_through_the_relay_and_has_a_qr_code() {
+    let engine = engine();
+    let key = "AbCdEfGhIjKlMnOp.qRsTuVwXyZ0123456789-_ab";
+    let test: Value = serde_json::from_str(&engine.phone_test_request(key, 0.0).unwrap()).unwrap();
+    assert_eq!(test["service"], "Phone");
+    assert!(test["url"].as_str().unwrap().ends_with("/notify"));
+    let body: Value = serde_json::from_str(test["body"].as_str().unwrap()).unwrap();
+    assert_eq!(body["key"], key);
+    assert!(engine.phone_test_request("a.b", 0.0).is_none());
+    let qr = Engine::phone_qr(&format!("https://maplelens.github.io/maplelens/app/phone/?pair={key}"));
+    let width = (qr.len() as f64).sqrt() as usize;
+    assert!(width > 20 && width * width == qr.len(), "{}", qr.len());
+    assert!(Engine::phone_qr("not a key").is_empty());
+    assert!(Engine::phone_qr(&format!("http://example.com/?pair={key}")).is_empty());
+    assert!(Engine::phone_qr("https://example.com/?pair=a.b").is_empty());
+    assert!(engine.picture_url("Pet Food").is_none(), "no picture before a lookup found one");
 }

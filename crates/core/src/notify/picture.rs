@@ -70,6 +70,11 @@ impl Pictures {
         }
     }
 
+    /// The picture's address for an item of this name, once found (for showing it beside the sale, not only in it).
+    pub fn url(&self, name: &str) -> Option<String> {
+        self.known.get(&folded(name)).copied().flatten().map(super::item_icon_url)
+    }
+
     /// The game's id of the sale of `name` in `batch`, for `learn`.
     pub fn game_id(batch: &[Notification], name: &str) -> Option<u64> {
         batch.iter().find_map(|n| match n {

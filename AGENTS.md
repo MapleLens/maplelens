@@ -63,7 +63,8 @@ a screenshot of the running overlay over the game (`maplelens --screenshot OUT.p
    serves list.json without CORS headers, so every client (the web page and the Windows app alike) reads it through
    MapleLens's relay: a Cloudflare Worker kept outside this repo (fixed upstream, 30-minute cache, CORS for the site
    only, 10 requests a minute per client, MesoWatch's `notice` and `terms` fields dropped at their request).
-   `PRICES_URL` in `prices.js` and `SNAPSHOT_URL` in `net.rs` point at it; when it is unreachable the page says so and
+   `PRICES_URL` in `prices.js` and `SNAPSHOT_URL` in `net.rs` point at it (`prices.maple.observer`; its old
+   `maplelens-prices.prices-proxy.workers.dev` address stays up for copies released before); when it is unreachable the page says so and
    shows the demo items. An official API
    is promised: adopt it when it arrives and follow its conditions.
 3. **The overlay must be click-through** and must never steal focus from the game.
@@ -223,6 +224,28 @@ same frames through the Rust watcher (373 real captures, 22 ms a frame against P
   (`notify::picture`): the price list's ids are Classic's, and only 2 of 30 named the same item there (Garnet showed
   none). Each name is searched once; the browser holds a batch up to 8 s for the answers. `cargo test -p maplelens live_discord -- --ignored` sends to
   `MAPLELENS_DISCORD_WEBHOOK`; `live_telegram` links and writes through the bot in `MAPLELENS_TELEGRAM_BOT`.
+- Phone notifications (`notify::phone`, setting `phone_key`): Web Push through MapleLens's relay, `relay/push` (a
+  Cloudflare Worker in this repo at `https://push.maple.observer`, behind that zone's firewall rate limit: `npx wrangler deploy` from that folder, `npm test` there for its crypto; VAPID and
+  aes128gcm are hand-written on WebCrypto, no dependency). A pairing key is `<id>.<secret>` (made by the page,
+  `phone/relay.js` `newKey`); the relay stores only the secret's SHA-256 and the phones' subscriptions (a Durable Object
+  per pairing, the pairing's only record: KV cached a missing pairing for a minute per location), never a message, and accepts push endpoints on the browsers' own push hosts only. The web app shows the key as a QR code of
+  `docs/app/phone/?pair=<key>` (hidden after two minutes or once `/status` sees a phone: a streamed screen is public);
+  the phone page subscribes and pairs. A batch of sales is one notification, with the item's picture (`Sale.picture`, found by name) when it is one
+  sale; store changes share a tag. iPhone pushes
+  only to home-screen apps, so the phone manifest has no `start_url` (the installed app opens the address with its
+  key; an installed app's storage is its own) and the app can also pair by scanning in-page (BarcodeDetector, else
+  vendored jsQR). Android needs no install. A phone follows one pairing: a code for another one (a link anyone can
+  post) switches it only after a tap, joining the new pairing before leaving the old, and the key leaves the address
+  bar once kept (not in an iPhone Safari tab, which installs from that address). A pairing takes 5 phones; a sixth is
+  refused (409), never one dropped silently, and an unused pairing is deleted after 60 days. The website's QR (`docs/assets/phone-qr.svg`) is
+  `cargo run -p maplelens-core --example phone_qr`. The Windows app keeps `phone_key` but has no pairing UI yet.
+- The phone app is also a dashboard of the store: the page keeps a store book (`docs/app/storebook.js`: sales with item
+  pictures (the worker posts each one the engine finds: `Engine::picture_url`), chat, visits, who is inside, status, owner, mesos; kept in localStorage), seals it with AES-GCM under
+  HKDF(pairing secret) (`phone/relay.js` `seal`) and uploads it when it changed (every 5 s at most; a check-in each
+  minute otherwise). The relay keeps it in a Durable Object per pairing and never has the key. `?demo` on the phone
+  page shows the dashboard with made-up data. Remove on the computer tombstones the key (410 everywhere) and pushes a
+  "disconnected" notification; the phone app clears itself. A phone leaving is seen by the page's next check-in.
+  `relay/push/README.md` has the routes, limits, deploy steps and the security model; `npm test` there.
 - The browser runs the same watcher (`web/src/shopwatch.rs`). Its OCR is asynchronous: the reader answers None while
   text is being read. Only a sale or a visitor whose text is not in (`ShopWatcher::missing_text`) undoes the frame (the
   watcher is cloned first) to try again when the answers are in; text the watcher reads for itself (the owner's name,
@@ -304,6 +327,20 @@ read from the status bar (under the job, right of the LV box: `vision::hud::find
 levels, voted over several reads), falling back to the shop window's name plate respelled from the chat log. There is
 no typed-name setting. A store announcement waits up to `OWNER_WAIT_S` for the name.
 
+## The site's origin holds secrets
+
+The project's domain is `maple.observer` (a Cloudflare zone on the same account): the bare and `www` names redirect
+to the site with the same path (`relay/site`: a redirect, never a copy on a second origin), `push.` is the phone
+relay and `prices.` the price relay, all under one firewall rate limit (`relay/push/README.md`, "Rate limits").
+
+`maplelens.github.io` is one origin for the website, the web app and the phone app, and its localStorage holds the
+player's Discord webhook, Telegram bot token and phone pairing key. So no page of the site runs a script from another server: Tesseract
+and jsQR are vendored (`node scripts/vendor.mjs`: pinned versions checked against the npm registry's integrity,
+files against each folder's SHA256SUMS; `--check` runs in CI), GoatCounter's script is `docs/assets/goatcounter-count.v4.js`,
+and every page has a Content Security Policy (`script-src 'self'`, connections only to the hosts it uses). CI fails on
+a `<script src="https://...">` or a dynamic import from another host. Adding a host to a page means adding it to that
+page's policy; a new GitHub Pages repository on this account would share the origin, so there must not be one.
+
 ## Reading titles: how it is measured
 
 `crates/win/src/reading_bench.rs` runs a folder of real tooltip captures (the `debug\` output of `--debug` play
@@ -371,7 +408,7 @@ track-processor path), `&scale=0.9` (the UI size by hand: the status bar's outli
 makes the reported heap live data.
 
 The page is deliberately bare: Share game window, the cards (Float over the game), the store log, the Discord webhook and
-the Telegram bot (kept in localStorage, shown masked with a Change button). There is no settings panel; Tesseract (tesseract.js 7.0.0 from jsDelivr, loaded when
+the Telegram bot (kept in localStorage, shown masked with a Change button). There is no settings panel; Tesseract (tesseract.js 7.0.0, served from `docs/app/vendor/`, loaded when
 the engine meets text the atlas cannot read) is always on, for shop text and unknown letters. The floating window opens at a fixed size from the shared game window (`cards.js` `floatingSize`: a fifth of its width, 
 300-440 px, and tall enough for the biggest card plus a rank panel); the cards scale to its width and never shrink to its 
 height (the body scrolls). The page cannot resize it afterwards (`resizeTo` needs a click in a document picture-in-picture 

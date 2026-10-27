@@ -13,3 +13,12 @@ debug/
 # Game captures used by the tests: they show players' names, so they stay on the maintainer's machine. Tests that
 # need them are ignored without them (cfg(fixtures), set by each crate's build.rs).
 tests/fixtures/
+
+# Wrangler's local state (relay/push)
+.wrangler/
+node_modules/
+
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.example

@@ -7,7 +7,7 @@ use maplelens_core::ranking::{DEFAULT_RETRY_S, Fetched, parse_response, rank_url
 
 /// The price list, through MapleLens's own relay (a Cloudflare Worker): it asks MesoWatch at most once every 30
 /// minutes whoever asks, and the relay is what MesoWatch's permission is built around.
-pub const SNAPSHOT_URL: &str = "https://maplelens-prices.prices-proxy.workers.dev/prices.json";
+pub const SNAPSHOT_URL: &str = "https://prices.maple.observer/prices.json";
 /// classicrank.com's public API: who is asking, honestly.
 const USER_AGENT: &str = concat!("MapleLens/", env!("CARGO_PKG_VERSION"), " (+https://github.com/maplelens/maplelens)");
 /// list.json is several MB; well above it, far below anything that could hurt.

@@ -2,15 +2,17 @@
 //
 // Messages in:  {type: "init", fonts, glyphs, cardScale} · {type: "frame", bitmap, inset, scale} ·
 //               {type: "ocr-answer", id, text} · {type: "ocr-enabled", enabled} · {type: "shop", enabled} ·
-//               {type: "notify", webhook, telegramWebhook, sales, store} ·
-//               {type: "notify-test", service, webhook, telegramWebhook} · {type: "catalog", id, json}
+//               {type: "notify", webhook, telegramWebhook, phone, sales, store} ·
+//               {type: "notify-test", service, webhook, telegramWebhook, phone} · {type: "phone-qr", url} ·
+//               {type: "catalog", id, json}
 // Messages out: {type: "ready", version, items} · {type: "state", state, fps, ms} · {type: "card", which, version,
 //               width, height, pixels} · {type: "ocr-job", id, font, width, height, pixels} · {type: "glyphs", font,
 //               json} · {type: "idle"} (ready for the next frame) · {type: "notify-status", text} ·
-//               {type: "notify-test-result", ok, text, telegramWebhook?} · {type: "catalog-loaded", id, items | error} ·
+//               {type: "notify-test-result", ok, text, telegramWebhook?} · {type: "phone-qr", modules} ·
+//               {type: "picture", name, url} (a sold item's picture, once found) · {type: "catalog-loaded", id, items | error} ·
 //               {type: "error", message}
 
-import init, { Engine } from "./pkg/maplelens_web.js?v=96ef814f580b";
+import init, { Engine } from "./pkg/maplelens_web.js?v=90ad6397ac36";
 
 /** One rank lookup every two seconds stays under classicrank.com's 30 requests a minute. */
 const RANK_GAP_MS = 2000;
@@ -35,7 +37,7 @@ const post = (message, transfer = []) => self.postMessage(message, transfer);
 
 async function start({ fonts, glyphs, cardScale, ocr }) {
   // Named explicitly so scripts/stamp-web.ps1 can version it together with the glue.
-  await init({ module_or_path: new URL("./pkg/maplelens_web_bg.wasm?v=96ef814f580b", import.meta.url) });
+  await init({ module_or_path: new URL("./pkg/maplelens_web_bg.wasm?v=90ad6397ac36", import.meta.url) });
   const [regular, bold] = await Promise.all(fonts.map(url => fetch(url).then(r => r.arrayBuffer())));
   engine = new Engine(new Uint8Array(regular), new Uint8Array(bold));
   engine.card_scale = cardScale || 1;
@@ -77,8 +79,14 @@ async function deliverOrFallback(request) {
 
 /** A test message to one service; a Telegram URL without its chat is first completed by asking the bot who wrote to
  *  it, and the whole URL comes back with the answer for the page to keep. */
-async function testNotify({ service, webhook, telegramWebhook }) {
+async function testNotify({ service, webhook, telegramWebhook, phone }) {
   const now = Date.now() / 1000;
+  if (service === "phone") {
+    const request = engine.phone_test_request(phone, now);
+    if (!request) return { ok: false, text: "Connect a phone first" };
+    const r = await deliver(JSON.parse(request));
+    return { ok: r.ok, text: r.ok ? "Sent: check your phone" : `Not sent: ${r.text}` };
+  }
   if (service !== "telegram") {
     const request = engine.notify_test_request(webhook, now);
     if (!request) return { ok: false, text: "Paste a Discord webhook URL first" };
@@ -120,7 +128,13 @@ function lookUpPictures() {
   for (const { name, url } of JSON.parse(engine.take_picture_lookups())) {
     fetch(url, { headers: { Accept: "application/json" } })
       .then(response => response.ok ? response.text() : null)
-      .then(answer => { if (answer !== null) engine.picture_found(name, answer); })
+      .then(answer => {
+        if (answer === null) return;
+        engine.picture_found(name, answer);
+        // The page's store log and the phone app show it beside the sale too.
+        const picture = engine.picture_url(name);
+        if (picture) post({ type: "picture", name, url: picture });
+      })
       .catch(() => {});
   }
 }
@@ -203,8 +217,9 @@ self.onmessage = async ({ data }) => {
     }
     else if (data.type === "shop" && engine) engine.set_shop(data.enabled);
     else if (data.type === "notify" && engine) {
-      engine.set_notify(data.webhook, data.telegramWebhook, data.sales, data.store);
+      engine.set_notify(data.webhook, data.telegramWebhook, data.phone || "", data.sales, data.store);
     }
+    else if (data.type === "phone-qr") post({ type: "phone-qr", modules: Engine.phone_qr(data.url) });
     else if (data.type === "notify-test" && engine) testNotify(data).then(r => post({ type: "notify-test-result", ...r }));
   } catch (error) {
     post({ type: "error", message: String(error?.message || error) });

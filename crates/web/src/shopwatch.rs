@@ -249,6 +249,10 @@ impl ShopRunner {
         self.pictures.learn(name, answer, Pictures::game_id(&self.pending, name));
     }
 
+    pub fn picture_url(&self, name: &str) -> Option<String> {
+        self.pictures.url(name)
+    }
+
     /// The test message of the first connector, as `{"service", "url", "body"}` JSON, for settings not yet in use.
     pub fn test_request(&self, settings: &NotifySettings, unix_now: f64) -> Option<String> {
         let owner = self.owner();

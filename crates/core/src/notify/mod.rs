@@ -5,6 +5,7 @@
 
 pub mod announce;
 pub mod discord;
+pub mod phone;
 pub mod picture;
 pub mod telegram;
 
@@ -97,6 +98,8 @@ pub struct NotifySettings {
     pub telegram_bot: String,
     /// The chat the bot writes to, found once the player wrote to it; 0 = not yet.
     pub telegram_chat: i64,
+    /// The phone pairing key (`phone::valid_key`); empty = off.
+    pub phone_key: String,
     /// Tell about sold items.
     pub sales: bool,
     /// Tell when the store is detected open or closes.
@@ -122,6 +125,9 @@ pub fn connectors(settings: &NotifySettings) -> Vec<Box<dyn Connector>> {
     if let Some(telegram) = telegram::Telegram::new(&settings.telegram_bot, settings.telegram_chat) {
         found.push(Box::new(telegram));
     }
+    if let Some(phone) = phone::Phone::new(&settings.phone_key) {
+        found.push(Box::new(phone));
+    }
     found
 }
 
@@ -131,6 +137,9 @@ pub fn refusal(service: &str, status: u16) -> String {
         ("Telegram", 401 | 404) => "Telegram does not know that bot token (revoked?)".into(),
         ("Telegram", 403) => "The bot may not write there: send it /start (or add it to the group) again".into(),
         ("Telegram", 400) => "Telegram cannot find that chat: Clear, then Paste the token again".into(),
+        ("Phone", 404) => "No phone is paired: press Connect and scan the code with your phone".into(),
+        ("Phone", 410) => "This pairing was removed: press Connect to pair a phone again".into(),
+        ("Phone", 502) => "The phones' push service did not answer: try again in a moment".into(),
         (_, 401 | 404) => format!("{service} says that webhook does not exist (deleted?)"),
         _ => format!("{service} answered HTTP {status}"),
     }
@@ -184,6 +193,13 @@ mod tests {
         assert_eq!(connectors(&unlinked).len(), 1, "a bot is only used once its chat is known");
         let both = NotifySettings { telegram_bot: token, telegram_chat: 111, ..on };
         assert_eq!(connectors(&both).iter().map(|c| c.name()).collect::<Vec<_>>(), ["Discord", "Telegram"]);
+        let phone = NotifySettings {
+            phone_key: "AbCdEfGhIjKlMnOp.qRsTuVwXyZ0123456789-_ab".into(),
+            ..NotifySettings::default()
+        };
+        assert_eq!(connectors(&phone).iter().map(|c| c.name()).collect::<Vec<_>>(), ["Phone"]);
+        assert_eq!(refusal("Phone", 404), "No phone is paired: press Connect and scan the code with your phone");
+        assert_eq!(refusal("Phone", 410), "This pairing was removed: press Connect to pair a phone again");
     }
 
     #[test]

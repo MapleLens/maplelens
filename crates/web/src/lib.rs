@@ -13,7 +13,7 @@ use maplelens_core::image::RgbImage;
 use maplelens_core::market::catalog::Catalog;
 use maplelens_core::market::sample::sample_items;
 use maplelens_core::market::snapshot::parse_snapshot;
-use maplelens_core::notify::{NotifySettings, discord, refusal, telegram};
+use maplelens_core::notify::{NotifySettings, discord, phone, refusal, telegram};
 use maplelens_core::pipeline::FrameScreen;
 use maplelens_core::pipeline::hover::{Hover, HoverDetector};
 use maplelens_core::pipeline::info::{InfoDetector, InfoWindow};
@@ -151,14 +151,33 @@ impl Engine {
         self.shop.set_enabled(enabled);
     }
 
-    /// Where sold items and the store opening or closing are reported: a Discord webhook URL and a Telegram bot's
+    /// Where sold items and the store opening or closing are reported: a Discord webhook URL, a Telegram bot's
     /// `sendMessage` URL with its `chat_id` (anything else is ignored, and a Telegram URL without its chat sends
-    /// nothing yet), and whether to report sales and store changes.
-    pub fn set_notify(&mut self, webhook: &str, telegram_webhook: &str, sales: bool, store: bool) {
+    /// nothing yet) and a phone pairing key, and whether to report sales and store changes.
+    pub fn set_notify(&mut self, webhook: &str, telegram_webhook: &str, phone_key: &str, sales: bool, store: bool) {
         let discord_webhook = discord::valid_webhook(webhook).unwrap_or_default().to_string();
         let (bot, telegram_chat) = telegram::parse_webhook(telegram_webhook).unwrap_or_default();
         let telegram_bot = bot.to_string();
-        self.shop.set_notify(NotifySettings { discord_webhook, telegram_bot, telegram_chat, sales, store });
+        let phone_key = phone::valid_key(phone_key).unwrap_or_default().to_string();
+        self.shop.set_notify(NotifySettings { discord_webhook, telegram_bot, telegram_chat, phone_key, sales, store });
+    }
+
+    /// The QR code of a phone pairing address (the page builds it, so a copy of the site pairs with itself):
+    /// `width * width` bytes, 1 = dark, row by row, without the quiet zone; empty for anything but an https address
+    /// carrying a pairing key.
+    pub fn phone_qr(url: &str) -> Vec<u8> {
+        let key = url.split_once("?pair=").map(|(_, key)| key).unwrap_or_default();
+        if !url.starts_with("https://") || phone::valid_key(key) != Some(key) {
+            return Vec::new();
+        }
+        phone::qr_modules(url).map(|(_, modules)| modules.into_iter().map(u8::from).collect()).unwrap_or_default()
+    }
+
+    /// The test message for a phone pairing key as `{"service", "url", "body"}` JSON, or undefined when it is not one.
+    pub fn phone_test_request(&self, key: &str, unix_now: f64) -> Option<String> {
+        phone::valid_key(key)?;
+        let settings = NotifySettings { phone_key: key.to_string(), sales: true, store: true, ..Default::default() };
+        self.shop.test_request(&settings, unix_now)
     }
 
     /// The webhook URL as it may be shown (its token hidden), or "" when it is not a Discord webhook.
@@ -180,6 +199,11 @@ impl Engine {
 
     pub fn picture_found(&mut self, name: &str, answer: &str) {
         self.shop.picture_found(name, answer);
+    }
+
+    /// The picture of an item of this name once a lookup found it, for the page's store log and the phone app.
+    pub fn picture_url(&self, name: &str) -> Option<String> {
+        self.shop.picture_url(name)
     }
 
     /// The test message for `webhook` as `{"service", "url", "body"}` JSON, or undefined when it is not a Discord
