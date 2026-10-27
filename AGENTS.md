@@ -38,7 +38,8 @@ MAPLELENS_NAMES=debug/names MAPLELENS_NAME_LABELS=<labels.tsv> cargo test --rele
                                                 # Character Info names on saved windows (--debug saves them)
 ```
 
-CI (`.github/workflows/ci.yml`) runs all of these in parallel jobs with a shared build cache; workspace lints in
+CI (`.github/workflows/ci.yml`) runs all of these in parallel jobs, each restoring its dependencies' build from a
+cache (rust-cache; keyed on the lock file, toolchain and env, so keep `env` identical in `release.yml`); workspace lints in
 `Cargo.toml` include `undocumented_unsafe_blocks`, so an `unsafe` without a `// SAFETY:` comment fails the build.
 
 Run tests, clippy and fmt before declaring work done. Never claim an overlay change works without either a test or
@@ -210,21 +211,32 @@ same frames through the Rust watcher (373 real captures, 22 ms a frame against P
 - Notifications (`core::notify`): `Connector` turns a batch into HTTP requests, the platform sends them (Windows: the
   `notifier` thread, batching a burst, pacing, waiting out 429s; browser: the worker's `fetch`). `Discord` accepts only
   `discord.com/api/webhooks/<id>/<token>` URLs, sends embeds with `allowed_mentions` empty and names escaped, and its
-  token is never logged or shown whole. Settings: `discord_webhook`, `notify_sales`. A new connector is a type and a
-  settings field. `cargo test -p maplelens live_discord -- --ignored` sends to `MAPLELENS_DISCORD_WEBHOOK`.
+  token is never logged or shown whole. `Telegram` is one URL like a Discord webhook,
+  `https://api.telegram.org/bot<token>/sendMessage?chat_id=<chat>` (`telegram::parse_webhook` / `webhook_url`). A URL
+  without the chat, or a token alone (found in a paste of @BotFather's message), is kept without it: the player sends
+  the bot /start, and Test asks the bot who wrote last (`getUpdates`, POSTed like everything else), completes the URL
+  and puts it on the clipboard. Its
+  messages are HTML with names escaped and '@' kept from mentioning. Telegram's Bot API allows any origin, so the
+  browser sends straight to it too. Settings: `discord_webhook`, `telegram_webhook`, `notify_sales`, `notify_store`. Refusals are worded by `notify::refusal`, waits read by `notify::retry_after`, for both platforms.
+  A new connector is a type and a settings field. The item's picture (a Discord thumbnail, a Telegram `sendPhoto`
+  whose caption is the message, sent again as text if refused) is maplestory.io's, found by the item's name
+  (`notify::picture`): the price list's ids are Classic's, and only 2 of 30 named the same item there (Garnet showed
+  none). Each name is searched once; the browser holds a batch up to 8 s for the answers. `cargo test -p maplelens live_discord -- --ignored` sends to
+  `MAPLELENS_DISCORD_WEBHOOK`; `live_telegram` links and writes through the bot in `MAPLELENS_TELEGRAM_BOT`.
 - Phone notifications (`notify::phone`, setting `phone_key`): Web Push through MapleLens's relay, `relay/push` (a
   Cloudflare Worker in this repo: `npx wrangler deploy` from that folder, `npm test` there for its crypto; VAPID and
   aes128gcm are hand-written on WebCrypto, no dependency). A pairing key is `<id>.<secret>` (made by the page,
   `phone/relay.js` `newKey`); the relay stores only the secret's SHA-256 and the phones' subscriptions (KV), never a
   message, and accepts push endpoints on the browsers' own push hosts only. The web app shows the key as a QR code of
   `docs/app/phone/?pair=<key>` (hidden after two minutes or once `/status` sees a phone: a streamed screen is public);
-  the phone page subscribes and pairs. A batch of sales is one notification; store changes share a tag. iPhone pushes
+  the phone page subscribes and pairs. A batch of sales is one notification, with the item's picture (`Sale.picture`, found by name) when it is one
+  sale; store changes share a tag. iPhone pushes
   only to home-screen apps, so the phone manifest has no `start_url` (the installed app opens the address with its
   key; an installed app's storage is its own) and the app can also pair by scanning in-page (BarcodeDetector, else
   vendored jsQR). Android needs no install. The website's QR (`docs/assets/phone-qr.svg`) is
   `cargo run -p maplelens-core --example phone_qr`. The Windows app keeps `phone_key` but has no pairing UI yet.
 - The phone app is also a dashboard of the store: the page keeps a store book (`docs/app/storebook.js`: sales with item
-  pictures, chat, visits, who is inside, status, owner, mesos; kept in localStorage), seals it with AES-GCM under
+  pictures (the worker posts each one the engine finds: `Engine::picture_url`), chat, visits, who is inside, status, owner, mesos; kept in localStorage), seals it with AES-GCM under
   HKDF(pairing secret) (`phone/relay.js` `seal`) and uploads it when it changed (every 5 s at most; a check-in each
   minute otherwise). The relay keeps it in a Durable Object per pairing and never has the key. `?demo` on the phone
   page shows the dashboard with made-up data. Remove on the computer tombstones the key (410 everywhere) and pushes a
@@ -305,8 +317,8 @@ The game draws the shop's text two ways, and each is read exactly, OCR only fill
   and readings. New letters come from new captures: add the fixture, list its lines (`shop_lines`), transcribe them
   into the TSV, rerun `build_shop_font --init C:/Windows/Fonts/arial.ttf --rounds 10`.
 
-Notifications (`core/src/notify`): `Announcer` turns watcher events into `Notification::{Sale, Store}` (Discord webhook
-connector; the webhook is a setting, never committed). Every message names the store's owner: the character's name is
+Notifications (`core/src/notify`): `Announcer` turns watcher events into `Notification::{Sale, Store}` (Discord webhook and
+Telegram bot connectors; the webhook and the token are settings, never committed). Every message names the store's owner: the character's name is
 read from the status bar (under the job, right of the LV box: `vision::hud::find_bar` + `HUD_NAME`, light ink at low
 levels, voted over several reads), falling back to the shop window's name plate respelled from the chat log. There is
 no typed-name setting. A store announcement waits up to `OWNER_WAIT_S` for the name.
@@ -314,7 +326,7 @@ no typed-name setting. A store announcement waits up to `OWNER_WAIT_S` for the n
 ## The site's origin holds secrets
 
 `maplelens.github.io` is one origin for the website, the web app and the phone app, and its localStorage holds the
-player's Discord webhook and phone pairing key. So no page of the site runs a script from another server: Tesseract
+player's Discord webhook, Telegram bot token and phone pairing key. So no page of the site runs a script from another server: Tesseract
 and jsQR are vendored (`node scripts/vendor.mjs`: pinned versions checked against the npm registry's integrity,
 files against each folder's SHA256SUMS; `--check` runs in CI), GoatCounter's script is `docs/assets/goatcounter-count.v4.js`,
 and every page has a Content Security Policy (`script-src 'self'`, connections only to the hosts it uses). CI fails on
@@ -387,8 +399,8 @@ track-processor path), `&scale=0.9` (the UI size by hand: the status bar's outli
 `&fps=`, `?preview=pip` (the floating window's view inside the page). Chrome started with `--js-flags=--expose-gc`
 makes the reported heap live data.
 
-The page is deliberately bare: Share game window, the cards (Float over the game), the store log and the Discord webhook
-(kept in localStorage, shown masked with a Change button). There is no settings panel; Tesseract (tesseract.js 7.0.0, served from `docs/app/vendor/`, loaded when
+The page is deliberately bare: Share game window, the cards (Float over the game), the store log, the Discord webhook and
+the Telegram bot (kept in localStorage, shown masked with a Change button). There is no settings panel; Tesseract (tesseract.js 7.0.0, served from `docs/app/vendor/`, loaded when
 the engine meets text the atlas cannot read) is always on, for shop text and unknown letters. The floating window opens at a fixed size from the shared game window (`cards.js` `floatingSize`: a fifth of its width, 
 300-440 px, and tall enough for the biggest card plus a rank panel); the cards scale to its width and never shrink to its 
 height (the body scrolls). The page cannot resize it afterwards (`resizeTo` needs a click in a document picture-in-picture 

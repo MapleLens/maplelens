@@ -5,7 +5,7 @@ const base = new URL(".", import.meta.url);
 const FONTS = ["fonts/DejaVuSansCondensed.ttf", "fonts/DejaVuSansCondensed-Bold.ttf"].map(f => new URL(f, base).href);
 /** Tesseract (the browser's OCR engine), served from this site (scripts/vendor.mjs: packages checked against
  *  the npm registry's integrity, files against SHA256SUMS). Never from a CDN: whatever runs in this page can read the
- *  Discord webhook and the phone key it keeps. A new version is a new folder, so no browser mixes two. */
+ *  Discord webhook, the Telegram token and the phone key it keeps. A new version is a new folder, so no browser mixes two. */
 const TESSERACT_DIR = new URL("vendor/tesseract-7.0.0/", base).href;
 /** Jobs the page keeps waiting for the OCR engine: a title or a name goes stale in a moment, but every line of a
  *  shop's list is needed (a burst of sales is three lines each), so none of those is dropped. */
@@ -48,7 +48,7 @@ export class Lens {
     this.catalogCount = 0;
     this.tesseract = null;
     this.tesseractLoading = null;
-    this.worker = new Worker(new URL("worker.js?v=a0d60c76fffd", base), { type: "module" });
+    this.worker = new Worker(new URL("worker.js?v=b74844f6fa4d", base), { type: "module" });
     this.worker.onerror = event => reject(new Error(event.message || "the engine could not start"));
     this.counts = {};
     this.bytes = 0;
@@ -66,6 +66,7 @@ export class Lens {
         case "catalog-loaded": this.catalogWaiters.get(data.id)?.(data); this.catalogWaiters.delete(data.id); break;
         case "notify-test-result": this.testResolvers.shift()?.(data); break;
         case "phone-qr": this.qrResolvers.shift()?.(data.modules); break;
+        case "picture": options.onPicture?.(data.name, data.url); break;
         case "error": (options.onError || console.error)(data.message); break;
       }
     };
@@ -96,17 +97,18 @@ export class Lens {
     this.worker.postMessage({ type: "shop", enabled });
   }
 
-  /** Report sold items to this Discord webhook and the phones paired with this key (the engine ignores anything
-   *  that is not one). */
-  setNotify(webhook, phone, sales, store) {
-    this.worker.postMessage({ type: "notify", webhook, phone, sales, store });
+  /** Report sold items to a Discord webhook, a Telegram bot's sendMessage URL and the phones paired with a key (the
+   *  engine ignores anything that is not one): {webhook, telegramWebhook, phone, sales, store}. */
+  setNotify(settings) {
+    this.worker.postMessage({ type: "notify", ...settings });
   }
 
-  /** Send a test message to a Discord webhook or a phone key; resolves to {ok, text}. */
-  testNotify(target) {
+  /** Send a test message to "discord", "telegram" or "phone" with {webhook, telegramWebhook, phone}; resolves to
+   *  {ok, text, telegramWebhook?}: the whole URL, when a Telegram URL without its chat was completed. */
+  testNotify(service, settings) {
     return new Promise(resolve => {
       this.testResolvers.push(resolve);
-      this.worker.postMessage({ type: "notify-test", target });
+      this.worker.postMessage({ type: "notify-test", service, ...settings });
     });
   }
 

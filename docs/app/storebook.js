@@ -18,6 +18,24 @@ export class StoreBook {
     // Who was inside when the page closed is not known now.
     this.book.inStore = [];
     this.changed = false;
+    /** Item pictures found this session (`setPicture`), by item name. */
+    this.pictures = new Map();
+  }
+
+  /** The picture of an item of this name: given to its sales without one, and to its later sales. */
+  setPicture(name, url) {
+    this.pictures.set(name, url);
+    let touched = false;
+    for (const sale of this.book.sales) {
+      if (sale.item === name && !sale.icon) {
+        sale.icon = url;
+        touched = true;
+      }
+    }
+    if (touched) {
+      this.changed = true;
+      this.save();
+    }
   }
 
   /** One look's shop state: `{status, owner, balance, events}` as the engine gives it. */
@@ -35,7 +53,7 @@ export class StoreBook {
     const book = this.book;
     switch (event.kind) {
       case "sale":
-        book.sales.unshift({ t, item: event.item, qty: event.quantity || 1, buyer: event.buyer, mesos: event.mesos ?? null, icon: event.icon || null });
+        book.sales.unshift({ t, item: event.item, qty: event.quantity || 1, buyer: event.buyer, mesos: event.mesos ?? null, icon: this.pictures.get(event.item) || null });
         break;
       case "sale-unseen":
         book.sales.unshift({ t, unseen: true, mesos: event.mesos ?? null });

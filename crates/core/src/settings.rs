@@ -22,11 +22,14 @@ pub struct Settings {
     pub store_status_bar: bool,
     /// A Discord channel's webhook URL, where sold items are reported; empty = off.
     pub discord_webhook: String,
+    /// A Telegram bot's `sendMessage` URL with its `chat_id`, which gets the same messages; empty = off. Without the
+    /// chat until the player tests it after writing to the bot.
+    pub telegram_webhook: String,
     /// The phone pairing key (`notify::phone`), from the QR code the player scanned; empty = off.
     pub phone_key: String,
-    /// Tell Discord about sold items (when there is a webhook).
+    /// Tell about sold items (when a connector is set).
     pub notify_sales: bool,
-    /// Tell Discord when the store is detected open or closes.
+    /// Tell when the store is detected open or closes.
     pub notify_store: bool,
 }
 
@@ -40,6 +43,7 @@ impl Default for Settings {
             check_updates: true,
             store_status_bar: true,
             discord_webhook: String::new(),
+            telegram_webhook: String::new(),
             phone_key: String::new(),
             notify_sales: true,
             notify_store: true,
@@ -76,6 +80,11 @@ impl Settings {
         {
             settings.discord_webhook = valid.to_string();
         }
+        if let Some(url) = raw.get("telegram_webhook").and_then(Value::as_str)
+            && let Some((token, chat)) = crate::notify::telegram::parse_webhook(url)
+        {
+            settings.telegram_webhook = crate::notify::telegram::webhook_url(token, chat);
+        }
         if let Some(key) = raw.get("phone_key").and_then(Value::as_str)
             && let Some(valid) = crate::notify::phone::valid_key(key)
         {
@@ -103,6 +112,7 @@ impl Settings {
         map.insert("notify_sales".into(), json!(self.notify_sales));
         map.insert("notify_store".into(), json!(self.notify_store));
         map.insert("discord_webhook".into(), json!(self.discord_webhook));
+        map.insert("telegram_webhook".into(), json!(self.telegram_webhook));
         map.insert("phone_key".into(), json!(self.phone_key));
         serde_json::to_string_pretty(&Value::Object(map)).unwrap_or_default()
     }
@@ -111,8 +121,11 @@ impl Settings {
 impl Settings {
     /// What the notification connectors are built from.
     pub fn notify(&self) -> crate::notify::NotifySettings {
+        let (bot, chat) = crate::notify::telegram::parse_webhook(&self.telegram_webhook).unwrap_or_default();
         crate::notify::NotifySettings {
             discord_webhook: self.discord_webhook.clone(),
+            telegram_bot: bot.to_string(),
+            telegram_chat: chat,
             phone_key: self.phone_key.clone(),
             sales: self.notify_sales,
             store: self.notify_store,

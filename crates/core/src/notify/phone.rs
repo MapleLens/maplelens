@@ -59,7 +59,7 @@ impl Phone {
         if let Some(tag) = tag {
             message["tag"] = json!(tag);
         }
-        Request { url: format!("{RELAY_URL}/notify"), body: message.to_string() }
+        Request { url: format!("{RELAY_URL}/notify"), body: message.to_string(), fallback: None }
     }
 
     fn store(&self, change: &StoreChange) -> Request {
@@ -92,7 +92,8 @@ impl Phone {
                 Some(owner) => format!("Sold: {} · {owner}'s store", what(first)),
                 None => format!("Sold: {}", what(first)),
             };
-            return Some(self.message(&title, &parts.join(" · "), first.item_id.map(item_icon_url), None));
+            // The picture found by name (`picture`): maplestory.io's ids are mostly not the game's.
+            return Some(self.message(&title, &parts.join(" · "), first.picture.map(item_icon_url), None));
         }
         let mut lines: Vec<String> = sales
             .iter()
@@ -162,14 +163,6 @@ impl Connector for Phone {
             Some("test"),
         )
     }
-
-    fn not_found(&self) -> &'static str {
-        "no phone is paired: scan the QR code with your phone"
-    }
-
-    fn sent(&self) -> &'static str {
-        "Sent: check your phone"
-    }
 }
 
 #[cfg(test)]
@@ -221,6 +214,7 @@ mod tests {
             quantity: 20,
             mesos: Some(12_400),
             item_id: Some(2_120_000),
+            picture: Some(2_120_000),
             store: Some("ShopOwner".into()),
             balance: Some(39_311),
         });

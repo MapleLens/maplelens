@@ -2,16 +2,17 @@
 //
 // Messages in:  {type: "init", fonts, glyphs, cardScale} · {type: "frame", bitmap, inset, scale} ·
 //               {type: "ocr-answer", id, text} · {type: "ocr-enabled", enabled} · {type: "shop", enabled} ·
-//               {type: "notify", webhook, phone, sales, store} · {type: "notify-test", target} · {type: "phone-qr", url} ·
+//               {type: "notify", webhook, telegramWebhook, phone, sales, store} ·
+//               {type: "notify-test", service, webhook, telegramWebhook, phone} · {type: "phone-qr", url} ·
 //               {type: "catalog", id, json}
 // Messages out: {type: "ready", version, items} · {type: "state", state, fps, ms} · {type: "card", which, version,
 //               width, height, pixels} · {type: "ocr-job", id, font, width, height, pixels} · {type: "glyphs", font,
 //               json} · {type: "idle"} (ready for the next frame) · {type: "notify-status", text} ·
-//               {type: "notify-test-result", ok, text} · {type: "phone-qr", modules} ·
-//               {type: "catalog-loaded", id, items | error} ·
+//               {type: "notify-test-result", ok, text, telegramWebhook?} · {type: "phone-qr", modules} ·
+//               {type: "picture", name, url} (a sold item's picture, once found) · {type: "catalog-loaded", id, items | error} ·
 //               {type: "error", message}
 
-import init, { Engine } from "./pkg/maplelens_web.js?v=a0d60c76fffd";
+import init, { Engine } from "./pkg/maplelens_web.js?v=b74844f6fa4d";
 
 /** One rank lookup every two seconds stays under classicrank.com's 30 requests a minute. */
 const RANK_GAP_MS = 2000;
@@ -23,7 +24,8 @@ let lastCard = 0;
 let lastRank = 0;
 let lastRankFetch = 0;
 const askedOcr = new Set();
-/** Webhook messages waiting to go out, sent one at a time: a webhook takes about five messages in two seconds. */
+/** Messages waiting to go out, sent one at a time: a webhook takes about five messages in two seconds, a Telegram
+ *  chat about one a second. */
 const outbox = [];
 let sending = false;
 const SEND_GAP_MS = 600;
@@ -35,7 +37,7 @@ const post = (message, transfer = []) => self.postMessage(message, transfer);
 
 async function start({ fonts, glyphs, cardScale, ocr }) {
   // Named explicitly so scripts/stamp-web.ps1 can version it together with the glue.
-  await init({ module_or_path: new URL("./pkg/maplelens_web_bg.wasm?v=a0d60c76fffd", import.meta.url) });
+  await init({ module_or_path: new URL("./pkg/maplelens_web_bg.wasm?v=b74844f6fa4d", import.meta.url) });
   const [regular, bold] = await Promise.all(fonts.map(url => fetch(url).then(r => r.arrayBuffer())));
   engine = new Engine(new Uint8Array(regular), new Uint8Array(bold));
   engine.card_scale = cardScale || 1;
@@ -46,28 +48,63 @@ async function start({ fonts, glyphs, cardScale, ocr }) {
   post({ type: "ready", version: Engine.version(), items: engine.item_count() });
 }
 
-/** POST one request (the engine's `{name, url, body, missing}`); resolves to {ok, text}: in words for the player,
- *  never with the URL or body (a webhook's token and a phone key are secrets). A refusal for going too fast is
- *  retried after the wait the service asks for. */
-async function deliver({ name, url, body, missing }) {
+/** POST one request to a service; resolves to {ok, text, answer}: text in words for the player, never with the URL
+ *  (its token is a secret). A refusal for going too fast is retried after the wait the service asks for (Discord
+ *  says `retry_after`, Telegram `parameters.retry_after`). */
+async function deliver({ service = "Discord", url, body }) {
   for (let attempt = 0; attempt <= SEND_RETRIES; attempt++) {
     let response;
     try {
       response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body });
     } catch {
-      return { ok: false, text: `${name} could not be reached` };
+      return { ok: false, text: `${service} could not be reached` };
     }
-    if (response.ok) return { ok: true, text: "Sent" };
+    if (response.ok) return { ok: true, text: "Sent", answer: await response.text().catch(() => "") };
     if (response.status === 429 && attempt < SEND_RETRIES) {
       const info = await response.json().catch(() => ({}));
-      const wait = Math.min(SEND_MAX_WAIT_MS, Math.max(100, (Number(info.retry_after) || 1) * 1000));
-      await new Promise(resolve => setTimeout(resolve, wait));
+      const seconds = Number(info.retry_after ?? info.parameters?.retry_after) || 1;
+      await new Promise(resolve => setTimeout(resolve, Math.min(SEND_MAX_WAIT_MS, Math.max(100, seconds * 1000))));
       continue;
     }
-    if ([401, 404, 410].includes(response.status)) return { ok: false, text: `${name} ${missing}` };
-    return { ok: false, text: `${name} answered HTTP ${response.status}` };
+    return { ok: false, text: Engine.notify_refusal(service, response.status) };
   }
-  return { ok: false, text: `${name} keeps refusing for going too fast` };
+  return { ok: false, text: `${service} keeps refusing for going too fast` };
+}
+
+/** `request` sent, or its `fallback` if the service refuses it (a picture it could not fetch: the same text alone). */
+async function deliverOrFallback(request) {
+  const result = await deliver(request);
+  return result.ok || !request.fallback ? result : deliver({ service: request.service, ...request.fallback });
+}
+
+/** A test message to one service; a Telegram URL without its chat is first completed by asking the bot who wrote to
+ *  it, and the whole URL comes back with the answer for the page to keep. */
+async function testNotify({ service, webhook, telegramWebhook, phone }) {
+  const now = Date.now() / 1000;
+  if (service === "phone") {
+    const request = engine.phone_test_request(phone, now);
+    if (!request) return { ok: false, text: "Connect a phone first" };
+    const r = await deliver(JSON.parse(request));
+    return { ok: r.ok, text: r.ok ? "Sent: check your phone" : `Not sent: ${r.text}` };
+  }
+  if (service !== "telegram") {
+    const request = engine.notify_test_request(webhook, now);
+    if (!request) return { ok: false, text: "Paste a Discord webhook URL first" };
+    const r = await deliverOrFallback(JSON.parse(request));
+    return { ok: r.ok, text: r.ok ? "Sent: check your Discord channel" : `Not sent: ${r.text}` };
+  }
+  let url = telegramWebhook;
+  let found;
+  if (!engine.telegram_test_request(url, now)) {
+    const link = Engine.telegram_link_request(url);
+    if (!link) return { ok: false, text: "Paste your bot's URL or token first" };
+    const r = await deliver({ service: "Telegram", ...JSON.parse(link) });
+    if (!r.ok) return { ok: false, text: `Not linked: ${r.text}` };
+    found = url = Engine.telegram_linked(url, r.answer);
+    if (!url) return { ok: false, text: "No message to the bot yet: send it /start in Telegram, then Test again" };
+  }
+  const r = await deliverOrFallback(JSON.parse(engine.telegram_test_request(url, now)));
+  return { ok: r.ok, text: r.ok ? "Sent: check your Telegram chat" : `Not sent: ${r.text}`, telegramWebhook: found };
 }
 
 async function drainOutbox() {
@@ -76,12 +113,29 @@ async function drainOutbox() {
   try {
     while (outbox.length) {
       const request = outbox.shift();
-      const result = await deliver(request);
-      post({ type: "notify-status", ok: result.ok, name: request.name, text: result.ok ? `Last message sent to ${request.name}` : result.text });
+      const result = await deliverOrFallback(request);
+      post({ type: "notify-status", service: request.service, ok: result.ok, text: result.ok ? `Last message sent to ${request.service}` : result.text });
       await new Promise(resolve => setTimeout(resolve, SEND_GAP_MS));
     }
   } finally {
     sending = false;
+  }
+}
+
+/** The sold items' pictures, looked up by name on maplestory.io before the sales go out (the engine waits a few
+ *  seconds for them; a failed lookup is not handed in). */
+function lookUpPictures() {
+  for (const { name, url } of JSON.parse(engine.take_picture_lookups())) {
+    fetch(url, { headers: { Accept: "application/json" } })
+      .then(response => response.ok ? response.text() : null)
+      .then(answer => {
+        if (answer === null) return;
+        engine.picture_found(name, answer);
+        // The page's store log and the phone app show it beside the sale too.
+        const picture = engine.picture_url(name);
+        if (picture) post({ type: "picture", name, url: picture });
+      })
+      .catch(() => {});
   }
 }
 
@@ -143,6 +197,7 @@ function frame({ bitmap, inset, scale }) {
     const json = engine.learnt_glyphs(font);
     if (json) post({ type: "glyphs", font, json });
   }
+  lookUpPictures();
   collectRequests();
   lookUpRanks();
 }
@@ -161,16 +216,11 @@ self.onmessage = async ({ data }) => {
       }
     }
     else if (data.type === "shop" && engine) engine.set_shop(data.enabled);
-    else if (data.type === "notify" && engine) engine.set_notify(data.webhook, data.phone || "", data.sales, data.store);
-    else if (data.type === "notify-test" && engine) {
-      const request = engine.notify_test_request(data.target, Date.now() / 1000);
-      if (!request) post({ type: "notify-test-result", ok: false, text: "Nothing to test yet" });
-      else {
-        const parsed = JSON.parse(request);
-        deliver(parsed).then(r => post({ type: "notify-test-result", ok: r.ok, text: r.ok ? parsed.sent : `Not sent: ${r.text}` }));
-      }
+    else if (data.type === "notify" && engine) {
+      engine.set_notify(data.webhook, data.telegramWebhook, data.phone || "", data.sales, data.store);
     }
     else if (data.type === "phone-qr") post({ type: "phone-qr", modules: Engine.phone_qr(data.url) });
+    else if (data.type === "notify-test" && engine) testNotify(data).then(r => post({ type: "notify-test-result", ...r }));
   } catch (error) {
     post({ type: "error", message: String(error?.message || error) });
   } finally {

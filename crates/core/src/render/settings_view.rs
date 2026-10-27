@@ -6,11 +6,11 @@ use super::canvas::{Anchor, Canvas, Ink};
 use super::font::Fonts;
 use super::gamewin::{self, INK, INK_DIM, PAD, VALUE_EDGE, VALUE_FILL};
 use super::maple_ui::{self, ACCENT, Area, Tone, Touch};
-use crate::notify::discord::masked;
+use crate::notify::{discord, telegram};
 use crate::settings::{EXPAND_DELAY_RANGE_S, Settings, delay_text};
 
 /// Size in design units (device pixels at 96 DPI).
-pub const SIZE: (f32, f32) = (380.0, 486.0);
+pub const SIZE: (f32, f32) = (380.0, 536.0);
 const LABEL_W: f32 = 80.0;
 const VALUE_X: f32 = PAD + LABEL_W + 4.0;
 const VALUE_W: f32 = SIZE.0 - PAD - VALUE_X;
@@ -32,10 +32,11 @@ const UPDATES_Y: f32 = DELAY_Y + ROW_H + 26.0;
 const NOTIFY_Y: f32 = UPDATES_Y + ROW_H + 5.0;
 const NOTIFY_STORE_Y: f32 = NOTIFY_Y + ROW_H + 5.0;
 const WEBHOOK_Y: f32 = NOTIFY_STORE_Y + ROW_H + 5.0;
-/// Width of the Paste / Test / Clear buttons beside the webhook box.
+const TELEGRAM_Y: f32 = WEBHOOK_Y + ROW_H + 24.0;
+/// Width of the Paste / Test / Clear buttons beside the webhook and bot boxes.
 const WEBHOOK_BUTTON_W: f32 = 52.0;
 const WEBHOOK_BUTTON_GAP: f32 = 4.0;
-const STATUS_Y: f32 = WEBHOOK_Y + ROW_H + 24.0;
+const STATUS_Y: f32 = TELEGRAM_Y + ROW_H + 24.0;
 const BUTTONS_Y: f32 = STATUS_Y + STATUS_H + 6.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,22 +49,27 @@ pub enum Control {
     ClearHotkey,
     Delay,
     AutoUpdate,
-    /// Tell Discord about sold items.
+    /// Tell about sold items.
     NotifySales,
-    /// Tell Discord when the store is detected open or closes.
+    /// Tell when the store is detected open or closes.
     NotifyStore,
     /// Take the Discord webhook URL from the clipboard.
     PasteWebhook,
     /// Send a test message to it.
     TestWebhook,
     ClearWebhook,
+    /// Take a Telegram bot's `sendMessage` URL (or its token alone) from the clipboard.
+    PasteTelegram,
+    /// Find the chat that wrote to the bot, then send a test message to it.
+    TestTelegram,
+    ClearTelegram,
     Check,
     Update,
 }
 
 impl Control {
     /// Tab order.
-    pub const ORDER: [Self; 14] = [
+    pub const ORDER: [Self; 17] = [
         Self::Overlay,
         Self::StatusBar,
         Self::Startup,
@@ -76,6 +82,9 @@ impl Control {
         Self::PasteWebhook,
         Self::TestWebhook,
         Self::ClearWebhook,
+        Self::PasteTelegram,
+        Self::TestTelegram,
+        Self::ClearTelegram,
         Self::Check,
         Self::Update,
     ];
@@ -94,24 +103,27 @@ impl Control {
             Self::AutoUpdate => row(UPDATES_Y),
             Self::NotifySales => row(NOTIFY_Y),
             Self::NotifyStore => row(NOTIFY_STORE_Y),
-            Self::PasteWebhook => webhook_button(2),
-            Self::TestWebhook => webhook_button(1),
-            Self::ClearWebhook => webhook_button(0),
+            Self::PasteWebhook => row_button(WEBHOOK_Y, 2),
+            Self::TestWebhook => row_button(WEBHOOK_Y, 1),
+            Self::ClearWebhook => row_button(WEBHOOK_Y, 0),
+            Self::PasteTelegram => row_button(TELEGRAM_Y, 2),
+            Self::TestTelegram => row_button(TELEGRAM_Y, 1),
+            Self::ClearTelegram => row_button(TELEGRAM_Y, 0),
             Self::Check => (SIZE.0 - PAD - 216.0, BUTTONS_Y, 100.0, ROW_H),
             Self::Update => (SIZE.0 - PAD - 110.0, BUTTONS_Y, 110.0, ROW_H),
         }
     }
 }
 
-/// The webhook row's buttons counted from the right edge.
-fn webhook_button(from_right: usize) -> Area {
+/// A webhook or bot row's buttons counted from the right edge.
+fn row_button(y: f32, from_right: usize) -> Area {
     let step = WEBHOOK_BUTTON_W + WEBHOOK_BUTTON_GAP;
-    (SIZE.0 - PAD - WEBHOOK_BUTTON_W - step * from_right as f32, WEBHOOK_Y, WEBHOOK_BUTTON_W, ROW_H)
+    (SIZE.0 - PAD - WEBHOOK_BUTTON_W - step * from_right as f32, y, WEBHOOK_BUTTON_W, ROW_H)
 }
 
-fn webhook_box() -> Area {
-    let right = webhook_button(2).0 - WEBHOOK_BUTTON_GAP;
-    (VALUE_X, WEBHOOK_Y, right - VALUE_X, ROW_H)
+fn value_box(y: f32) -> Area {
+    let right = row_button(y, 2).0 - WEBHOOK_BUTTON_GAP;
+    (VALUE_X, y, right - VALUE_X, ROW_H)
 }
 
 fn inside((x, y, w, h): Area, px: f32, py: f32) -> bool {
@@ -152,6 +164,8 @@ pub struct View<'a> {
     pub can_update: bool,
     /// What the last webhook paste or test came to ("" before any).
     pub notify_note: &'a str,
+    /// What the last bot token paste or test came to ("" before any).
+    pub telegram_note: &'a str,
     /// "Update now", or "View release" for a build that cannot replace itself.
     pub update_label: &'a str,
     /// Some(what is held so far) while the hotkey box listens for a combo.
@@ -168,6 +182,7 @@ impl View<'_> {
             Control::Update => !self.can_update,
             Control::ClearHotkey => self.settings.toggle_hotkey == 0 && self.capturing.is_none(),
             Control::TestWebhook | Control::ClearWebhook => self.settings.discord_webhook.is_empty(),
+            Control::TestTelegram | Control::ClearTelegram => self.settings.telegram_webhook.is_empty(),
             _ => false,
         };
         Touch { hover: self.hover == Some(control), pressed: self.pressed == Some(control) && !disabled, disabled }
@@ -187,8 +202,8 @@ pub fn render(fonts: &Fonts, view: &View<'_>, factor: f32) -> RgbaImage {
         (Control::StatusBar, "STORE", "Show the status bar in your own store", s.store_status_bar),
         (Control::Startup, "STARTUP", "Launch MapleLens when Windows starts", s.launch_at_startup),
         (Control::AutoUpdate, "UPDATES", "Check for updates automatically", s.check_updates),
-        (Control::NotifySales, "DISCORD", "Tell Discord when an item sells", s.notify_sales),
-        (Control::NotifyStore, "", "Tell Discord when my store opens or closes", s.notify_store),
+        (Control::NotifySales, "NOTIFY", "Tell me when an item sells", s.notify_sales),
+        (Control::NotifyStore, "", "Tell me when my store opens or closes", s.notify_store),
     ];
     for (control, label, text, on) in toggles {
         let area = control.area();
@@ -201,6 +216,7 @@ pub fn render(fonts: &Fonts, view: &View<'_>, factor: f32) -> RgbaImage {
     hotkey(&mut cv, view);
     delay(&mut cv, view);
     webhook(&mut cv, view);
+    telegram_bot(&mut cv, view);
     update_status(&mut cv, view);
     maple_ui::button(&mut cv, Control::Check.area(), "Check now", Tone::Grey, view.touch(Control::Check));
     maple_ui::button(&mut cv, Control::Update.area(), view.update_label, Tone::Orange, view.touch(Control::Update));
@@ -269,23 +285,57 @@ fn delay(cv: &mut Canvas<'_>, view: &View<'_>) {
 }
 
 fn webhook(cv: &mut Canvas<'_>, view: &View<'_>) {
-    let area = webhook_box();
-    let (x, y, w, h) = area;
-    gamewin::pill(cv, (PAD, y, LABEL_W, h), "WEBHOOK", 11.0);
-    field(cv, area, false, false);
     let url = &view.settings.discord_webhook;
-    let (text, colour) = if url.is_empty() {
-        ("Not set".to_string(), INK_DIM)
-    } else {
-        // Only the end of the token shows: the URL is a secret.
-        let tail = masked(url).rsplit('…').next().unwrap_or_default().to_string();
-        (format!("Set · …{tail}"), INK)
+    // Only the end of the token shows: the URL is a secret.
+    let value = (!url.is_empty()).then(|| {
+        let tail = discord::masked(url).rsplit('…').next().unwrap_or_default().to_string();
+        format!("Set · …{tail}")
+    });
+    let hint = if view.notify_note.is_empty() { "Copy a channel's webhook URL, then Paste" } else { view.notify_note };
+    let buttons = [Control::PasteWebhook, Control::TestWebhook, Control::ClearWebhook];
+    secret_row(cv, view, WEBHOOK_Y, "DISCORD", value, hint, buttons);
+}
+
+fn telegram_bot(cv: &mut Canvas<'_>, view: &View<'_>) {
+    let url = &view.settings.telegram_webhook;
+    let (bot, chat) = telegram::parse_webhook(url).unwrap_or_default();
+    // The note below says what linking takes; the box has room for little more than this.
+    let value = (!url.is_empty()).then(|| match chat {
+        0 => "No chat yet".to_string(),
+        _ => format!("Set · {}", telegram::masked(bot)),
+    });
+    let hint = match view.telegram_note {
+        "" if url.is_empty() => "Copy your bot's sendMessage URL (or its token), then Paste",
+        "" if chat == 0 => "Send /start to your bot in Telegram, then press Test",
+        "" => "Messages go to the chat_id in the URL",
+        note => note,
+    };
+    let buttons = [Control::PasteTelegram, Control::TestTelegram, Control::ClearTelegram];
+    secret_row(cv, view, TELEGRAM_Y, "TELEGRAM", value, hint, buttons);
+}
+
+/// A row holding a secret: its label, what is set (None = "Not set"), Paste / Test / Clear, and a note below.
+fn secret_row(
+    cv: &mut Canvas<'_>,
+    view: &View<'_>,
+    y: f32,
+    label: &str,
+    value: Option<String>,
+    hint: &str,
+    [paste, test, clear]: [Control; 3],
+) {
+    let area = value_box(y);
+    let (x, _, w, h) = area;
+    gamewin::pill(cv, (PAD, y, LABEL_W, h), label, 11.0);
+    field(cv, area, false, false);
+    let (text, colour) = match value {
+        Some(text) => (text, INK),
+        None => ("Not set".to_string(), INK_DIM),
     };
     cv.text(x + 9.0, y + h / 2.0 + 4.0, &fit(cv, &text, 11.5, w - 14.0), Ink::new(11.5, colour).bold(), Anchor::LS);
-    maple_ui::button(cv, Control::PasteWebhook.area(), "Paste", Tone::Orange, view.touch(Control::PasteWebhook));
-    maple_ui::button(cv, Control::TestWebhook.area(), "Test", Tone::Grey, view.touch(Control::TestWebhook));
-    maple_ui::button(cv, Control::ClearWebhook.area(), "Clear", Tone::Grey, view.touch(Control::ClearWebhook));
-    let hint = if view.notify_note.is_empty() { "Copy a channel's webhook URL, then Paste" } else { view.notify_note };
+    maple_ui::button(cv, paste.area(), "Paste", Tone::Orange, view.touch(paste));
+    maple_ui::button(cv, test.area(), "Test", Tone::Grey, view.touch(test));
+    maple_ui::button(cv, clear.area(), "Clear", Tone::Grey, view.touch(clear));
     let width = SIZE.0 - PAD - VALUE_X;
     cv.text(VALUE_X + 2.0, y + h + 12.0, &fit(cv, hint, NOTE_SIZE, width), Ink::new(NOTE_SIZE, INK_DIM), Anchor::LS);
 }

@@ -1,11 +1,13 @@
 //! Notifications: things that happened (for now, an item sold in the player's Store Permit) sent out through
 //! connectors. A connector turns a batch of notifications into plain HTTP requests; sending them is the platform's
 //! (the Windows app's thread, the browser's `fetch`), so everything here is pure and testable, and a new connector
-//! (Telegram, a generic webhook) is one more type implementing `Connector` and one more field in the settings.
+//! is one more type implementing `Connector` and one more field in the settings.
 
 pub mod announce;
 pub mod discord;
 pub mod phone;
+pub mod picture;
+pub mod telegram;
 
 /// What happened.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,8 +36,10 @@ pub struct Sale {
     pub quantity: u64,
     /// What the store received for it (the meso counter's gain), when known.
     pub mesos: Option<i64>,
-    /// The game's item id, for the item's picture.
+    /// The game's (MapleStory Classic's) item id.
     pub item_id: Option<u64>,
+    /// The item's picture on maplestory.io, whose ids are not the game's: found by name (`picture::Pictures`).
+    pub picture: Option<u64>,
     /// The player whose store it is.
     pub store: Option<String>,
     /// The store's meso counter after it, when known.
@@ -46,6 +50,10 @@ pub struct Sale {
 pub fn item_icon_url(item_id: u64) -> String {
     format!("{}/item/{item_id}/icon", crate::config::MAP_API)
 }
+
+/// The item the test messages' example sale shows (Pet Food, sold by NPCs: in every version's data, with the same
+/// id in the game and on maplestory.io).
+pub const EXAMPLE_ITEM: (&str, u64) = ("Pet Food", 2_120_000);
 
 /// 1234567 -> "1,234,567".
 pub fn grouped(number: i64) -> String {
@@ -58,10 +66,13 @@ pub fn grouped(number: i64) -> String {
 }
 
 /// One HTTP POST with a JSON body.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Request {
     pub url: String,
     pub body: String,
+    /// What to send instead if the service refuses this one (a message with a picture it could not fetch: the same
+    /// message as text).
+    pub fallback: Option<Box<Request>>,
 }
 
 /// Where notifications can go.
@@ -76,16 +87,6 @@ pub trait Connector: Send {
     /// A one-off request to check the connector works, sent when the player asks for a test; it names the player's
     /// store when `owner` is known, like every message.
     fn test_request(&self, owner: Option<&str>, unix_now: f64) -> Request;
-
-    /// What the service answering 401 or 404 (or 410) means, in words for the player.
-    fn not_found(&self) -> &'static str {
-        "says that webhook does not exist (deleted?)"
-    }
-
-    /// What to tell the player when the test message went out.
-    fn sent(&self) -> &'static str {
-        "Sent: check your Discord channel"
-    }
 }
 
 /// What the player configured: one field per connector, empty or false when off.
@@ -93,6 +94,10 @@ pub trait Connector: Send {
 pub struct NotifySettings {
     /// A Discord channel's webhook URL; empty = off.
     pub discord_webhook: String,
+    /// A Telegram bot's token; empty = off.
+    pub telegram_bot: String,
+    /// The chat the bot writes to, found once the player wrote to it; 0 = not yet.
+    pub telegram_chat: i64,
     /// The phone pairing key (`phone::valid_key`); empty = off.
     pub phone_key: String,
     /// Tell about sold items.
@@ -117,10 +122,32 @@ pub fn connectors(settings: &NotifySettings) -> Vec<Box<dyn Connector>> {
     if let Some(discord) = discord::Discord::new(&settings.discord_webhook) {
         found.push(Box::new(discord));
     }
+    if let Some(telegram) = telegram::Telegram::new(&settings.telegram_bot, settings.telegram_chat) {
+        found.push(Box::new(telegram));
+    }
     if let Some(phone) = phone::Phone::new(&settings.phone_key) {
         found.push(Box::new(phone));
     }
     found
+}
+
+/// A service's answer to a request, in words for the player (never with the URL: its token is a secret).
+pub fn refusal(service: &str, status: u16) -> String {
+    match (service, status) {
+        ("Telegram", 401 | 404) => "Telegram does not know that bot token (revoked?)".into(),
+        ("Telegram", 403) => "The bot may not write there: send it /start (or add it to the group) again".into(),
+        ("Telegram", 400) => "Telegram cannot find that chat: Clear, then Paste the token again".into(),
+        ("Phone", 404 | 410) => "No phone is paired: scan the QR code with your phone".into(),
+        (_, 401 | 404) => format!("{service} says that webhook does not exist (deleted?)"),
+        _ => format!("{service} answered HTTP {status}"),
+    }
+}
+
+/// How long a service that refused for going too fast asks us to wait, in seconds: Discord says `retry_after`,
+/// Telegram `parameters.retry_after`.
+pub fn retry_after(answer: &str) -> Option<f64> {
+    let answer: serde_json::Value = serde_json::from_str(answer).ok()?;
+    answer["retry_after"].as_f64().or_else(|| answer["parameters"]["retry_after"].as_f64())
 }
 
 /// `unix` seconds as an ISO-8601 UTC time ("2026-10-25T13:33:31Z"): what Discord's embeds take.
@@ -154,10 +181,31 @@ mod tests {
         assert!(connectors(&NotifySettings::default()).is_empty());
         let on = NotifySettings {
             discord_webhook: "https://discord.com/api/webhooks/1/abc".into(),
-            phone_key: "AbCdEfGhIjKlMnOp.qRsTuVwXyZ0123456789-_ab".into(),
             sales: true,
             store: true,
+            ..NotifySettings::default()
         };
-        assert_eq!(connectors(&on).iter().map(|c| c.name()).collect::<Vec<_>>(), ["Discord", "Phone"]);
+        assert_eq!(connectors(&on).iter().map(|c| c.name()).collect::<Vec<_>>(), ["Discord"]);
+        let token = "123456789:AAFakeTokenForTests_abcdefghijklmnop-Q".to_string();
+        let unlinked = NotifySettings { telegram_bot: token.clone(), ..on.clone() };
+        assert_eq!(connectors(&unlinked).len(), 1, "a bot is only used once its chat is known");
+        let both = NotifySettings { telegram_bot: token, telegram_chat: 111, ..on };
+        assert_eq!(connectors(&both).iter().map(|c| c.name()).collect::<Vec<_>>(), ["Discord", "Telegram"]);
+        let phone = NotifySettings {
+            phone_key: "AbCdEfGhIjKlMnOp.qRsTuVwXyZ0123456789-_ab".into(),
+            ..NotifySettings::default()
+        };
+        assert_eq!(connectors(&phone).iter().map(|c| c.name()).collect::<Vec<_>>(), ["Phone"]);
+        assert_eq!(refusal("Phone", 410), "No phone is paired: scan the QR code with your phone");
+    }
+
+    #[test]
+    fn refusals_are_in_words_and_waits_are_found() {
+        assert_eq!(refusal("Discord", 404), "Discord says that webhook does not exist (deleted?)");
+        assert_eq!(refusal("Telegram", 401), "Telegram does not know that bot token (revoked?)");
+        assert_eq!(refusal("Telegram", 500), "Telegram answered HTTP 500");
+        assert_eq!(retry_after(r#"{"retry_after": 1.5}"#), Some(1.5));
+        assert_eq!(retry_after(r#"{"ok":false,"error_code":429,"parameters":{"retry_after":5}}"#), Some(5.0));
+        assert_eq!(retry_after("busy"), None);
     }
 }

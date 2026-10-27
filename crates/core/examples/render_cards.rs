@@ -106,9 +106,13 @@ fn main() {
         settings: maplelens_core::settings::Settings {
             discord_webhook:
                 "https://discord.com/api/webhooks/123456789012345678/abcdefgh_IJKLMNOP-qrstuvwxyz0123456789WXYZ".into(),
+            telegram_webhook:
+                "https://api.telegram.org/bot123456789:AAFakeTokenForTheExample_abcdefghijk-Q/sendMessage?chat_id=111"
+                    .into(),
             ..Default::default()
         },
         notify_note: "Sent: check your Discord channel",
+        telegram_note: "Sent: check your Telegram chat",
         hover: Some(Control::TestWebhook),
         ..view.clone()
     };

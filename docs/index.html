@@ -19,12 +19,13 @@
 <meta property="og:image:alt" content="MapleLens price card beside an item tooltip in MapleStory Classic">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="assets/favicon.ico">
-<!-- Scripts only from this site: the web app on this origin keeps the player's Discord webhook and phone key. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://maplestory.io https://maplelens.goatcounter.com; connect-src 'self' https://api.github.com https://maplelens.goatcounter.com https://maplelens-prices.prices-proxy.workers.dev https://classicrank.com; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<!-- Scripts only from this site: the web app on this origin keeps the player's Discord webhook, Telegram token and
+     phone key. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://maplestory.io https://maplelens.goatcounter.com; connect-src 'self' https://api.github.com https://maplelens.goatcounter.com https://maplelens-prices.prices-proxy.workers.dev https://classicrank.com https://maplestory.io; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lilita+One&display=swap">
-<link rel="stylesheet" href="assets/maple.css?v=a0d60c76fffd">
+<link rel="stylesheet" href="assets/maple.css?v=b74844f6fa4d">
 <style>
 /* ---------- hero: a field map ---------- */
 .hero{position:relative;padding:56px 0 150px;overflow:hidden}
@@ -196,7 +197,7 @@ p.sub{margin:0 0 22px;font-weight:bold;color:#0e2a55;max-width:46em}
             <li>Live player ranks from classicrank.com.</li>
             <li>Everything runs in your browser tab; no frame is uploaded.</li>
             <li>Prices from MesoWatch, refreshed every 30 minutes.</li>
-            <li>Store sales sent to Discord or <a href="#phone">your phone</a>.</li>
+            <li>Store sales sent to Discord, Telegram or <a href="#phone">your phone</a>.</li>
           </ul>
           <div class="foot">
             <a class="btn blue" href="app/">Open in browser</a>
@@ -309,7 +310,7 @@ if (GOATCOUNTER_CODE) {
   const s = document.createElement("script");
   s.async = true;
   // GoatCounter's count.v4.js, kept on this site: this origin is the web app's, whose localStorage holds the player's
-  // Discord webhook and phone key, so no script from another server runs here.
+  // Discord webhook, Telegram token and phone key, so no script from another server runs here.
   s.src = "assets/goatcounter-count.v4.js";
   s.dataset.goatcounter = `https://${GOATCOUNTER_CODE}.goatcounter.com/count`;
   document.head.appendChild(s);
@@ -338,7 +339,7 @@ const status = document.getElementById("demo-status");
 run.addEventListener("click", async () => {
   run.disabled = true;
   status.textContent = "loading the engine…";
-  const { Lens, paint } = await import("./app/lens.js?v=a0d60c76fffd");
+  const { Lens, paint } = await import("./app/lens.js?v=b74844f6fa4d");
   const img = document.querySelector("#demo .frame img");
   // The screenshot is lazy-loaded: a click before it scrolled into view would find no pixels yet.
   img.loading = "eager";

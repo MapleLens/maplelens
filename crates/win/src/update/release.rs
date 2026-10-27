@@ -52,7 +52,7 @@ pub fn sign_release(zip: &Path) -> Result<String, UpdateError> {
 
 pub fn make_update_key(out: &Path, set_secret: bool) -> Result<String, UpdateError> {
     let mut seed = [0u8; 32];
-    getrandom::getrandom(&mut seed).map_err(|e| UpdateError(format!("no randomness: {e}")))?;
+    getrandom::fill(&mut seed).map_err(|e| UpdateError(format!("no randomness: {e}")))?;
     let key = SigningKey::from_bytes(&seed);
     let private = STANDARD.encode(key.to_bytes());
     let public = STANDARD.encode(key.verifying_key().to_bytes());

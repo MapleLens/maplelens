@@ -1,11 +1,11 @@
 // MapleLens Web: capture the game window (the page offers nothing else; the sample, video and frame-folder sources are
 // test hooks started by a URL parameter), feed frames to the engine, show the cards in the page and, on request, in a picture-in-picture window that floats over the game.
 
-import { Lens } from "./lens.js?v=a0d60c76fffd";
-import { CardView, floatingSize, openFloating } from "./cards.js?v=a0d60c76fffd";
-import { Prices } from "./prices.js?v=a0d60c76fffd";
-import { StoreBook } from "./storebook.js?v=a0d60c76fffd";
-import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=a0d60c76fffd";
+import { Lens } from "./lens.js?v=b74844f6fa4d";
+import { CardView, floatingSize, openFloating } from "./cards.js?v=b74844f6fa4d";
+import { Prices } from "./prices.js?v=b74844f6fa4d";
+import { StoreBook } from "./storebook.js?v=b74844f6fa4d";
+import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=b74844f6fa4d";
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -21,6 +21,21 @@ const STATS_FRAMES = 300;
 const SHOP_KEY = "maplelens.web.shop";
 /** A Discord webhook URL, as the engine accepts one (it checks again; this is for the buttons). */
 const WEBHOOK = /^https:\/\/(discord\.com|discordapp\.com|ptb\.discord\.com|canary\.discord\.com)\/api\/webhooks\/\d+\/[A-Za-z0-9_-]+$/;
+/** A Telegram bot's sendMessage URL, with its chat once known; or a token alone (in @BotFather's whole message). The
+ *  engine reads them the same way (`telegram::parse_webhook`); this is for the buttons. */
+const TELEGRAM_URL = /^https:\/\/api\.telegram\.org\/bot(\d{1,20}:[A-Za-z0-9_-]{30,60})\/sendMessage(?:\?(.*))?$/;
+const BOT_TOKEN = /(?:^|[\s`"',.])(\d{1,20}:[A-Za-z0-9_-]{30,60})(?=$|[\s`"',.])/;
+
+/** What was pasted as a Telegram webhook URL in its one form, or "" when it holds no bot. */
+function telegramWebhook(text) {
+  text = text.trim();
+  const url = text.match(TELEGRAM_URL);
+  const token = url ? url[1] : text.match(BOT_TOKEN)?.[1];
+  if (!token || (!url && text.startsWith("https://api.telegram.org/"))) return "";
+  const chatId = url && new URLSearchParams(url[2] || "").get("chat_id");
+  if (chatId !== null && chatId !== undefined && !/^-?[1-9]\d{0,18}$/.test(chatId)) return "";
+  return `https://api.telegram.org/bot${token}/sendMessage${chatId ? `?chat_id=${chatId}` : ""}`;
+}
 const LOG_ROWS = 40;
 /** A still frame is held this long (and until its text is read, up to the maximum) before the next one. */
 const FRAME_HOLD_MS = 4000;
@@ -31,8 +46,6 @@ const PACE = 2;
  *  appear); while a tooltip or window is being read, the full rate. */
 const IDLE_GAP_MS = 250;
 const IDLE_AFTER_MS = 1500;
-/** Reading nothing for this long while a source runs: say what to check. */
-const NOTHING_AFTER_MS = 25000;
 
 let lens = null;
 let source = null; // {stop(), next(): Promise<ImageBitmap|null>, scale, label, fullFrame}
@@ -45,7 +58,6 @@ let pageView = null;
 let lastMs = 0;
 let lastState = null;
 let lastSeen = 0; // when a tooltip or Character Info window was last in the state
-let startedAt = 0;
 let latest = { card: null, rank: null, title: "", note: "" };
 const images = { card: null, rank: null };
 const stats = { shopEvents: [], frames: 0, dropped: 0, ms: [], longTasks: 0, started: 0, cards: 0, hovers: 0, titles: {}, mainMs: 0, pumpMs: 0 };
@@ -55,8 +67,8 @@ function storage(action) {
   try { return action(window.localStorage); } catch { return undefined; } // private windows may refuse
 }
 
-/** What the player set for the shop, Discord and the phone, kept in this browser. */
-const shopSettings = { shop: true, sales: true, store: true, webhook: "", phone: "" };
+/** What the player set for the shop, Discord and Telegram, kept in this browser. */
+const shopSettings = { shop: true, sales: true, store: true, webhook: "", telegramWebhook: "", phone: "" };
 /** The pairing QR code stays up this long at most: a streamer's screen is public, and the code is the key. */
 const QR_SHOWN_MS = 120000;
 /** How often the page asks the relay whether a phone has paired, while the QR code is up. */
@@ -71,11 +83,13 @@ function loadShopSettings() {
     Object.assign(shopSettings, JSON.parse(storage(s => s.getItem(SHOP_KEY)) || "{}"));
   } catch { /* damaged: the defaults stay */ }
   if (typeof shopSettings.webhook !== "string" || !WEBHOOK.test(shopSettings.webhook)) shopSettings.webhook = "";
+  shopSettings.telegramWebhook = typeof shopSettings.telegramWebhook === "string" ? telegramWebhook(shopSettings.telegramWebhook) : "";
   if (typeof shopSettings.phone !== "string" || !KEY_SHAPE.test(shopSettings.phone)) shopSettings.phone = "";
   $("shop").checked = shopSettings.shop !== false;
   $("notify-sales").checked = shopSettings.sales !== false;
   $("notify-store").checked = shopSettings.store !== false;
   showWebhook();
+  showTelegram();
   showPhone();
 }
 
@@ -95,6 +109,21 @@ function showWebhook(editing = false) {
   $("discord-test").hidden = !set || editing;
   $("discord-clear").hidden = !set || editing;
   if (editing) $("discord").focus();
+}
+
+/** The bot's URL shows the same way (the end of its token); until its chat is known it says so. */
+function showTelegram(editing = false) {
+  const url = shopSettings.telegramWebhook;
+  const set = Boolean(url);
+  const token = url.match(TELEGRAM_URL)?.[1] || "";
+  $("telegram-state").textContent = !set ? "Not connected" : `•••••••• ${token.slice(-4)}${url.includes("chat_id=") ? "" : " · no chat yet"}`;
+  $("telegram-state").hidden = editing;
+  $("telegram").hidden = !editing;
+  $("telegram").value = "";
+  $("telegram-change").textContent = editing ? "Cancel" : set ? "Change" : "Add";
+  $("telegram-test").hidden = !set || editing;
+  $("telegram-clear").hidden = !set || editing;
+  if (editing) $("telegram").focus();
 }
 
 /** Phones paired with the key, as last asked; null before the first answer. */
@@ -139,7 +168,7 @@ async function phoneStatus() {
   if (!shopSettings.phone) return;
   const answer = await relay("state/ping", { key: shopSettings.phone });
   lastCheckIn = Date.now();
-  if (answer.ok || answer.status === 404) setPhones(answer.ok ? answer.json.phones || 0 : 0);
+  if (answer.ok || answer.status === 404 || answer.status === 410) setPhones(answer.ok ? answer.json.phones || 0 : 0);
 }
 
 /** Every few seconds: the sealed store book to the phones when it changed, else a check-in each minute. */
@@ -157,7 +186,7 @@ async function syncPhones() {
       lastUpload = lastCheckIn = now;
       if (answer.ok) lastFollowing = watching;
       else book.changed = true;
-      if (answer.ok || answer.status === 404) setPhones(answer.ok ? answer.json.phones || 0 : 0);
+      if (answer.ok || answer.status === 404 || answer.status === 410) setPhones(answer.ok ? answer.json.phones || 0 : 0);
     } else if (now - lastCheckIn >= CHECK_IN_MS) {
       await phoneStatus();
     }
@@ -181,10 +210,13 @@ async function showPairing() {
     shopSettings.phone = newKey();
     saveShopSettings();
     applyShopSettings();
-    phoneStatus();
-    setInterval(syncPhones, UPLOAD_GAP_MS);
   }
   const modules = await lens.phoneQr(phoneUrl(shopSettings.phone));
+  // The engine encodes https pairing addresses only: a phone could not open this page's address anyway.
+  if (!modules.length) {
+    $("phone-note").textContent = "Pairing needs the page over https (open it from the website)";
+    return;
+  }
   const width = Math.sqrt(modules.length);
   // Four modules of quiet zone around the code, as scanners expect.
   const canvas = $("phone-qr");
@@ -210,11 +242,24 @@ async function showPairing() {
   showPhone();
 }
 
+/** A sold item's picture, once the engine found it: beside its sales in the log, the store book and the phone app. */
+function showPicture(name, url) {
+  book.setPicture(name, url);
+  for (const row of $("store-log").querySelectorAll("li[data-item]")) {
+    if (row.dataset.item === name && !row.querySelector(".icon")) row.querySelector(".t").after(pictureOf(url));
+  }
+}
+
+function pictureOf(url) {
+  return Object.assign(document.createElement("img"), { className: "icon px", src: url, alt: "", width: 24, height: 24 });
+}
+
 /** Pass the settings to the engine. */
 function applyShopSettings() {
   if (!lens) return;
   lens.setShop(shopSettings.shop);
-  lens.setNotify(shopSettings.webhook, shopSettings.phone, shopSettings.sales, shopSettings.store);
+  const { webhook, telegramWebhook, phone, sales, store } = shopSettings;
+  lens.setNotify({ webhook, telegramWebhook, phone, sales, store });
 }
 
 /** Words for a shop event, for the log. */
@@ -244,7 +289,11 @@ function logShopEvents(events, owner) {
     row.className = described[1];
     const time = Object.assign(document.createElement("span"), { className: "t", textContent: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) });
     row.append(time);
-    if (event.icon) row.append(Object.assign(document.createElement("img"), { className: "icon px", src: event.icon, alt: "", width: 24, height: 24 }));
+    if (event.kind === "sale" && event.item) {
+      row.dataset.item = event.item;
+      const known = book.pictures.get(event.item);
+      if (known) row.append(pictureOf(known));
+    }
     row.append(document.createTextNode(described[0]));
     log.prepend(row);
   }
@@ -429,22 +478,21 @@ async function pump() {
 function start(newSource) {
   stop();
   source = newSource;
-  startedAt = lastSeen = performance.now();
+  lastSeen = performance.now();
   Object.assign(stats, { frames: 0, dropped: 0, ms: [], longTasks: 0, cards: 0, hovers: 0, titles: {}, mainMs: 0, pumpMs: 0, started: performance.now() });
   $("start").hidden = true;
   $("view").hidden = false;
-  $("stop").hidden = false;
+  $("meter").hidden = false;
   $("source").textContent = source.label;
   pump();
 }
 
 function stop() {
-  $("nothing").hidden = true;
   source?.stop();
   source = null;
   $("start").hidden = false;
   $("view").hidden = true;
-  $("stop").hidden = true;
+  $("meter").hidden = true;
   $("boxes").replaceChildren();
   $("source").textContent = "not connected";
   setPill("tooltip-pill", false, "no tooltip");
@@ -604,18 +652,6 @@ function previewFloating() {
   floating = { window: { focus() {}, close() {} }, view };
 }
 
-/** Once a source has run a while without reading a tooltip or window, say what usually is the matter. */
-function watchForNothing() {
-  setInterval(() => {
-    const quiet = source && performance.now() - Math.max(startedAt, lastSeen) > NOTHING_AFTER_MS;
-    const note = $("nothing");
-    note.hidden = !quiet;
-    if (quiet) {
-      note.textContent = "Nothing read yet. Hover an item in the game window you shared.";
-    }
-  }, 1000);
-}
-
 let prices = null;
 
 /** Load prices (the cached copy, then MesoWatch when 30 minutes have passed) and say where they came from. */
@@ -631,7 +667,12 @@ async function updatePrices() {
 
 async function main() {
   checkSupport();
-  watchForNothing();
+  for (const button of document.querySelectorAll("[data-help]")) {
+    const guide = $(button.dataset.help);
+    button.addEventListener("click", () => guide.showModal());
+    // A click on the dimmed backdrop (the dialog itself, outside its window) closes it too.
+    guide.addEventListener("click", e => { if (e.target === guide) guide.close(); });
+  }
   pageView = new CardView(document, $("cards"), {
     emptyTitle: "Hover an item in the game",
     emptyText: "Its card appears here.",
@@ -669,18 +710,58 @@ async function main() {
   });
   $("discord-test").addEventListener("click", async () => {
     note("Sending…");
-    note((await lens.testNotify(shopSettings.webhook)).text);
+    note((await lens.testNotify("discord", { webhook: shopSettings.webhook })).text);
+  });
+  const telegramNote = text => { $("telegram-note").textContent = text; };
+  $("telegram-change").addEventListener("click", () => { telegramNote(""); showTelegram($("telegram").hidden); });
+  $("telegram").addEventListener("keydown", e => { if (e.key === "Escape") showTelegram(); });
+  $("telegram").addEventListener("change", e => {
+    const text = e.target.value.trim();
+    if (!text) return;
+    const url = telegramWebhook(text);
+    if (!url) {
+      telegramNote("That is not a Telegram bot URL (api.telegram.org/bot…/sendMessage?chat_id=…) or token");
+      return;
+    }
+    shopSettings.telegramWebhook = url;
+    saveShopSettings();
+    showTelegram();
+    applyShopSettings();
+    telegramNote(url.includes("chat_id=") ? "Saved" : "Saved. Send /start to your bot in Telegram, then press Test");
+  });
+  $("telegram-clear").addEventListener("click", () => {
+    shopSettings.telegramWebhook = "";
+    saveShopSettings();
+    showTelegram();
+    applyShopSettings();
+    telegramNote("Removed");
+  });
+  $("telegram-test").addEventListener("click", async () => {
+    const asked = shopSettings.telegramWebhook;
+    telegramNote(asked.includes("chat_id=") ? "Sending…" : "Looking for your chat with the bot…");
+    const result = await lens.testNotify("telegram", { telegramWebhook: asked });
+    let text = result.text;
+    // The completed URL is kept (unless another was pasted meanwhile) and offered on the clipboard to paste elsewhere.
+    if (result.telegramWebhook && shopSettings.telegramWebhook === asked) {
+      shopSettings.telegramWebhook = result.telegramWebhook;
+      saveShopSettings();
+      showTelegram();
+      applyShopSettings();
+      const copied = await navigator.clipboard?.writeText(result.telegramWebhook).then(() => true, () => false);
+      if (copied) text += ". The full webhook URL is on your clipboard";
+    }
+    telegramNote(text);
   });
   const phoneNote = text => { $("phone-note").textContent = text; };
   $("phone-connect").addEventListener("click", () => { phoneNote(""); if (lens) showPairing(); });
   $("phone-hide").addEventListener("click", hidePairing);
   $("phone-test").addEventListener("click", async () => {
     phoneNote("Sending…");
-    phoneNote((await lens.testNotify(shopSettings.phone)).text);
+    phoneNote((await lens.testNotify("phone", { phone: shopSettings.phone })).text);
   });
   $("phone-clear").addEventListener("click", async () => {
     hidePairing();
-    // Forgets the pairing at the relay too: the phones stop getting anything, and the old QR code is worthless.
+    // Forgets the pairing at the relay too: the phones are told and disconnect, and the old QR code is worthless.
     await relay("unpair", { key: shopSettings.phone });
     shopSettings.phone = "";
     phones = null;
@@ -694,7 +775,11 @@ async function main() {
       onState,
       onCard: (which, image) => show(which, image),
       onError: message => { $("fps").textContent = message; },
-      onNotify: result => { if (!result.ok) $(result.name === "Phone" ? "phone-note" : "discord-note").textContent = result.text; },
+      onNotify: result => {
+        const note = { Telegram: "telegram-note", Phone: "phone-note" }[result.service] || "discord-note";
+        if (!result.ok) $(note).textContent = result.text;
+      },
+      onPicture: showPicture,
       ocr: true,
     });
     setPill("engine-pill", true, `engine ${lens.version}`);
@@ -704,6 +789,8 @@ async function main() {
     // A page left open asks again as soon as the 30 minutes are up (and no sooner).
     setInterval(() => { if (prices.due()) updatePrices(); }, 60 * 1000);
     applyShopSettings();
+    phoneStatus();
+    setInterval(syncPhones, UPLOAD_GAP_MS);
     $("version").textContent = `MapleLens ${lens.version} · ${lens.items} demo items`;
   } catch (error) {
     $("engine-pill").className = "pill warn";

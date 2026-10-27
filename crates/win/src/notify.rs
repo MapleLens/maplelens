@@ -4,7 +4,10 @@
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
-use maplelens_core::notify::{Connector, Notification, NotifySettings, Request, connectors};
+use maplelens_core::notify::picture::{self, Pictures};
+use maplelens_core::notify::{
+    Connector, Notification, NotifySettings, Request, connectors, refusal, retry_after, telegram,
+};
 
 use crate::{net, paths};
 
@@ -21,7 +24,24 @@ const TIMEOUT_S: u64 = 10;
 enum Job {
     Settings(NotifySettings),
     Sales(Vec<Notification>),
-    Test(NotifySettings, Sender<String>),
+    Test(Service, NotifySettings, Sender<TestAnswer>),
+}
+
+/// Which connector a test is for: each has its own row and Test button.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Service {
+    Discord,
+    Telegram,
+}
+
+/// How a test went.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TestAnswer {
+    pub service: Service,
+    /// In words for the player.
+    pub text: String,
+    /// The chat the bot was found to be talking to, for the settings to keep.
+    pub telegram_chat: Option<i64>,
 }
 
 /// Handle to the sending thread; cheap to clone.
@@ -53,10 +73,11 @@ impl Notifier {
         }
     }
 
-    /// Sends a test message with `settings` (not yet saved) and reports how it went, in words for the player.
-    pub fn test(&self, settings: NotifySettings) -> Receiver<String> {
+    /// Sends a test message to `service` with `settings` (not yet saved) and reports how it went. A Telegram bot
+    /// whose chat is not known yet is first asked who wrote to it.
+    pub fn test(&self, service: Service, settings: NotifySettings) -> Receiver<TestAnswer> {
         let (answer, result) = channel();
-        let _ = self.jobs.send(Job::Test(settings, answer));
+        let _ = self.jobs.send(Job::Test(service, settings, answer));
         result
     }
 }
@@ -66,11 +87,12 @@ fn run(inbox: Receiver<Job>) {
     let mut last_sent: Option<Instant> = None;
     // Whose store the last notification was about: the test message names it too.
     let mut owner: Option<String> = None;
+    let mut pictures = Pictures::default();
     while let Ok(job) = inbox.recv() {
         match job {
             Job::Settings(new) => settings = new,
-            Job::Test(test, answer) => {
-                let _ = answer.send(test_message(&test, owner.as_deref()));
+            Job::Test(service, test, answer) => {
+                let _ = answer.send(test_message(service, test, owner.as_deref()));
             }
             Job::Sales(mut batch) => {
                 owner = batch.iter().rev().find_map(whose).or(owner);
@@ -80,8 +102,8 @@ fn run(inbox: Receiver<Job>) {
                     match inbox.recv_timeout(left) {
                         Ok(Job::Sales(more)) => batch.extend(more),
                         Ok(Job::Settings(new)) => settings = new,
-                        Ok(Job::Test(test, answer)) => {
-                            let _ = answer.send(test_message(&test, owner.as_deref()));
+                        Ok(Job::Test(service, test, answer)) => {
+                            let _ = answer.send(test_message(service, test, owner.as_deref()));
                         }
                         Err(_) => break,
                     }
@@ -90,6 +112,8 @@ fn run(inbox: Receiver<Job>) {
                 if batch.is_empty() {
                     continue;
                 }
+                find_pictures(&mut pictures, &batch);
+                pictures.fill(&mut batch);
                 for connector in connectors(&settings) {
                     for request in connector.requests(&batch, paths::now_unix()) {
                         if let Some(since) = last_sent.and_then(|at| MIN_GAP.checked_sub(at.elapsed())) {
@@ -107,7 +131,21 @@ fn run(inbox: Receiver<Job>) {
     }
 }
 
-/// Sends the test message and says how it went.
+/// Looks the sold items' pictures up by name (each name once a run; a failed lookup is tried again next sale).
+fn find_pictures(pictures: &mut Pictures, batch: &[Notification]) {
+    for name in pictures.wanted(batch) {
+        let response = net::agent(TIMEOUT_S).get(picture::search_url(&name)).call();
+        match response {
+            Ok(mut response) if response.status() == 200 => match response.body_mut().read_to_string() {
+                Ok(answer) => pictures.learn(&name, &answer, Pictures::game_id(batch, &name)),
+                Err(error) => crate::warn!("picture of {name:?}: {error}"),
+            },
+            Ok(response) => crate::warn!("picture of {name:?}: maplestory.io answered HTTP {}", response.status()),
+            Err(error) => crate::warn!("picture of {name:?}: {error}"),
+        }
+    }
+}
+
 /// The store a notification is about, when it says.
 fn whose(notification: &Notification) -> Option<String> {
     match notification {
@@ -116,42 +154,81 @@ fn whose(notification: &Notification) -> Option<String> {
     }
 }
 
-fn test_message(settings: &NotifySettings, owner: Option<&str>) -> String {
-    let answers: Vec<String> = connectors(settings)
-        .iter()
-        .map(|connector| match deliver(connector.as_ref(), &connector.test_request(owner, paths::now_unix())) {
-            Ok(()) => connector.sent().to_string(),
+/// Sends the test message to `service` alone and says how it went.
+fn test_message(service: Service, mut settings: NotifySettings, owner: Option<&str>) -> TestAnswer {
+    let mut answer = TestAnswer { service, text: String::new(), telegram_chat: None };
+    let (missing, place) = match service {
+        Service::Discord => {
+            (settings.telegram_bot, settings.telegram_chat) = (String::new(), 0);
+            ("Paste a Discord webhook URL first", "channel")
+        }
+        Service::Telegram => {
+            settings.discord_webhook.clear();
+            if settings.telegram_chat == 0 && telegram::valid_token(&settings.telegram_bot).is_some() {
+                match find_chat(&settings.telegram_bot) {
+                    Ok(Some(chat)) => (settings.telegram_chat, answer.telegram_chat) = (chat, Some(chat)),
+                    Ok(None) => {
+                        answer.text = "No message to the bot yet: send it /start in Telegram, then Test again".into();
+                        return answer;
+                    }
+                    Err(error) => {
+                        answer.text = format!("Not linked: {error}");
+                        return answer;
+                    }
+                }
+            }
+            ("Paste your bot's token first", "chat")
+        }
+    };
+    answer.text = match connectors(&settings).first() {
+        Some(connector) => match deliver(connector.as_ref(), &connector.test_request(owner, paths::now_unix())) {
+            Ok(()) => format!("Sent: check your {} {place}", connector.name()),
             Err(error) => format!("Not sent: {error}"),
-        })
-        .collect();
-    if answers.is_empty() { "Paste a Discord webhook URL first".to_string() } else { answers.join(" · ") }
+        },
+        None => missing.to_string(),
+    };
+    answer
 }
 
-/// POST `request`, waiting out the service's rate limit; the error is in words for the player (never the URL: its
-/// token is a secret).
+/// The chat that last wrote to the bot, if any did lately.
+fn find_chat(token: &str) -> Result<Option<i64>, String> {
+    let Some(request) = telegram::link_request(token) else { return Ok(None) };
+    match post("Telegram", &request)? {
+        (200, answer) => Ok(telegram::chat_from_updates(&answer)),
+        (status, _) => Err(refusal("Telegram", status)),
+    }
+}
+
+/// POST `request`: the status and the answer's text. The error is in words for the player (never the URL: its token
+/// is a secret).
+fn post(service: &str, request: &Request) -> Result<(u16, String), String> {
+    let response =
+        net::agent(TIMEOUT_S).post(&request.url).header("Content-Type", "application/json").send(request.body.as_str());
+    let mut response = response.map_err(|e| format!("{service} could not be reached ({})", short(&e.to_string())))?;
+    let status = response.status().as_u16();
+    Ok((status, response.body_mut().read_to_string().unwrap_or_default()))
+}
+
+/// POST `request`, or its fallback if the service refuses it.
 fn deliver(connector: &dyn Connector, request: &Request) -> Result<(), String> {
+    let refused = match deliver_one(connector, request) {
+        Err(refused) if request.fallback.is_some() => refused,
+        sent => return sent,
+    };
+    crate::warn!("{}: {refused}; sending it without the picture", connector.name());
+    request.fallback.as_deref().map_or(Ok(()), |fallback| deliver_one(connector, fallback))
+}
+
+/// POST `request`, waiting out the service's rate limit.
+fn deliver_one(connector: &dyn Connector, request: &Request) -> Result<(), String> {
     for attempt in 0..=RETRIES {
-        let response = net::agent(TIMEOUT_S)
-            .post(&request.url)
-            .header("Content-Type", "application/json")
-            .send(request.body.as_str());
-        let mut response =
-            response.map_err(|e| format!("{} could not be reached ({})", connector.name(), short(&e.to_string())))?;
-        match response.status().as_u16() {
-            200..=204 => return Ok(()),
-            429 if attempt < RETRIES => {
-                let wait = response
-                    .body_mut()
-                    .read_to_string()
-                    .ok()
-                    .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-                    .and_then(|v| v["retry_after"].as_f64())
-                    .unwrap_or(1.0)
-                    .clamp(0.1, MAX_WAIT_S);
+        match post(connector.name(), request)? {
+            (200..=204, _) => return Ok(()),
+            (429, answer) if attempt < RETRIES => {
+                let wait = retry_after(&answer).unwrap_or(1.0).clamp(0.1, MAX_WAIT_S);
                 std::thread::sleep(Duration::from_secs_f64(wait));
             }
-            401 | 404 | 410 => return Err(format!("{} {}", connector.name(), connector.not_found())),
-            status => return Err(format!("{} answered HTTP {status}", connector.name())),
+            (status, _) => return Err(refusal(connector.name(), status)),
         }
     }
     Err(format!("{} keeps refusing for going too fast", connector.name()))
@@ -173,11 +250,12 @@ mod tests {
     #[ignore = "sends real messages to the webhook in MAPLELENS_DISCORD_WEBHOOK (only the test one with MAPLELENS_DISCORD_TEST_ONLY)"]
     fn live_discord() {
         let Ok(url) = std::env::var("MAPLELENS_DISCORD_WEBHOOK") else { return };
-        let settings = NotifySettings { discord_webhook: url, sales: true, store: true, ..Default::default() };
+        let settings = NotifySettings { discord_webhook: url, sales: true, store: true, ..NotifySettings::default() };
         let notifier = Notifier::spawn(settings.clone());
-        let answer = notifier.test(settings).recv_timeout(Duration::from_secs(30)).expect("an answer");
-        println!("test message: {answer}");
-        assert!(answer.starts_with("Sent"), "{answer}");
+        let answer =
+            notifier.test(Service::Discord, settings).recv_timeout(Duration::from_secs(30)).expect("an answer");
+        println!("test message: {}", answer.text);
+        assert!(answer.text.starts_with("Sent"), "{}", answer.text);
         if std::env::var_os("MAPLELENS_DISCORD_TEST_ONLY").is_some() {
             return;
         }
@@ -190,6 +268,7 @@ mod tests {
                 item_id,
                 store: Some("ShopOwner".into()),
                 balance,
+                ..Sale::default()
             })
         };
         notifier.send(vec![
@@ -201,16 +280,50 @@ mod tests {
         std::thread::sleep(Duration::from_secs(6));
     }
 
+    /// Links the bot in `MAPLELENS_TELEGRAM_BOT` to whoever wrote to it last (send it /start first) and sends a test
+    /// message and two sample sales there: `cargo test -p maplelens live_telegram -- --ignored --nocapture`.
     #[test]
-    fn a_bad_webhook_is_not_sent_anywhere() {
+    #[ignore = "sends real messages through the bot in MAPLELENS_TELEGRAM_BOT"]
+    fn live_telegram() {
+        let Ok(token) = std::env::var("MAPLELENS_TELEGRAM_BOT") else { return };
+        let notifier = Notifier::spawn(NotifySettings::default());
+        let unlinked = NotifySettings { telegram_bot: token, sales: true, store: true, ..NotifySettings::default() };
+        let answer = notifier.test(Service::Telegram, unlinked.clone()).recv_timeout(Duration::from_secs(30)).unwrap();
+        println!("test message: {} (chat {:?})", answer.text, answer.telegram_chat);
+        assert!(answer.text.starts_with("Sent"), "{}", answer.text);
+        let linked = NotifySettings { telegram_chat: answer.telegram_chat.unwrap(), ..unlinked };
+        notifier.configure(linked);
+        let sale = |item: &str, buyer: &str, quantity, mesos, balance| {
+            Notification::Sale(Sale {
+                item: item.into(),
+                buyer: buyer.into(),
+                quantity,
+                mesos,
+                store: Some("ShopOwner".into()),
+                balance,
+                ..Sale::default()
+            })
+        };
+        notifier.send(vec![
+            sale("Pet Food", "Tikko", 20, Some(1_200), None),
+            sale("Arrows for Bows", "TranzMog", 1000, Some(250_000), Some(1_839_311)),
+        ]);
+        std::thread::sleep(Duration::from_secs(6));
+    }
+
+    #[test]
+    fn a_bad_webhook_or_token_is_not_sent_anywhere() {
         let notifier = Notifier::spawn(NotifySettings::default());
         let settings = NotifySettings {
             discord_webhook: "https://example.com/api/webhooks/1/x".into(),
+            telegram_bot: "123:short".into(),
+            telegram_chat: 111,
+            phone_key: "a.b".into(),
             sales: true,
             store: true,
-            ..Default::default()
         };
-        let answer = notifier.test(settings).recv_timeout(Duration::from_secs(5)).expect("an answer");
-        assert_eq!(answer, "Paste a Discord webhook URL first");
+        let answer = |service| notifier.test(service, settings.clone()).recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(answer(Service::Discord).text, "Paste a Discord webhook URL first");
+        assert_eq!(answer(Service::Telegram).text, "Paste your bot's token first");
     }
 }

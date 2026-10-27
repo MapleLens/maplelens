@@ -14,11 +14,21 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Swatinem/rust-cache puts every CARGO*/RUST* variable in its cache key, so this block must stay the same here and in
+# release.yml (which builds on the release-cache job's cache): a difference anywhere is a cold build there.
 env:
   CARGO_TERM_COLOR: always
   # Incremental artefacts are useless in CI and bloat the cache.
   CARGO_INCREMENTAL: 0
+  # Debug info roughly doubles the test build's size and link time; a failing test still names its file and line.
+  CARGO_PROFILE_DEV_DEBUG: 0
   RUST_BACKTRACE: 1
+
+# Caching: each Rust job keeps its dependencies' build (and the registry) under its own shared-key, one per thing it
+# builds (toolchain, target, profile), since no two jobs compile the same artefacts. rust-cache drops the workspace's
+# own crates before saving, so a key only changes with Cargo.lock, a Cargo.toml, .cargo/config.toml or a new rustc.
+# A run that restores its key exactly saves nothing; a pull request that changes the lock file saves its own copy (a
+# second push to it is then warm) while main's stays the one every new branch starts from.
 
 jobs:
   fmt:
@@ -46,10 +56,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      # A prebuilt binary: cargo-deny-action pulls a container image every run.
+      - uses: taiki-e/install-action@v2
         with:
-          command: check
-          arguments: --locked
+          tool: cargo-deny
+      - run: cargo deny --locked check
 
   lint:
     name: Clippy and docs
@@ -64,10 +75,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: lint
-          # Pull requests reuse main's cache but do not overwrite it.
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo clippy -p maplelens-web --target wasm32-unknown-unknown --locked -- -D warnings
+      # Reuses clippy's dependency metadata: only the workspace is documented.
       - run: cargo doc --workspace --no-deps --document-private-items --locked
         env:
           RUSTDOCFLAGS: -D warnings
@@ -82,9 +93,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: test
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      # The updater's self-test runs the release exe, so build it first (it is cached like the rest).
-      - run: cargo build --release -p maplelens --locked
+          cache-on-failure: true
+      # The updater's self-test runs target\release\maplelens.exe. Any build of the exe answers --version the same, so
+      # the dev one (whose dependencies the tests share) stands in for a full LTO build; release.yml tests the real one.
+      - run: cargo build -p maplelens --locked
+      - name: Place the exe for the updater's self-test
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force target/release | Out-Null
+          Copy-Item target/debug/maplelens.exe target/release/maplelens.exe
       - run: cargo test --workspace --locked
 
   msrv:
@@ -96,7 +113,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: msrv
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
       - run: cargo check --workspace --all-targets --locked
 
   web:
@@ -110,7 +127,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: web
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
       - uses: taiki-e/install-action@v2
         with:
           tool: wasm-bindgen@0.2.129
@@ -125,7 +142,7 @@ jobs:
         run: |
           ./scripts/stamp-web.ps1
           git diff --ignore-cr-at-eol --exit-code -- docs
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: web-engine
           path: pkg/
@@ -148,3 +165,21 @@ jobs:
       - name: No third-party scripts in the site
         run: |
           ! grep -rnE '<script[^>]+src="https?://|import\(\s*"https?://|\.src\s*=\s*"https?://' docs --include='*.html' --include='*.js' --exclude-dir=vendor --exclude-dir=pkg
+
+  release-cache:
+    name: Release build cache
+    # A tag's workflow can only restore caches saved on main, so main keeps one with everything release.yml compiles
+    # (clippy, the LTO exe, the tests); a release then rebuilds only the workspace.
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release
+      - run: cargo clippy --workspace --all-targets --locked
+      - run: cargo build --release -p maplelens --locked
+      - run: cargo test --workspace --locked --no-run
