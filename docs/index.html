@@ -25,7 +25,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lilita+One&display=swap">
-<link rel="stylesheet" href="assets/maple.css?v=d5e2993c70a9">
+<link rel="stylesheet" href="assets/maple.css?v=aef0cef3dba0">
 <style>
 /* ---------- hero: a field map ---------- */
 .hero{position:relative;padding:56px 0 150px;overflow:hidden}
@@ -68,9 +68,8 @@ p.sub{margin:0 0 22px;font-weight:bold;color:#0e2a55;max-width:46em}
 .phone .win-b{display:grid;grid-template-columns:auto minmax(0,1fr);gap:24px;align-items:center}
 .phone .qr{width:180px;height:180px;display:block;image-rendering:pixelated;border:1px solid var(--win-edge);border-radius:6px}
 .phone ol{margin:0 0 12px;padding-left:22px;display:grid;gap:6px;font-size:14px}
-.phone .on-phone{display:none}
 .phone .row-links{display:flex;flex-wrap:wrap;gap:10px}
-@media (max-width:720px),(pointer:coarse){.phone .win-b{grid-template-columns:minmax(0,1fr)}.phone .qr{display:none}.phone .on-phone{display:inline-flex}}
+@media (max-width:720px),(pointer:coarse){.phone .win-b{grid-template-columns:minmax(0,1fr)}.phone .qr{display:none}}
 
 /* live demo */
 .demo .win-b{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:18px;align-items:start;
@@ -103,6 +102,45 @@ p.sub{margin:0 0 22px;font-weight:bold;color:#0e2a55;max-width:46em}
 .npc .say b{color:#d23a5a}
 .npc .actions{display:flex;flex-wrap:wrap;gap:12px}
 
+/* On a phone the game is not there: what it can do is connect to MapleLens on the computer. */
+@media not all and (max-width:900px) and (pointer:coarse){.mob-only{display:none!important}}
+@media (max-width:900px) and (pointer:coarse){.desk-only{display:none!important}}
+.connect-cta{display:grid;gap:8px;max-width:420px}
+.connect-cta .btn{width:100%;font-size:22px;padding:12px 18px}
+.connect-cta .btn img{width:26px;height:27px}
+.connect-cta .meta{font-size:13px;color:#163866;font-weight:bold;text-align:center}
+dialog.connect{width:min(520px,calc(100vw - 24px));max-height:calc(100dvh - 24px);margin:auto;padding:0;border:0;background:none;overflow:visible}
+dialog.connect::backdrop{background:#0d1530a6;backdrop-filter:blur(2px)}
+dialog.connect[open]{animation:pop .2s ease-out}
+@keyframes pop{from{transform:translateY(16px) scale(.97);opacity:.3}}
+dialog.connect .win{max-height:calc(100dvh - 24px);display:flex;flex-direction:column}
+dialog.connect .win-h .x{cursor:pointer;color:#fff;font:bold 12px Tahoma,sans-serif;width:28px;height:24px;padding:0}
+dialog.connect .win-b{overflow:auto;display:grid;gap:14px}
+.connect h3{margin:0;font:26px/1.1 "Lilita One",Tahoma,sans-serif;color:var(--ink)}
+.connect .lead{margin:0;font-size:14px;color:var(--muted)}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;background:var(--win-2);border-radius:10px}
+.seg button{border:0;border-radius:7px;background:none;padding:8px 6px;font:bold 13px Tahoma,sans-serif;color:var(--muted);cursor:pointer}
+.seg button[aria-pressed="true"]{background:#fff;color:var(--ink);box-shadow:0 1px 4px rgba(20,40,80,.25)}
+.steps-c{list-style:none;margin:0;padding:0;display:grid;gap:10px;counter-reset:s}
+.steps-c li{counter-increment:s;display:grid;grid-template-columns:30px minmax(0,1fr);gap:10px;align-items:start;background:#fff;
+  border:1px solid var(--win-2);border-radius:10px;padding:10px 12px;font-size:14px;line-height:1.5}
+.steps-c li:before{content:counter(s);display:grid;place-items:center;width:28px;height:28px;border-radius:50%;
+  background:linear-gradient(var(--btn-1),var(--btn-2));border:1px solid var(--btn-edge);color:#5b3a00;font:bold 14px Tahoma,sans-serif}
+.steps-c small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px}
+.steps-c code{font:bold 12.5px Tahoma,sans-serif;background:#eef3ff;border:1px solid #c9d4f2;border-radius:5px;padding:0 5px;overflow-wrap:anywhere}
+.connect .go{display:grid;gap:8px}
+.connect .go .btn{width:100%}
+.connect .go .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.connect .fine-c{margin:0;font-size:12px;color:var(--muted);text-align:center}
+@media (max-width:600px){
+  .hero{padding:28px 0 128px}
+  .logo img{width:48px;height:48px}
+  .tagline{font-size:16px;margin:12px 0 20px}
+  .hero-grid{gap:28px}
+  section{padding:48px 0 0}
+  .connect-cta{max-width:none}
+}
+
 @media (max-width:900px){
   .hero-grid,.shots,.ways,.demo .win-b{grid-template-columns:minmax(0,1fr)}
 }
@@ -124,7 +162,8 @@ p.sub{margin:0 0 22px;font-weight:bold;color:#0e2a55;max-width:46em}
     <a class="l" href="#safety">Safety</a>
     <a class="l" href="app/">Web app</a>
     <a class="l" href="https://github.com/MapleLens/maplelens" rel="noopener">GitHub</a>
-    <a class="btn sm js-dl" href="https://github.com/MapleLens/maplelens/releases/latest" rel="noopener">Download</a>
+    <a class="btn sm js-dl desk-only" href="https://github.com/MapleLens/maplelens/releases/latest" rel="noopener">Download</a>
+    <button class="btn sm mob-only js-connect" type="button">Connect</button>
   </div>
 </nav>
 
@@ -138,7 +177,11 @@ p.sub{margin:0 0 22px;font-weight:bold;color:#0e2a55;max-width:46em}
     <div>
       <div class="logo"><img class="px" src="assets/meso.png" alt=""><h1 class="display outline">MapleLens</h1></div>
       <p class="tagline">Hover an item in MapleStory Classic and see what it's worth, right beside the game's tooltip.</p>
-      <div class="choices">
+      <div class="connect-cta mob-only">
+        <button class="btn js-connect" type="button"><img class="px" src="assets/meso.png" alt="">Connect to MapleLens</button>
+        <span class="meta">Your store's sales on this phone · Windows app or Web app</span>
+      </div>
+      <div class="choices desk-only">
         <div>
           <a class="btn js-dl" href="https://github.com/MapleLens/maplelens/releases/latest" rel="noopener"><span class="js-dl-label">Download for Windows</span></a>
           <span class="meta js-dl-meta">Free &amp; open source · one small exe · Windows 10/11</span>
@@ -182,7 +225,7 @@ p.sub{margin:0 0 22px;font-weight:bold;color:#0e2a55;max-width:46em}
             <li>Tray icon, show/hide hotkey, signed one-click updates.</li>
             <li>One 5 MB file. No Python, no installer.</li>
           </ul>
-          <div class="foot">
+          <div class="foot desk-only">
             <a class="btn js-dl" href="https://github.com/MapleLens/maplelens/releases/latest" rel="noopener"><span class="js-dl-label">Download for Windows</span></a>
             <small class="js-dl-meta">Windows 10/11</small>
           </div>
@@ -199,10 +242,11 @@ p.sub{margin:0 0 22px;font-weight:bold;color:#0e2a55;max-width:46em}
             <li>Prices from MesoWatch, refreshed every 30 minutes.</li>
             <li>Store sales sent to Discord, Telegram or <a href="#phone">your phone</a>.</li>
           </ul>
-          <div class="foot">
+          <div class="foot desk-only">
             <a class="btn blue" href="app/">Open in browser</a>
             <small>Chrome or Edge on a computer</small>
           </div>
+          <div class="foot mob-only"><small>Runs on your computer, next to the game.</small></div>
         </div>
       </div>
     </div>
@@ -257,7 +301,7 @@ p.sub{margin:0 0 22px;font-weight:bold;color:#0e2a55;max-width:46em}
             <li>In MapleLens Web, press <b>Connect</b> next to Phone under Store Permit, scan the code it shows, and tap <b>Turn on notifications</b>.</li>
             <li>Your store is in your pocket: sales with item pictures, who is inside, chat, and the mesos in the till.</li>
           </ol>
-          <div class="row-links"><a class="btn blue sm on-phone" href="app/phone/">Open the phone app</a> <a class="btn grey sm" href="app/phone/?demo">See a demo</a></div>
+          <div class="row-links"><button class="btn sm mob-only js-connect" type="button">Connect to MapleLens</button> <a class="btn grey sm" href="app/phone/?demo">See a demo</a></div>
         </div>
       </div>
     </div>
@@ -284,15 +328,48 @@ p.sub{margin:0 0 22px;font-weight:bold;color:#0e2a55;max-width:46em}
         <div class="face"><img class="px" src="assets/npc-admin.png" alt="">Maple Administrator</div>
         <div class="say">
           <p>Want to know what your loot is worth? Run MapleLens and <b>hover any item</b>. Prices come from <a href="https://meso.watch">MesoWatch</a>, ranks from <a href="https://classicrank.com">classicrank.com</a>.</p>
-          <div class="actions">
+          <div class="actions desk-only">
             <a class="btn js-dl" href="https://github.com/MapleLens/maplelens/releases/latest" rel="noopener"><span class="js-dl-label">Download for Windows</span></a>
             <a class="btn blue" href="app/">Open in browser</a>
           </div>
+          <div class="actions mob-only"><button class="btn js-connect" type="button">Connect to MapleLens</button></div>
         </div>
       </div>
     </div>
   </section>
 </main>
+
+<dialog class="connect" id="connect" aria-labelledby="connect-title">
+  <div class="win">
+    <div class="win-h">Phone notifications<button class="x" id="connect-close" type="button" aria-label="Close">×</button></div>
+    <div class="win-b">
+      <h3 id="connect-title">Connect this phone</h3>
+      <p class="lead">See your store and get a notification when something sells. Which MapleLens runs on your computer?</p>
+      <div class="seg" role="group" aria-label="MapleLens on your computer">
+        <button type="button" data-way="windows" aria-pressed="true">Windows app</button>
+        <button type="button" data-way="web" aria-pressed="false">Web app</button>
+      </div>
+      <ol class="steps-c" data-way="windows">
+        <li><span>On your computer, right-click the MapleLens icon in the tray (by the clock) and choose <b>Settings</b>.<small>No MapleLens yet? Download it at <code>maplelens.github.io/maplelens</code> on the computer.</small></span></li>
+        <li><span>Under Store Permit, press <b>Connect</b> next to Phone. A QR code shows up.</span></li>
+        <li><span>Tap <b>Open the phone app</b> below, scan the code, then tap <b>Turn on notifications</b>.<small>Or point this phone's camera app at the code.</small></span></li>
+      </ol>
+      <ol class="steps-c" data-way="web" hidden>
+        <li><span>On your computer, open <code>maplelens.github.io/maplelens/app</code> in Chrome or Edge and share the game window.</span></li>
+        <li><span>Under Store Permit, press <b>Connect</b> next to Phone. A QR code shows up.</span></li>
+        <li><span>Tap <b>Open the phone app</b> below, scan the code, then tap <b>Turn on notifications</b>.<small>Or point this phone's camera app at the code.</small></span></li>
+      </ol>
+      <div class="go">
+        <a class="btn" href="app/phone/">Open the phone app</a>
+        <div class="row">
+          <a class="btn grey sm" href="app/phone/?demo">See a demo</a>
+          <button class="btn grey sm" id="connect-share" type="button">Send link to PC</button>
+        </div>
+      </div>
+      <p class="fine-c"><b>iPhone:</b> the phone app shows how to add it to your home screen first (needed for notifications). <b>Android:</b> nothing to install.</p>
+    </div>
+  </div>
+</dialog>
 
 <footer>
   <div class="fine">
@@ -303,7 +380,7 @@ p.sub{margin:0 0 22px;font-weight:bold;color:#0e2a55;max-width:46em}
   </div>
 </footer>
 
-<script src="assets/site.js?v=d5e2993c70a9"></script>
-<script type="module" src="assets/demo.js?v=d5e2993c70a9"></script>
+<script src="assets/site.js?v=aef0cef3dba0"></script>
+<script type="module" src="assets/demo.js?v=aef0cef3dba0"></script>
 </body>
 </html>

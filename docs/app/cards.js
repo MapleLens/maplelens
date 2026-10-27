@@ -3,9 +3,9 @@
 // or what to do next and the recent items, newest first. The floating window never scrolls: the cards shrink to fit it,
 // and recent items that do not fit are left out.
 
-import { paint } from "./lens.js?v=d5e2993c70a9";
-import { LINGER_MS } from "./cardfeed.js?v=d5e2993c70a9";
-import { RANK_CSS, rankPanel } from "./rankpanel.js?v=d5e2993c70a9";
+import { paint } from "./lens.js?v=aef0cef3dba0";
+import { LINGER_MS } from "./cardfeed.js?v=aef0cef3dba0";
+import { RANK_CSS, rankPanel } from "./rankpanel.js?v=aef0cef3dba0";
 
 function storage(action) {
   try { return action(window.localStorage); } catch { return undefined; } // private windows may refuse

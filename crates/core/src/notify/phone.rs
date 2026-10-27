@@ -75,7 +75,7 @@ impl Phone {
             ("Store closed", format!("{} is no longer open.", capitalised(&whose)))
         };
         if let Some(balance) = change.balance {
-            body.push_str(&format!(" Balance: {} mesos.", grouped(balance)));
+            body.push_str(&format!(" Current mesos: {}.", grouped(balance)));
         }
         self.message(title, &body, None, Some(STORE_TAG))
     }
@@ -91,7 +91,7 @@ impl Phone {
                 parts.push(format!("+{} mesos", grouped(mesos)));
             }
             if let Some(balance) = balance {
-                parts.push(format!("balance {}", grouped(balance)));
+                parts.push(format!("{} mesos now", grouped(balance)));
             }
             let title = match store {
                 Some(owner) => format!("Sold: {} · {owner}'s store", what(first)),
@@ -112,7 +112,7 @@ impl Phone {
             lines.push(format!("and {} more", sales.len() - LISTED_SALES));
         }
         if let Some(balance) = balance {
-            lines.push(format!("Balance: {} mesos", grouped(balance)));
+            lines.push(format!("Current mesos: {}", grouped(balance)));
         }
         let title = match store {
             Some(owner) => format!("{} items sold · {owner}'s store", sales.len()),
@@ -229,7 +229,7 @@ mod tests {
         let message = body(&requests[0]);
         assert_eq!(message["key"], KEY);
         assert_eq!(message["title"], "Sold: Pet Food ×20 · ShopOwner's store");
-        assert_eq!(message["body"], "Bought by Tikko · +12,400 mesos · balance 39,311");
+        assert_eq!(message["body"], "Bought by Tikko · +12,400 mesos · 39,311 mesos now");
         assert!(message["icon"].as_str().unwrap().ends_with("/item/2120000/icon"));
         assert!(message.get("tag").is_none());
     }
@@ -258,7 +258,7 @@ mod tests {
         let messages: Vec<Value> = requests.iter().map(body).collect();
         assert_eq!(messages.len(), 3);
         assert_eq!(messages[0]["title"], "Store detected");
-        assert_eq!(messages[0]["body"], "MapleLens is watching ShopOwner's store. Balance: 1,000 mesos.");
+        assert_eq!(messages[0]["body"], "MapleLens is watching ShopOwner's store. Current mesos: 1,000.");
         assert_eq!(messages[0]["tag"], STORE_TAG);
         assert_eq!(messages[1]["body"], "Your store is no longer open.");
         assert_eq!(messages[2]["title"], "Sold: Arrow");
