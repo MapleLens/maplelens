@@ -149,7 +149,7 @@ fn sale_text(sale: &Sale) -> String {
         lines.push(format!("Received: 🪙 <b>{}</b> mesos", grouped(*mesos)));
     }
     if let Some(balance) = balance {
-        lines.push(format!("Store balance: {} mesos", grouped(*balance)));
+        lines.push(format!("Current mesos: {}", grouped(*balance)));
     }
     lines.push(format!("<i>In {}</i>", whose(store.as_deref())));
     lines.join("\n")
@@ -164,7 +164,7 @@ fn store_text(change: &StoreChange) -> String {
         vec!["⚪ <b>Store closed</b>".to_string(), format!("{} is no longer open.", capitalised(&whose))]
     };
     if let Some(balance) = change.balance {
-        lines.push(format!("Store balance: 🪙 <b>{}</b> mesos", grouped(balance)));
+        lines.push(format!("Current mesos: 🪙 <b>{}</b>", grouped(balance)));
     }
     lines.join("\n")
 }
@@ -355,7 +355,7 @@ mod tests {
         assert_eq!(
             body["text"],
             "💰 <b>Pet Food ×20</b> sold\nBuyer: <b>Tikko</b>\nReceived: 🪙 <b>12,400</b> mesos\n\
-             Store balance: 39,311 mesos\n<i>In ShopOwner's store</i>"
+             Current mesos: 39,311\n<i>In ShopOwner's store</i>"
         );
     }
 
@@ -406,7 +406,7 @@ mod tests {
             text(Notification::Store(StoreChange { opened: true, owner: Some("ShopOwner".into()), balance: Some(1) }));
         assert_eq!(
             opened,
-            "🟢 <b>Store detected</b>\nMapleLens is watching ShopOwner's store.\nStore balance: 🪙 <b>1</b> mesos"
+            "🟢 <b>Store detected</b>\nMapleLens is watching ShopOwner's store.\nCurrent mesos: 🪙 <b>1</b>"
         );
         let closed = text(Notification::Store(StoreChange::default()));
         assert_eq!(closed, "⚪ <b>Store closed</b>\nYour store is no longer open.");

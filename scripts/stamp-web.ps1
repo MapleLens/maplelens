@@ -9,7 +9,7 @@ $ErrorActionPreference = 'Stop'
 $app = Join-Path $PSScriptRoot '..\docs\app'
 $stamp = '\?v=[0-9a-f]{12}'
 # What the stamp is a hash of; the site's home page only carries it (its copy changes should not need a re-stamp).
-$hashed = 'index.html', 'app.js', 'cards.js', 'cardfeed.js', 'rankpanel.js', 'prices.js', 'phone/index.html', 'phone/phone.js', 'phone/relay.js', 'storebook.js',
+$hashed = 'index.html', 'app.js', 'cards.js', 'cardfeed.js', 'rankpanel.js', 'prices.js', 'phone/index.html', 'phone/phone.js', 'phone/relay.js', 'phone/pull.js', 'storebook.js',
     'mapleqr.js', 'lens.js', 'worker.js', 'pkg/maplelens_web.js', '../assets/maple.css', '../assets/site.js', '../assets/demo.js'
 $files = $hashed + '../index.html'
 $text = @{}
@@ -25,7 +25,7 @@ $links = @{
     '../index.html' = @('assets/site\.js', 'assets/demo\.js', 'maple\.css')
     '../assets/demo.js' = @('\.\./app/lens\.js')
     'phone/index.html' = @('"phone\.js')
-    'phone/phone.js' = @('\./relay\.js')
+    'phone/phone.js' = @('\./relay\.js', '\./pull\.js')
     'index.html' = @('app\.js', 'lens\.js', 'maple\.css')
     'app.js'     = @('\./lens\.js', '\./cards\.js', '\./cardfeed\.js', '\./prices\.js', '\./phone/relay\.js', '\./storebook\.js', '\./mapleqr\.js')
     'cards.js'   = @('\./lens\.js', '\./cardfeed\.js', '\./rankpanel\.js')

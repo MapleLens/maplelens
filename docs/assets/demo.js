@@ -4,7 +4,7 @@ const status = document.getElementById("demo-status");
 run.addEventListener("click", async () => {
   run.disabled = true;
   status.textContent = "loading the engine…";
-  const { Lens, paint } = await import("../app/lens.js?v=1e6b60480162");
+  const { Lens, paint } = await import("../app/lens.js?v=e5e75dce5920");
   const img = document.querySelector("#demo .frame img");
   // The screenshot is lazy-loaded: a click before it scrolled into view would find no pixels yet.
   img.loading = "eager";

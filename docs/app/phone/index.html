@@ -38,6 +38,8 @@
 <link rel="stylesheet" href="../../assets/maple.css">
 <style>
 :root{--good:#2f9e5a;--warn:#d9822b;--idle:#8a94b8;--gold:#b97800;--card:#fff;--line:#dfe4ee}
+/* The browser's pull to refresh and rubber band are off (pull.js draws its own); the sky shows wherever it peeks. */
+html{overscroll-behavior-y:none;background:var(--sky-1)}
 body{min-height:100vh;min-height:100dvh;padding:0 0 max(24px,env(safe-area-inset-bottom));background:linear-gradient(var(--sky-1),var(--sky-2) 420px,var(--sky-3) 900px,#eaf7ff)}
 main{max-width:480px;margin:0 auto;padding:0 14px;display:grid;gap:14px}
 button{font:inherit}
@@ -124,6 +126,18 @@ button{font:inherit}
 .waiting h2{font:24px "Lilita One",Tahoma,sans-serif;margin:10px 0 6px}
 .waiting p{margin:0 0 6px;color:var(--muted);font-size:14px}
 
+/* pull to refresh: a meso comes out from under the bar and spins while the store is asked again */
+.ptr{position:fixed;left:50%;top:0;z-index:4;display:flex;align-items:center;gap:8px;padding:6px 14px 6px 6px;border-radius:999px;
+  background:#fffffff0;border:2px solid var(--win-edge);box-shadow:0 0 0 2px #fff inset,0 8px 18px -6px rgba(20,40,80,.55);
+  font:bold 13px Tahoma,sans-serif;color:var(--win-dark);white-space:nowrap;pointer-events:none;transform:translate(-50%,-52px)}
+.ptr .coin{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:radial-gradient(#fff8dc,#ffe07a);
+  border:1px solid #e8c25a;transform:rotate(var(--turn,0deg))}
+.ptr .coin img{width:20px;height:21px}
+.ptr.ready .coin{background:radial-gradient(#fff3b0,#ffad1f);border-color:#9a5200}
+.ptr.spinning .coin{animation:coin-spin .9s linear infinite}
+@keyframes coin-spin{from{transform:rotateY(0)}to{transform:rotateY(360deg)}}
+@media (prefers-reduced-motion:reduce){.ptr.spinning .coin{animation:none}}
+
 /* settings sheet */
 dialog.sheet{width:100%;max-width:480px;margin:auto auto 0;padding:0;border:0;border-radius:18px 18px 0 0;background:var(--win);
   box-shadow:0 -10px 30px rgba(0,0,0,.35);max-height:88dvh}
@@ -159,6 +173,8 @@ dialog.sheet[open]{animation:up .22s ease-out}
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
   </button>
 </header>
+
+<div class="ptr" id="ptr" aria-hidden="true" hidden><span class="coin"><img class="px" src="../../assets/meso.png" alt=""></span><span class="ptr-label">Pull to refresh</span></div>
 
 <main>
   <div class="onboard" id="onboard">
@@ -232,7 +248,7 @@ dialog.sheet[open]{animation:up .22s ease-out}
         <div class="hint-line" id="hint" hidden></div>
         <div class="till">
           <img class="px" src="../../assets/meso.png" alt="">
-          <div><span>Store balance</span><b id="balance">–</b></div>
+          <div><span>Current mesos</span><b id="balance">–</b></div>
         </div>
       </div>
 
@@ -298,6 +314,6 @@ dialog.sheet[open]{animation:up .22s ease-out}
 </dialog>
 
 <div class="toast" id="toast" role="status" hidden></div>
-<script type="module" src="phone.js?v=1e6b60480162"></script>
+<script type="module" src="phone.js?v=e5e75dce5920"></script>
 </body>
 </html>

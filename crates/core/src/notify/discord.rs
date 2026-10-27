@@ -84,7 +84,7 @@ impl Discord {
             "timestamp": iso_utc(unix_now),
         });
         if let Some(balance) = change.balance {
-            embed["fields"] = json!([{"name": "Store balance", "value": format!("🪙 **{}** mesos", grouped(balance)), "inline": true}]);
+            embed["fields"] = json!([{"name": "Current mesos", "value": format!("🪙 **{}** mesos", grouped(balance)), "inline": true}]);
         }
         embed
     }
@@ -98,7 +98,7 @@ impl Discord {
         }
         if let Some(balance) = balance {
             fields.push(
-                json!({"name": "Store balance", "value": format!("{} mesos", grouped(*balance)), "inline": true}),
+                json!({"name": "Current mesos", "value": format!("{} mesos", grouped(*balance)), "inline": true}),
             );
         }
         let mut embed = json!({
@@ -294,7 +294,7 @@ mod tests {
             .iter()
             .map(|f| (f["name"].as_str().unwrap(), f["value"].as_str().unwrap()))
             .collect();
-        assert_eq!(fields, [("Buyer", "**Tikko**"), ("Received", "🪙 **12,400**"), ("Store balance", "39,311 mesos")]);
+        assert_eq!(fields, [("Buyer", "**Tikko**"), ("Received", "🪙 **12,400**"), ("Current mesos", "39,311 mesos")]);
     }
 
     #[test]
