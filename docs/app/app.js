@@ -1,12 +1,12 @@
 // MapleLens Web: capture the game window (the page offers nothing else; the sample, video and frame-folder sources are
 // test hooks started by a URL parameter), feed frames to the engine, show the cards in the page and, on request, in a picture-in-picture window that floats over the game.
 
-import { Lens } from "./lens.js?v=f90ab2c1f1d1";
-import { CardView, floatingSize, openFloating } from "./cards.js?v=f90ab2c1f1d1";
-import { Prices } from "./prices.js?v=f90ab2c1f1d1";
-import { drawMapleQr } from "./mapleqr.js?v=f90ab2c1f1d1";
-import { StoreBook } from "./storebook.js?v=f90ab2c1f1d1";
-import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=f90ab2c1f1d1";
+import { Lens } from "./lens.js?v=90ad6397ac36";
+import { CardView, floatingSize, openFloating } from "./cards.js?v=90ad6397ac36";
+import { Prices } from "./prices.js?v=90ad6397ac36";
+import { drawMapleQr } from "./mapleqr.js?v=90ad6397ac36";
+import { StoreBook } from "./storebook.js?v=90ad6397ac36";
+import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=90ad6397ac36";
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);

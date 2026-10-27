@@ -63,7 +63,8 @@ a screenshot of the running overlay over the game (`maplelens --screenshot OUT.p
    serves list.json without CORS headers, so every client (the web page and the Windows app alike) reads it through
    MapleLens's relay: a Cloudflare Worker kept outside this repo (fixed upstream, 30-minute cache, CORS for the site
    only, 10 requests a minute per client, MesoWatch's `notice` and `terms` fields dropped at their request).
-   `PRICES_URL` in `prices.js` and `SNAPSHOT_URL` in `net.rs` point at it; when it is unreachable the page says so and
+   `PRICES_URL` in `prices.js` and `SNAPSHOT_URL` in `net.rs` point at it (`prices.maple.observer`; its old
+   `maplelens-prices.prices-proxy.workers.dev` address stays up for copies released before); when it is unreachable the page says so and
    shows the demo items. An official API
    is promised: adopt it when it arrives and follow its conditions.
 3. **The overlay must be click-through** and must never steal focus from the game.
@@ -327,6 +328,10 @@ levels, voted over several reads), falling back to the shop window's name plate 
 no typed-name setting. A store announcement waits up to `OWNER_WAIT_S` for the name.
 
 ## The site's origin holds secrets
+
+The project's domain is `maple.observer` (a Cloudflare zone on the same account): the bare and `www` names redirect
+to the site with the same path (`relay/site`: a redirect, never a copy on a second origin), `push.` is the phone
+relay and `prices.` the price relay, all under one firewall rate limit (`relay/push/README.md`, "Rate limits").
 
 `maplelens.github.io` is one origin for the website, the web app and the phone app, and its localStorage holds the
 player's Discord webhook, Telegram bot token and phone pairing key. So no page of the site runs a script from another server: Tesseract

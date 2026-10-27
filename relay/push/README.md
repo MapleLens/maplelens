@@ -107,8 +107,9 @@ A store's page sends at most one request every 4 s, a phone app one every 15 s, 
 Tested: 60 requests in a row from one address, the first 30 answered and the rest blocked (429, by Cloudflare,
 before the Worker), and answers again 25 s later. A page on the zone other than the relay would share this limit.
 `workers_dev = false` in `wrangler.toml` keeps the Worker off its `workers.dev` address, which no firewall rule
-covers. This is this Worker only: the price relay (`maplelens-prices.prices-proxy.workers.dev`, outside
-this repo) keeps its `workers.dev` address, which the web app and the Windows app read prices from.
+covers. This is this Worker only: the price relay (outside this repo) is at `prices.maple.observer`, under the
+same rule, and keeps its `maplelens-prices.prices-proxy.workers.dev` address for copies of the apps released
+before. `maple.observer` and `www.maple.observer` redirect to the site (`relay/site`), also under the rule.
 
 ## Security
 
