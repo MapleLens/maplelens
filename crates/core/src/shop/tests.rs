@@ -889,6 +889,21 @@ fn the_owner_is_read_off_the_name_plate_and_the_balance_off_the_counter() {
 
 #[test]
 #[cfg_attr(not(fixtures), ignore = "needs the local captures in tests/fixtures")]
+fn a_name_with_a_d_is_read_off_the_plate_by_the_font_alone() {
+    // Rendered at 1366x768 by the game's own engine (mscw-render): names draw 'd' as 'c' and 'l' touching, so the
+    // plate read exactly as "...cl..." and the store kept that as its owner (a player's 1366x768 screenshot, seen
+    // through the browser). The fixture is the whole client.
+    let path = format!("{}/../../tests/fixtures/shop_render_768.png", env!("CARGO_MANIFEST_DIR"));
+    let image = decode_png(&std::fs::read(&path).unwrap_or_else(|e| panic!("{path}: {e}"))).unwrap();
+    let mut watcher = ShopWatcher::new(reader(""));
+    for t in 0..3 {
+        watcher.update(&image, f64::from(t));
+    }
+    assert_eq!(watcher.context().owner, Some(local_name("render_owner")), "{:?}", watcher.owner_reads());
+}
+
+#[test]
+#[cfg_attr(not(fixtures), ignore = "needs the local captures in tests/fixtures")]
 fn the_owner_is_found_when_the_reads_differ_only_in_case_and_a_given_name_wins() {
     // Tesseract gave three spellings of one name, each as often as the others.
     let owner = local_name("owner");

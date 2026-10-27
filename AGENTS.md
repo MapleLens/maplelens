@@ -303,6 +303,9 @@ The game draws the shop's text two ways, and each is read exactly, OCR only fill
   font the Character Info names use, so both read from one table (`assets/glyphs/name_small.json`,
   `vision::pixel_font`): `line_mask` binarises a line, collapses the doubled grid, anchors rows on the baseline (row 10
   of the table); `read_line` adds a space for a gap of 3+ font pixels (never inside a number: a narrow '1' leaves one).
+  Names (the status bar, the name plate) draw 'd' with its bowl touching the stem, unlike the chat's 'd': the table
+  spelt it as 'c' and 'l' touching, with nothing unknown, and a store kept "...cl..." as its owner (1366x768). Its shape
+  is learnt from `shop_render_768`, a scene drawn by the game's own engine (mscw-render), not a capture.
 - **Default ratio (0.9 at 1080p, 1.0 at 1200p, 1.2 at 1440p): a vector font at fractional positions** (Arial-like, 19.05
   px per em at scale 1, its size proportional to the scale). The same letter is never the same pixels twice and letters
   touch, which is why the binarised glyph atlas POC read 13% of lines. `vision::vector_font` holds each letter as a

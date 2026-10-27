@@ -349,6 +349,26 @@ mod tests {
     }
 
     #[test]
+    fn a_names_d_reads_as_d_not_as_c_and_l() {
+        // The status bar and the store's name plate draw 'd' with its bowl touching the stem: 'c' and 'l' side by
+        // side, which is what the table spelt it as before it knew this shape. "od", rows 0-10 (10 is the baseline).
+        let od = mask(&[
+            "...........",
+            "...........",
+            "..........#",
+            "..........#",
+            ".###...##.#",
+            "#...#.#..##",
+            "#...#.#...#",
+            "#...#.#...#",
+            "#...#.#...#",
+            "#...#.#..##",
+            ".###...##.#",
+        ]);
+        assert_eq!(shop_small_font().read(&od), ("od".to_string(), 0));
+    }
+
+    #[test]
     fn a_shape_keeps_its_first_letter_and_the_table_survives_json() {
         let mut font = PixelFont::default();
         font.learn(&mask(&AB), "lb");
