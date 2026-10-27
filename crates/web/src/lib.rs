@@ -231,6 +231,11 @@ impl Engine {
         self.shop.picture_url(name)
     }
 
+    /// The picture of the price list's item of exactly this name, for sales the page kept without one.
+    pub fn catalog_picture(&self, name: &str) -> Option<String> {
+        maplelens_core::notify::picture::in_catalog(&self.catalog, name)
+    }
+
     /// The test message for `webhook` as `{"service", "url", "body"}` JSON, or undefined when it is not a Discord
     /// webhook.
     pub fn notify_test_request(&self, webhook: &str, unix_now: f64) -> Option<String> {

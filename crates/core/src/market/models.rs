@@ -119,6 +119,12 @@ impl Item {
         self.item_id.rsplit(':').next().unwrap_or("").starts_with("01")
     }
 
+    /// The game's item ID: the digits after the source prefix ("basil:04010101" -> 4010101).
+    pub fn game_id(&self) -> Option<u64> {
+        let digits: String = self.item_id.chars().skip_while(|c| *c != ':').filter(char::is_ascii_digit).collect();
+        digits.parse().ok()
+    }
+
     pub fn medians(&self) -> Vec<f64> {
         self.history.iter().map(|d| d.median).collect()
     }

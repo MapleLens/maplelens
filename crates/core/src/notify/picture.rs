@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use serde_json::Value;
 
 use super::Notification;
+use crate::market::catalog::Catalog;
 
 /// The search matches parts of names: "Sapphire" also finds 45 hair colours and earrings before the stone.
 const SEARCH_COUNT: usize = 1000;
@@ -41,6 +42,13 @@ pub fn pick(answer: &str, name: &str) -> Option<u64> {
     let kind = |id: u64| id / 1_000_000;
     let first = *named.first()?;
     named.iter().all(|&id| kind(id) == kind(first)).then_some(first)
+}
+
+/// The picture of the price list's item of exactly this name: for a sale kept from before pictures came by id. A
+/// fuzzy match is not enough here, it could show another item's picture.
+pub fn in_catalog(catalog: &Catalog, name: &str) -> Option<String> {
+    let item = catalog.lookup(name).filter(|item| folded(&item.name) == folded(name))?;
+    item.game_id().map(super::item_icon_url)
 }
 
 impl Pictures {

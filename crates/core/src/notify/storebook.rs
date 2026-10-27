@@ -5,6 +5,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use super::{item_icon_url, picture};
+use crate::market::catalog::Catalog;
 use crate::render::status_pill::{text_for, tone_for, word_for};
 use crate::shop::{ShopContext, ShopEvent, ShopStatus};
 
@@ -123,7 +125,9 @@ impl StoreBook {
     fn add(&mut self, event: &ShopEvent, t: f64) {
         let book = &mut self.book;
         match event {
-            ShopEvent::Sale { item, buyer, quantity, mesos, .. } => book.sales.insert(
+            // A sale of an item with the game's id has its picture at once, whatever is notified; others get one once
+            // found by name (`set_picture`).
+            ShopEvent::Sale { item, buyer, quantity, mesos, item_id } => book.sales.insert(
                 0,
                 SaleEntry {
                     t,
@@ -131,6 +135,7 @@ impl StoreBook {
                     qty: Some((*quantity).max(1)),
                     buyer: Some(buyer.clone()),
                     mesos: *mesos,
+                    icon: item_id.map(item_icon_url),
                     ..SaleEntry::default()
                 },
             ),
@@ -187,6 +192,30 @@ impl StoreBook {
                 self.changed = true;
             }
         }
+    }
+
+    /// Pictures for the sales kept without one whose item the price list names exactly (recorded before pictures
+    /// came by id). True when it changed the book.
+    pub fn fill_pictures(&mut self, catalog: &Catalog) -> bool {
+        let mut names: Vec<String> = Vec::new();
+        for sale in &self.book.sales {
+            if let Some(item) = &sale.item
+                && sale.icon.is_none()
+                && !names.contains(item)
+            {
+                names.push(item.clone());
+            }
+        }
+        let before = self.changed;
+        self.changed = false;
+        for name in names {
+            if let Some(url) = picture::in_catalog(catalog, &name) {
+                self.set_picture(&name, &url);
+            }
+        }
+        let changed = self.changed;
+        self.changed |= before;
+        changed
     }
 
     /// What the phone gets: the book, when it was made, and whether MapleLens is following the store.
@@ -247,6 +276,45 @@ mod tests {
             (Some("Arrow"), Some(100), Some("Wina"))
         );
         assert_eq!(sale["icon"], "https://maplestory.io/api/x/item/1/icon");
+    }
+
+    fn sale(item: &str, item_id: Option<u64>) -> ShopEvent {
+        ShopEvent::Sale { item: item.into(), buyer: "Wina".into(), quantity: 2, mesos: Some(2_900), item_id }
+    }
+
+    #[test]
+    fn a_sale_with_the_games_id_has_its_picture_whatever_is_notified() {
+        let mut book = StoreBook::default();
+        book.update(ShopStatus::Watching, &ShopContext::default(), &[sale("Iron Ingot", Some(4_010_101))], 1.0);
+        assert_eq!(book.book.sales[0].icon.as_deref(), Some("https://maplestory.io/api/MCW/1/item/4010101/icon"));
+    }
+
+    #[test]
+    fn sales_kept_without_a_picture_get_the_price_lists() {
+        use crate::market::models::Item;
+        let catalog = Catalog::new(
+            [("Iron Ingot", "basil:04010101"), ("Iron Ore", "basil:04010001")]
+                .map(|(name, id)| Item { item_id: id.into(), ..Item::named(name) }),
+            None,
+        );
+        // As a book saved before pictures came by id holds them.
+        let mut book = StoreBook::from_json(
+            &json!({"sales": [
+                {"t": 3.0, "item": "Iron Ingot", "qty": 2, "buyer": "Wina", "mesos": 2900},
+                {"t": 2.0, "item": "Iron Ingot", "qty": 1, "buyer": "Tikko", "mesos": 1450},
+                {"t": 1.5, "item": "Iron Ingo", "qty": 1, "buyer": "Tikko", "mesos": 1450},
+                {"t": 1.0, "item": "Pet Food", "qty": 1, "buyer": "Tikko", "mesos": 600, "icon": "https://maplestory.io/api/x"},
+                {"t": 0.5, "mesos": 600, "unseen": true},
+            ]})
+            .to_string(),
+        );
+        assert!(book.fill_pictures(&catalog));
+        assert!(book.changed, "to upload");
+        let icons: Vec<Option<&str>> = book.book.sales.iter().map(|s| s.icon.as_deref()).collect();
+        let ingot = Some("https://maplestory.io/api/MCW/1/item/4010101/icon");
+        assert_eq!(icons, [ingot, ingot, None, Some("https://maplestory.io/api/x"), None], "an exact name only");
+        book.changed = false;
+        assert!(!book.fill_pictures(&catalog), "nothing left to fill");
     }
 
     #[test]

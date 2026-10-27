@@ -4,7 +4,7 @@
 //               {type: "ocr-answer", id, text} · {type: "ocr-enabled", enabled} · {type: "shop", enabled} ·
 //               {type: "notify", webhook, telegramWebhook, phone, sales, store} ·
 //               {type: "notify-test", service, webhook, telegramWebhook, phone} · {type: "phone-qr", url} ·
-//               {type: "catalog", id, json}
+//               {type: "catalog", id, json, unpictured (item names whose sales have no picture)}
 // Messages out: {type: "ready", version, items} · {type: "state", state, fps, ms} · {type: "card", which, version,
 //               width, height, pixels, about (the item card's {name, price, trend}; the rank panel's {read, status,
 //               rank})} · {type: "ocr-job", id, font, width, height, pixels} · {type: "glyphs", font,
@@ -13,7 +13,7 @@
 //               {type: "picture", name, url} (a sold item's picture, once found) · {type: "catalog-loaded", id, items | error} ·
 //               {type: "error", message}
 
-import init, { Engine } from "./pkg/maplelens_web.js?v=d5e2993c70a9";
+import init, { Engine } from "./pkg/maplelens_web.js?v=1e6b60480162";
 
 /** One rank lookup every two seconds stays under classicrank.com's 30 requests a minute. */
 const RANK_GAP_MS = 2000;
@@ -38,7 +38,7 @@ const post = (message, transfer = []) => self.postMessage(message, transfer);
 
 async function start({ fonts, glyphs, cardScale, ocr }) {
   // Named explicitly so scripts/stamp-web.ps1 can version it together with the glue.
-  await init({ module_or_path: new URL("./pkg/maplelens_web_bg.wasm?v=d5e2993c70a9", import.meta.url) });
+  await init({ module_or_path: new URL("./pkg/maplelens_web_bg.wasm?v=1e6b60480162", import.meta.url) });
   const [regular, bold] = await Promise.all(fonts.map(url => fetch(url).then(r => r.arrayBuffer())));
   engine = new Engine(new Uint8Array(regular), new Uint8Array(bold));
   engine.card_scale = cardScale || 1;
@@ -214,6 +214,11 @@ self.onmessage = async ({ data }) => {
     else if (data.type === "catalog" && engine) {
       try {
         post({ type: "catalog-loaded", id: data.id, items: engine.load_catalog(data.json) });
+        // The store book's sales kept without a picture (from before pictures came by id) get the price list's.
+        for (const name of data.unpictured || []) {
+          const url = engine.catalog_picture(name);
+          if (url) post({ type: "picture", name, url });
+        }
       } catch (error) {
         post({ type: "catalog-loaded", id: data.id, error: String(error?.message || error) });
       }
