@@ -259,7 +259,10 @@ same frames through the Rust watcher (373 real captures, 22 ms a frame against P
 - The phone app is also a dashboard of the store: the page keeps a store book (`docs/app/storebook.js`: sales with item
   pictures (the worker posts each one the engine finds: `Engine::picture_url`), chat, visits, who is inside, status, owner, mesos; kept in localStorage), seals it with AES-GCM under
   HKDF(pairing secret) (`phone/relay.js` `seal`) and uploads it when it changed (every 5 s at most; a check-in each
-  minute otherwise). The relay keeps it in a Durable Object per pairing and never has the key. `?demo` on the phone
+  minute otherwise). Each waits for the one before, so every relay request times out (10 s, as on Windows): one left
+  hanging had stopped the check-ins and the phone showed the computer offline while the page ran. A check-in may go a
+  sync early: a tab the game covers wakes once a minute, and one due on the dot came every two minutes. The relay
+  keeps the book in a Durable Object per pairing and never has the key. `?demo` on the phone
   page shows the dashboard with made-up data. Remove on the computer tombstones the key (410 everywhere) and pushes a
   "disconnected" notification; the phone app clears itself. A phone leaving is seen by the page's next check-in.
   `relay/push/README.md` has the routes, limits, deploy steps and the security model; `npm test` there.

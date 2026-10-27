@@ -1,13 +1,13 @@
 // MapleLens Web: capture the game window (the page offers nothing else; the sample, video and frame-folder sources are
 // test hooks started by a URL parameter), feed frames to the engine, show the cards in the page and, on request, in a picture-in-picture window that floats over the game.
 
-import { Lens } from "./lens.js?v=fd8a520ab499";
-import { CardView, floatingSize, openFloating } from "./cards.js?v=fd8a520ab499";
-import { CardFeed } from "./cardfeed.js?v=fd8a520ab499";
-import { Prices } from "./prices.js?v=fd8a520ab499";
-import { drawMapleQr } from "./mapleqr.js?v=fd8a520ab499";
-import { StoreBook } from "./storebook.js?v=fd8a520ab499";
-import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=fd8a520ab499";
+import { Lens } from "./lens.js?v=23797a17d145";
+import { CardView, floatingSize, openFloating } from "./cards.js?v=23797a17d145";
+import { CardFeed } from "./cardfeed.js?v=23797a17d145";
+import { Prices } from "./prices.js?v=23797a17d145";
+import { drawMapleQr } from "./mapleqr.js?v=23797a17d145";
+import { StoreBook } from "./storebook.js?v=23797a17d145";
+import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=23797a17d145";
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -218,7 +218,9 @@ async function syncPhones() {
       if (answer.ok) lastFollowing = watching;
       else book.changed = true;
       phoneAnswer(key, answer);
-    } else if (now - lastCheckIn >= CHECK_IN_MS) {
+    } else if (now - lastCheckIn >= CHECK_IN_MS - UPLOAD_GAP_MS) {
+      // A sync early: Chrome runs a hidden tab's timers (the game covering it) once a minute after five minutes, and
+      // a check-in due on the dot then missed every other wake-up, checking in every two minutes.
       await phoneStatus();
     }
   } finally {
