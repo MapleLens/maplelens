@@ -137,6 +137,26 @@ fn compare_tooltips_are_found_both_and_the_hovered_one_first() {
     assert!((spots[0].x - 500).abs() <= 2 && (spots[1].x - right as i32).abs() <= 2, "{spots:?}");
 }
 
+#[test]
+#[cfg_attr(not(fixtures), ignore = "needs the local captures in tests/fixtures")]
+fn compare_tooltips_over_a_bright_window_are_found_at_their_tops() {
+    // A 1366x768 client at Ideal Ratio, an inventory hat hovered over an open store: the fill under both titles lies
+    // over the store's light paper, so the band was found only under the job row's box, whose line was taken for the
+    // top. The hovered tooltip's "title" was then a stats line, and the browser showed the worn hat's card instead.
+    let frame = fixture("compare_ideal_ratio_1366x768.png");
+    let scale = 768.0 / 1200.0;
+    let spots = find_tooltips(&frame, scale);
+    let near = |s: &Point, x: i32| (s.x - x).abs() <= 3 && (s.y - 298).abs() <= 3;
+    assert!(spots.len() == 2 && near(&spots[0], 383) && near(&spots[1], 621), "{spots:?}");
+    let bounds = Rect::new(0, 0, frame.width as i32, frame.height as i32);
+    let mut detector = detector(&[("Brown Bamboo Hat", "eqp:01002073"), ("Black Loosecap", "eqp:01002176")]);
+    for now in [0.0, 0.1, 0.2] {
+        let mut screen = FrameScreen { frame: &frame, origin: Point::default(), cursor: None };
+        let hover = detector.step(&mut screen, bounds, now).expect("found");
+        assert_eq!(hover.title, "Brown Bamboo Hat");
+    }
+}
+
 /// An OCR stand-in that knows one answer.
 struct Oracle(&'static str);
 

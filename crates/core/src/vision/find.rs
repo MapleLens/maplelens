@@ -50,6 +50,11 @@ const BORDER_FILL_PX: usize = 45;
 const SNAP_PX: i32 = 6;
 /// Rows around the band that the left border is checked over.
 const BORDER_ROWS: i32 = 24;
+/// Unlifted rows that end a left border followed upwards (the resize can blur a pixel or two of it away).
+const CLIMB_GAP: i32 = 4;
+/// A left border running on at least this far above a found top: the top was a line inside the tooltip. (The job
+/// row's box is ~150 rows below the top; a top border drawn two pixels thick is not a climb.)
+const MIN_CLIMB: i32 = 20;
 
 /// The lift of every pixel over its neighbour `INSIDE_PX` away, summed along rows and columns ahead of time: a
 /// border's lift along any stretch is then two lookups, not a walk over the pixels. Every band row of a cluster asks
@@ -388,10 +393,9 @@ fn spot_at_band(
         let lifted_col = |x: i32| score(lifts.side(x, rows.clone())) >= MIN_BORDER_SCORE;
         let border_x = (border_x..=border_x + SNAP_PX).rev().find(|&x| lifted_col(x)).unwrap_or(border_x);
         let spot = Point { x: border_x - BORDER_INSET, y: border_y - BORDER_INSET };
-        if spot.x < 0
-            || spot.y < 0
-            || known.iter().any(|s| (s.x - spot.x).abs() <= SAME_SPOT_PX && (s.y - spot.y).abs() <= SAME_SPOT_PX)
-        {
+        let is_known =
+            |p: Point| known.iter().any(|s| (s.x - p.x).abs() <= SAME_SPOT_PX && (s.y - p.y).abs() <= SAME_SPOT_PX);
+        if spot.x < 0 || spot.y < 0 || is_known(spot) {
             continue;
         }
         let image = frame.crop(spot.x as usize, spot.y as usize, (spot.x + w) as usize, (spot.y + h) as usize);
@@ -401,10 +405,44 @@ fn spot_at_band(
             && (measure_width(&image, &config::TOOLTIP_WIDTHS).is_some()
                 || right_edge_unreadable(&image, &config::TOOLTIP_WIDTHS))
         {
-            return Some(spot);
+            let spot = true_top(lifts, spot);
+            return (!is_known(spot)).then_some(spot);
         }
     }
     None
+}
+
+/// A tooltip passes every check at a line inside it too: an equipment tooltip's job row is boxed, and below the box
+/// is plain fill, so where the fill under the title lies over a bright window (the shop's, the inventory's) the band
+/// is not fill and the box's line is taken for the top border. The left border then runs on above `spot`, unbroken,
+/// up to the real top border: follow it there. A real top has no border line above it.
+fn true_top(lifts: &Lifts, spot: Point) -> Point {
+    let x = spot.x + BORDER_INSET;
+    let start = spot.y + BORDER_INSET;
+    // Over a dark backdrop the border cannot be told from the fill (see `Lifts`): such rows neither end the line
+    // nor extend it. A few rows read and not lifted end it (the resize can blur a pixel or two away).
+    let (mut top, mut gap, mut y) = (start, 0, start - 1);
+    while y >= 0 && gap <= CLIMB_GAP {
+        let counts = lifts.side(x, y..y + 1);
+        if counts.lifted_all > 0 {
+            (top, gap) = (y, 0);
+        } else if counts.readable > 0 {
+            gap += 1;
+        }
+        y -= 1;
+    }
+    // Scattered lifted pixels of a busy backdrop above a real top can chain up too; a border is lifted all along.
+    let line = lifts.side(x, top..start).readable_share().is_some_and(|s| s >= FRAME_LINE_SCORE);
+    if start - top < MIN_CLIMB || !line {
+        return spot;
+    }
+    // The top border is where the line ends. Over a bright window the small UI's top line does not stand out from
+    // the backdrop above it, so a lifted row right there only refines it; the left border, followed unbroken down to a
+    // tooltip that passed every check, is the evidence.
+    let cols = (x + 20)..(x + 300);
+    let lifted_row = |y: i32| lifts.top(y, cols.clone()).strict() >= MIN_BORDER_SCORE;
+    let border_y = (top - SNAP_PX / 2..=top + SNAP_PX / 2).rev().find(|&y| lifted_row(y)).unwrap_or(top - BORDER_INSET);
+    Point { x: spot.x, y: border_y - BORDER_INSET }
 }
 
 #[cfg(test)]
