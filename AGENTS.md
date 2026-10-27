@@ -192,7 +192,8 @@ it alone in the console.
   are held while new measures are within 1.2% / 2 px: a moved marker reads as a dragged window and forgets the lists.
   A measure further off rescales only once the last 5 s of measures settle on it (`watcher::settle_scale`, a
   `ScaleVote`): the pointer over a button once made one frame read 3% off and forgot every list. After 5 s without
-  the shop (a resolution switch hides it 15-30 s) the first measure is believed, as before.
+  the shop (a resolution switch hides it 15-30 s) the first measure off the held scale is believed, as before; one
+  within 1.2% of it stays the held scale (the pointer over the buttons for a while must not forget the lists).
 - When the buttons are not found but the chat page is still where it was (a tooltip or the pointer over them), the
   look brings no news rather than a closing. A tooltip's dark blue reaching over the chat page makes it covered: its
   edge would read as a line.
@@ -407,7 +408,8 @@ over in ~3 s; before the first decision the client height stands in. Readings ar
 the same width and a height within 48 px is the same one: the browser's title bar guess (0/31/39/47 px, cycled while
 nothing is detected) had changed the client every 1.5 s and thrown the measured scale away each time, so in Ideal
 Ratio the page flipped between 0.64 and the height's 0.9. Every writer must time readings on one clock: on Windows
-`paths::uptime`, in the browser `performance.now()`. A clock that goes back starts the window over.
+`paths::uptime`, in the browser `performance.now()`. A reading up to 1 s older than the newest goes in its place
+(the hover thread reads the clock before its grab); a clock that goes back further starts the window over.
 
 ## Stream footage
 

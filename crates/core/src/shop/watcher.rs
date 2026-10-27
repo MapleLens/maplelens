@@ -89,18 +89,19 @@ fn padded(mask: &Mask, pad: usize) -> Mask {
 /// The scale to read a frame at, given this frame's measure and the scale the shop was last read at (`held`): the
 /// held one while the measure agrees with it or the last seconds' measures have not settled elsewhere (the pointer
 /// over a button, a tooltip over the chat page's edge). With nothing measured for that long (a new store, the game
-/// switching resolution, which hides the window 15-30 s) this measure is believed.
+/// switching resolution, which hides the window 15-30 s) a measure off the held scale is believed at once; one
+/// within a pixel's jitter of it is still the held scale (a pointer over the buttons for a while must not forget the
+/// lists).
 pub(super) fn settle_scale(vote: &mut ScaleVote, held: Option<f32>, measured: f32, now: f64) -> f32 {
     let fresh = vote.recent(now) == 0;
     if fresh {
         vote.reset();
     }
-    let held = if fresh { None } else { held };
     let settled = vote.push(measured, now);
     match held {
-        None => measured,
         Some(held) if layout::same_scale(measured, held) => held,
-        Some(held) => settled.filter(|&s| !layout::same_scale(s, held)).unwrap_or(held),
+        Some(held) if !fresh => settled.filter(|&s| !layout::same_scale(s, held)).unwrap_or(held),
+        _ => measured,
     }
 }
 

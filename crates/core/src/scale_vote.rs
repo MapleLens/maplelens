@@ -8,6 +8,10 @@ use std::collections::VecDeque;
 
 use crate::config;
 
+/// Readings this much older than the newest are in time, not a clock gone back: the hover thread reads the clock
+/// before grabbing the status bar (several ms), and the shop thread may read it after and push first.
+const CLOCK_SKEW_S: f64 = 1.0;
+
 /// Readings of a scale over a sliding window of time, and the value they settled on.
 #[derive(Clone, Debug, Default)]
 pub struct ScaleVote {
@@ -20,11 +24,13 @@ impl ScaleVote {
     /// a cluster of readings (each within `config::SCALE_VOTE_TOLERANCE` of its middle) is more than half the window
     /// and at least `config::SCALE_VOTE_MIN_READINGS`; otherwise the last settled value stays.
     pub fn push(&mut self, value: f32, now: f64) -> Option<f32> {
-        // A clock that went back (another thread's, a restarted page) leaves nothing to compare with.
-        if self.readings.back().is_some_and(|&(t, _)| t > now) {
+        // A clock that went back (a restarted page) leaves nothing to compare with. A little back is two threads
+        // sharing one clock, one of which read it before a slow grab: that reading goes in its place.
+        if self.readings.back().is_some_and(|&(t, _)| t - now > CLOCK_SKEW_S) {
             self.readings.clear();
         }
-        self.readings.push_back((now, value));
+        let at = self.readings.iter().rposition(|&(t, _)| t <= now).map_or(0, |i| i + 1);
+        self.readings.insert(at, (now, value));
         self.expire(now);
         if let Some(value) = self.majority() {
             self.settled = Some(value);
@@ -145,6 +151,14 @@ mod tests {
         feed(&mut vote, &[(100.0, 1.0), (101.0, 1.0), (102.0, 1.0)]);
         assert_eq!(feed(&mut vote, &[(0.0, 1.28), (1.0, 1.28)]), Some(1.0));
         assert_eq!(vote.push(1.28, 2.0), Some(1.28));
+    }
+
+    #[test]
+    fn a_reading_slightly_late_from_another_thread_is_kept() {
+        let mut vote = ScaleVote::default();
+        feed(&mut vote, &[(10.0, 0.9), (10.02, 0.9), (10.01, 0.9)]);
+        assert_eq!(vote.recent(10.02), 3);
+        assert_eq!(vote.settled(), Some(0.9));
     }
 
     #[test]

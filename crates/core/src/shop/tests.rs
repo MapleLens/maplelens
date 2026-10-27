@@ -263,6 +263,17 @@ fn a_shop_back_after_a_gap_is_read_at_its_new_scale_at_once() {
 }
 
 #[test]
+fn a_shop_back_after_a_gap_at_its_scale_keeps_it() {
+    // The pointer over SOLD ITEMS for 10 s (no measure), then a measure a pixel off: still the same scale, or every
+    // list would be forgotten and a sale made meanwhile missed.
+    let mut vote = ScaleVote::default();
+    for t in 0..3 {
+        settle_scale(&mut vote, Some(1.2), 1.2, t as f64);
+    }
+    assert_eq!(settle_scale(&mut vote, Some(1.2), 1.199, 12.0), 1.2);
+}
+
+#[test]
 #[cfg_attr(not(fixtures), ignore = "needs the local captures in tests/fixtures")]
 fn anchors_are_found_in_a_capture() {
     // The close box's found edge may be a pixel off its old template anchor; reading is relative to it either way.
