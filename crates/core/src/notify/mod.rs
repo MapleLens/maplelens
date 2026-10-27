@@ -137,7 +137,9 @@ pub fn refusal(service: &str, status: u16) -> String {
         ("Telegram", 401 | 404) => "Telegram does not know that bot token (revoked?)".into(),
         ("Telegram", 403) => "The bot may not write there: send it /start (or add it to the group) again".into(),
         ("Telegram", 400) => "Telegram cannot find that chat: Clear, then Paste the token again".into(),
-        ("Phone", 404 | 410) => "No phone is paired: scan the QR code with your phone".into(),
+        ("Phone", 404) => "No phone is paired: press Connect and scan the code with your phone".into(),
+        ("Phone", 410) => "This pairing was removed: press Connect to pair a phone again".into(),
+        ("Phone", 502) => "The phones' push service did not answer: try again in a moment".into(),
         (_, 401 | 404) => format!("{service} says that webhook does not exist (deleted?)"),
         _ => format!("{service} answered HTTP {status}"),
     }
@@ -196,7 +198,8 @@ mod tests {
             ..NotifySettings::default()
         };
         assert_eq!(connectors(&phone).iter().map(|c| c.name()).collect::<Vec<_>>(), ["Phone"]);
-        assert_eq!(refusal("Phone", 410), "No phone is paired: scan the QR code with your phone");
+        assert_eq!(refusal("Phone", 404), "No phone is paired: press Connect and scan the code with your phone");
+        assert_eq!(refusal("Phone", 410), "This pairing was removed: press Connect to pair a phone again");
     }
 
     #[test]

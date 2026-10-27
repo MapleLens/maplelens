@@ -5,7 +5,7 @@
 // Fastest path per phone: Android receives push in the browser tab itself (scan, tap, done; installing is optional).
 // iPhone only lets home-screen apps receive push, so the page is installed once, and the app can pair by scanning.
 
-import { KEY_SHAPE, PAIR_CACHE, PAIR_REQUEST, relay, RELAY_URL, unseal } from "./relay.js?v=414d23baa951";
+import { KEY_SHAPE, PAIR_CACHE, PAIR_REQUEST, relay, RELAY_URL, unseal } from "./relay.js?v=baf725f719e6";
 
 const $ = id => document.getElementById(id);
 const STORED_KEY = "maplelens.phone.key";
@@ -22,7 +22,7 @@ const REFRESH_MS = 15000;
 const OFFLINE_MS = 3 * 60 * 1000;
 /** Item pictures are taken from this host only (what MapleLens names), so a picture cannot track the phone. */
 const ICON_PREFIX = "https://maplestory.io/api/";
-const ONBOARD_VIEWS = ["no-key", "removed", "scanner", "install", "unsupported", "enable"];
+const ONBOARD_VIEWS = ["no-key", "removed", "scanner", "install", "unsupported", "enable", "switch"];
 
 const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
@@ -31,11 +31,15 @@ const fromAddress = valid(new URLSearchParams(location.search).get("pair"));
 // An installed app always opens the address it was installed from, so there the key saved by the last pairing wins;
 // in a browser tab the address is a code just scanned and wins.
 let key = standalone ? load(STORED_KEY) || fromAddress : fromAddress || load(STORED_KEY);
+/** The player chose to keep the MapleLens this phone follows over the code in the address. */
+let keptCurrent = false;
 let installPrompt = null;
 let scanning = null;
 let refreshTimer = null;
 let snapshot = null;
 let seen = null;
+/** Whether the last call to the relay failed for want of a connection (the phone's, not the computer's). */
+let unreachable = false;
 let tab = ["sales", "chat", "visits"].includes(load(TAB_KEY)) ? load(TAB_KEY) : "sales";
 
 function valid(candidate) {
@@ -90,6 +94,9 @@ async function registration() {
 async function remember() {
   store(STORED_KEY, key);
   await (await caches.open(PAIR_CACHE)).put(PAIR_REQUEST, new Response(key));
+  // Kept, the key is out of the address bar, where a shared link or a screenshot would give it away. Not in an iPhone
+  // Safari tab: there the home-screen app is added from this address and needs the key in it.
+  if (!ios || standalone) history.replaceState(null, "", "./");
 }
 
 async function vapidKey() {
@@ -101,8 +108,11 @@ async function vapidKey() {
 // ---------- pairing ----------
 
 async function enable() {
-  const note = $("enable-note");
-  $("enable-btn").disabled = true;
+  // Turning on, or switching a phone already connected to another MapleLens: the same steps, said where the tap was.
+  const switching = !$("switch").hidden;
+  const note = $(switching ? "switch-note" : "enable-note");
+  const button = $(switching ? "switch-btn" : "enable-btn");
+  button.disabled = true;
   note.textContent = "Asking for permission…";
   try {
     // Must come straight from the tap: iPhone refuses a request that does not.
@@ -120,13 +130,25 @@ async function enable() {
     const subscription =
       (await sw.pushManager.getSubscription()) ||
       (await sw.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: await vapidKey() }));
+    const before = load(STORED_KEY);
     const answer = await relay("pair", { key, subscription: subscription.toJSON() });
-    if (answer.status === 410) return removed();
-    if (!answer.ok) {
-      note.textContent =
-        answer.status === 404 ? "This code belongs to another pairing. Scan the one MapleLens shows now." : "Could not connect. Try again in a moment.";
+    if (answer.status === 410) {
+      // Switching to a code removed since: the phone stays with the MapleLens it had (whose push subscription this is).
+      if (!before || before === key) return removed();
+      note.textContent = "That code was removed on its computer. Keep the current one, or scan a new code.";
       return;
     }
+    if (!answer.ok) {
+      note.textContent =
+        answer.status === 404 ? "This code belongs to another pairing. Scan the one MapleLens shows now."
+        : answer.status === 409 ? "This MapleLens already has 5 phones. Press Remove next to Phone on the computer, then connect again."
+        : answer.status === 429 ? "Too many tries. Wait a minute, then try again."
+        : answer.status === 0 ? "No connection. Check the phone's internet, then try again."
+        : "Could not connect. Try again in a moment.";
+      return;
+    }
+    // A phone follows one MapleLens: once the new pairing has it, it leaves the one it was in.
+    if (before && before !== key) await relay("unpair", { key: before, endpoint: subscription.endpoint });
     await remember();
     note.textContent = "";
     dashboard();
@@ -134,7 +156,7 @@ async function enable() {
   } catch (error) {
     note.textContent = `Could not turn notifications on (${error.message || error}).`;
   } finally {
-    $("enable-btn").disabled = false;
+    button.disabled = false;
   }
 }
 
@@ -238,7 +260,10 @@ async function scan() {
 async function repair() {
   const sw = await navigator.serviceWorker.getRegistration("./");
   const subscription = await sw?.pushManager.getSubscription();
-  if (!subscription) return show("enable", "not connected");
+  if (!subscription) {
+    $("settings").close();
+    return show("enable", "not connected");
+  }
   const answer = await relay("pair", { key, subscription: subscription.toJSON() });
   if (answer.status === 410) return removed();
   render();
@@ -267,6 +292,7 @@ function stopRefreshing() {
 async function refresh() {
   if (!key) return;
   const answer = await relay("state/get", { key });
+  unreachable = answer.status === 0;
   if (answer.status === 410) return removed();
   // Not paired any more without being removed (the push service dropped this phone's subscription): pair again
   // rather than forget the key; only a definite "removed" clears it.
@@ -278,6 +304,8 @@ async function refresh() {
   render();
 }
 
+/** Between the parts of the line under the store's name; each part keeps its words together. */
+const SEPARATOR = " · ";
 const grouped = n => Math.round(n).toLocaleString("en-US");
 const compact = n => (n >= 1e9 ? `${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M` : n >= 1e4 ? `${Math.round(n / 1e3)}K` : grouped(n));
 const clock = t => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -311,13 +339,17 @@ function dayLabel(t, now = Date.now()) {
 
 /** The pill, the line under the name and a hint when the player can do something about it. */
 function storeState(s, now) {
+  if (unreachable) {
+    return { tone: "idle", pill: "No connection", hint: "This phone can't reach MapleLens right now. What you see is from earlier.", live: seen ? `Updated ${ago(seen, now)}` : "" };
+  }
   if (!seen || now - seen > OFFLINE_MS) {
     return { tone: "idle", pill: "Computer offline", hint: "MapleLens on your computer stopped checking in. Your store may still be open; notifications come back with it.", live: seen ? `Last seen ${ago(seen, now)}` : "" };
   }
-  const updated = `Updated ${ago(s.at, now)}`;
+  // MapleLens checks in each minute and uploads whenever something changed, so the store is as of its last check-in.
+  const updated = `Updated ${ago(seen, now)}`;
   if (!s.following) return { tone: "idle", pill: "Not watching", hint: "Share the game window in MapleLens Web to follow your store.", live: updated };
   if (!s.status) return { tone: "idle", pill: s.open ? "Open" : "No store", hint: s.open ? null : "MapleLens doesn't see your store on screen.", live: updated };
-  const open = s.open && s.openedAt ? `Open for ${span(now - s.openedAt)} · ` : "";
+  const open = s.open && s.openedAt ? `Open for ${span(now - s.openedAt)}${SEPARATOR}` : "";
   if (s.status.tone === "ok") return { tone: "ok", pill: "Watching", hint: null, live: open + updated };
   if (s.status.tone === "warn") return { tone: "warn", pill: "Needs a look", hint: s.status.text, live: open + updated };
   return { tone: "idle", pill: s.open ? "Open" : "Closed", hint: s.open ? s.status.text : null, live: open + updated };
@@ -334,7 +366,7 @@ function render() {
   const state = storeState(s, now);
   $("status").className = `state ${state.tone}`;
   $("status").textContent = state.pill;
-  $("live").textContent = state.live;
+  $("live").replaceChildren(...state.live.split(SEPARATOR).map((part, i) => el("span", { className: "part", textContent: i ? `· ${part}` : part })));
   $("hint").hidden = !state.hint;
   $("hint").textContent = state.hint || "";
   $("balance").textContent = Number.isFinite(s.balance) ? grouped(s.balance) : "–";
@@ -386,7 +418,7 @@ function saleRow(sale) {
     ? el("div", { className: "slot" }, el("img", { src: sale.icon, alt: "", loading: "lazy", referrerPolicy: "no-referrer" }))
     : el("div", { className: "slot q", textContent: "?" });
   const name = sale.unseen ? "Something sold" : sale.qty > 1 ? `${sale.item} ×${grouped(sale.qty)}` : sale.item;
-  const detail = sale.unseen ? `Open the Sold Items window to see what · ${clock(sale.t)}` : `to ${sale.buyer} · ${clock(sale.t)}`;
+  const detail = sale.unseen ? `Item not read: Sold Items was closed · ${clock(sale.t)}` : `to ${sale.buyer} · ${clock(sale.t)}`;
   return el(
     "div",
     { className: "row" },
@@ -440,7 +472,16 @@ async function test() {
   });
   $("test-btn").disabled = false;
   if (answer.status === 410) return removed();
-  $("test-note").textContent = answer.ok ? "Sent. It should arrive in a few seconds." : "Not sent. Try again in a moment.";
+  if (answer.status === 404) {
+    // The relay had dropped this phone (its push service renewed or lost the subscription): pair it again.
+    await repair();
+    $("test-note").textContent = "This phone was reconnected. Press Test again.";
+    return;
+  }
+  $("test-note").textContent = answer.ok ? "Sent. It should arrive in a few seconds."
+    : answer.status === 429 ? "Too many tests. Wait a minute, then try again."
+    : answer.status === 0 ? "No connection. Check the phone's internet, then try again."
+    : "Not sent. Try again in a moment.";
 }
 
 // ---------- start ----------
@@ -485,6 +526,10 @@ async function start() {
   if (!pushable) return show("unsupported", "not available");
   $("scan-btn").hidden = $("rescan-btn").hidden = !navigator.mediaDevices?.getUserMedia;
   if (!key) return show("no-key", "not paired");
+  // A code for another MapleLens than the one this phone follows: only a tap switches it (a link anyone can post
+  // must not take the phone over).
+  const stored = load(STORED_KEY);
+  if (!standalone && !keptCurrent && fromAddress && stored && fromAddress !== stored) return show("switch", "already connected");
   const sw = await registration();
   const subscription = await sw.pushManager.getSubscription();
   const paired = Notification.permission === "granted" && subscription && (await caches.has(PAIR_CACHE));
@@ -515,6 +560,13 @@ $("install-btn").addEventListener("click", async () => {
   $("install-group").hidden = true;
 });
 $("enable-btn").addEventListener("click", enable);
+$("switch-btn").addEventListener("click", enable);
+$("keep-btn").addEventListener("click", () => {
+  keptCurrent = true;
+  key = load(STORED_KEY);
+  history.replaceState(null, "", "./");
+  start();
+});
 $("test-btn").addEventListener("click", test);
 $("unpair-btn").addEventListener("click", unpair);
 $("scan-btn").addEventListener("click", scan);

@@ -26,10 +26,18 @@ self.addEventListener("push", event => {
   if (message.tag) Object.assign(options, { tag: message.tag, renotify: true });
   event.waitUntil(
     (async () => {
-      // Removed in MapleLens on the computer: the key is dead, so forget it; an open app shows why at once.
-      if (message.tag === "unpaired") await caches.delete(PAIR_CACHE);
+      // Removed in MapleLens on the computer: the key is dead, so forget it; an open app shows why at once. Only the
+      // pairing this phone holds now: one it switched away from may still say goodbye.
+      let unpaired = false;
+      if (message.tag === "unpaired") {
+        const stored = await (await caches.open(PAIR_CACHE)).match(PAIR_REQUEST);
+        const held = stored ? await stored.text() : "";
+        unpaired = Boolean(held) && (!message.pairing || held.startsWith(`${message.pairing}.`));
+        if (unpaired) await caches.delete(PAIR_CACHE);
+        else Object.assign(options, { body: "An earlier MapleLens connection was removed. This phone is still connected.", tag: "old-pairing" });
+      }
       const open = await self.clients.matchAll({ type: "window" });
-      for (const client of open) client.postMessage({ type: message.tag === "unpaired" ? "unpaired" : "pushed" });
+      for (const client of open) client.postMessage({ type: unpaired ? "unpaired" : "pushed" });
       await self.registration.showNotification(message.title || "MapleLens", options);
     })(),
   );

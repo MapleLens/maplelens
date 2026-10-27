@@ -7,8 +7,12 @@
 
 /** Phones one pairing can hold (a player's phone and tablet; more is someone sharing a QR). */
 const MAX_PHONES = 5;
-/** A snapshot nobody refreshed for this long is deleted: the store is long closed or the player stopped using it. */
-const KEEP_MS = 14 * 24 * 3600 * 1000;
+/** A pairing nobody used for this long (no phone joined, MapleLens neither uploaded nor checked in) is deleted with
+ *  its snapshot: the player stopped using it, and ids claimed by nobody must not pile up. A removed key's tombstone
+ *  stays (a few bytes): a phone may come back with the key much later. */
+const IDLE_MS = 60 * 24 * 3600 * 1000;
+/** The idle alarm is pushed back at most this often: setting it is a storage write, and MapleLens pings each minute. */
+const TOUCH_MS = 24 * 3600 * 1000;
 
 export class StoreState {
   constructor(ctx) {
@@ -54,10 +58,11 @@ export class StoreState {
       case "put":
         await this.storage.put({ blob, at: now });
         this.seen = now;
-        await this.storage.setAlarm(now + KEEP_MS);
+        await this.touch(now);
         return reply(200, { phones: phones.length });
       case "ping":
         this.seen = now;
+        await this.touch(now);
         return reply(200, { phones: phones.length });
       case "get": {
         const stored = await this.storage.get(["blob", "at"]);
@@ -79,19 +84,25 @@ export class StoreState {
     }
     const renewed = !known && typeof replaces === "string" && phones.some(p => p.endpoint === replaces);
     const others = phones.filter(p => p.endpoint !== phone.endpoint && p.endpoint !== replaces);
-    // The oldest phone goes first: one that reinstalled the app leaves a dead subscription behind.
-    const kept = [...others, phone].slice(-MAX_PHONES);
+    // A full pairing refuses a new phone rather than drop one: dropped silently, the owner's phone would stop getting
+    // notifications while looking fine (a dead subscription leaves by itself at the next message it misses).
+    if (others.length >= MAX_PHONES) return reply(409, { error: "full", phones: phones.length });
+    const kept = [...others, phone];
     await this.storage.put({ hash, phones: kept });
+    await this.touch(Date.now());
     // A QR code seen on a stream pairs a stranger's phone too: the phones already paired hear about every new one.
     // A phone renewing its own subscription, or one whose keys changed, is not new.
     return reply(200, { phones: kept.length, alert: known || renewed ? [] : others });
   }
 
+  /** Pushes the idle alarm back, once a day at most. */
+  async touch(now) {
+    const due = await this.storage.getAlarm();
+    if (!due || due < now + IDLE_MS - TOUCH_MS) await this.storage.setAlarm(now + IDLE_MS);
+  }
+
   async alarm() {
-    // The snapshot is stale; a pairing that has no phone left goes with it.
-    const phones = await this.storage.get("phones");
-    if (Array.isArray(phones) && phones.length) await this.storage.delete(["blob", "at"]);
-    else await this.forget();
+    await this.forget();
   }
 
   async forget() {

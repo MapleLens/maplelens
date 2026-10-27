@@ -1,12 +1,12 @@
 // MapleLens Web: capture the game window (the page offers nothing else; the sample, video and frame-folder sources are
 // test hooks started by a URL parameter), feed frames to the engine, show the cards in the page and, on request, in a picture-in-picture window that floats over the game.
 
-import { Lens } from "./lens.js?v=414d23baa951";
-import { CardView, floatingSize, openFloating } from "./cards.js?v=414d23baa951";
-import { Prices } from "./prices.js?v=414d23baa951";
-import { drawMapleQr } from "./mapleqr.js?v=414d23baa951";
-import { StoreBook } from "./storebook.js?v=414d23baa951";
-import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=414d23baa951";
+import { Lens } from "./lens.js?v=baf725f719e6";
+import { CardView, floatingSize, openFloating } from "./cards.js?v=baf725f719e6";
+import { Prices } from "./prices.js?v=baf725f719e6";
+import { drawMapleQr } from "./mapleqr.js?v=baf725f719e6";
+import { StoreBook } from "./storebook.js?v=baf725f719e6";
+import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=baf725f719e6";
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -134,7 +134,7 @@ let pairing = null;
 function showPhone() {
   const set = Boolean(shopSettings.phone);
   $("phone-state").textContent = !set ? "Not connected"
-    : phones === null ? "Set up"
+    : phones === null ? "Checking…"
     : phones ? `${phones} phone${phones > 1 ? "s" : ""} connected` : "No phone yet";
   $("phone-connect").textContent = set && phones ? "Add a phone" : "Connect";
   $("phone-test").hidden = !set || !phones;
@@ -177,17 +177,20 @@ function forgetPhoneKey(note) {
 
 /** The relay's answer to an upload or a check-in: the phone count, or the key was removed (from another tab, or by a
  *  key holder) and is dead, so a QR code of it would only send phones to "Disconnected". */
-function phoneAnswer(answer) {
+function phoneAnswer(key, answer) {
+  // An answer for a key removed meanwhile (Remove, then Connect again) says nothing about the new one.
+  if (key !== shopSettings.phone) return;
   if (answer.status === 410) forgetPhoneKey("This pairing was removed. Press Connect to pair a phone again.");
   else if (answer.ok || answer.status === 404) setPhones(answer.ok ? answer.json.phones || 0 : 0);
 }
 
 /** MapleLens checking in: how many phones are paired (none once the pairing is gone). */
 async function phoneStatus() {
-  if (!shopSettings.phone) return;
-  const answer = await relay("state/ping", { key: shopSettings.phone });
+  const key = shopSettings.phone;
+  if (!key) return;
+  const answer = await relay("state/ping", { key });
   lastCheckIn = Date.now();
-  phoneAnswer(answer);
+  phoneAnswer(key, answer);
 }
 
 /** Every few seconds: the sealed store book to the phones when it changed, else a check-in each minute. */
@@ -205,7 +208,7 @@ async function syncPhones() {
       lastUpload = lastCheckIn = now;
       if (answer.ok) lastFollowing = watching;
       else book.changed = true;
-      phoneAnswer(answer);
+      phoneAnswer(key, answer);
     } else if (now - lastCheckIn >= CHECK_IN_MS) {
       await phoneStatus();
     }
@@ -230,13 +233,16 @@ async function showPairing() {
     saveShopSettings();
     applyShopSettings();
   }
-  const modules = await lens.phoneQr(phoneUrl(shopSettings.phone));
+  const key = shopSettings.phone;
+  const modules = await lens.phoneQr(phoneUrl(key));
   // The engine encodes https pairing addresses only: a phone could not open this page's address anyway.
   if (!modules.length) {
     $("phone-note").textContent = "Pairing needs the page over https (open it from the website)";
     return;
   }
   await drawMapleQr($("phone-qr"), modules, new URL("../assets/meso.png", location.href).href);
+  // Removed while the code was being drawn: its key is dead.
+  if (key !== shopSettings.phone) return;
   hidePairing();
   $("phone-pair").hidden = false;
   const before = phones || 0;

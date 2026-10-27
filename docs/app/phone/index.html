@@ -67,6 +67,8 @@ button{font:inherit}
 .hero .who{flex:1;min-width:0}
 .hero .owner{font:26px/1.1 "Lilita One",Tahoma,sans-serif;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .hero .live{font-size:12px;color:var(--muted);margin-top:2px}
+.hero .live .part{white-space:nowrap}
+.hero .live .part+.part{margin-left:.3em}
 .state{flex:none;display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 10px;font:bold 12px Tahoma,sans-serif;
   color:#fff;background:var(--idle);white-space:nowrap}
 .state:before{content:"";width:8px;height:8px;border-radius:50%;background:#fff;opacity:.9}
@@ -164,6 +166,7 @@ dialog.sheet[open]{animation:up .22s ease-out}
         <p>On your computer, open <b>MapleLens Web</b> and press <b>Connect</b> next to Phone under Store Permit. Then scan the code it shows:</p>
         <button class="btn big" id="scan-btn" type="button">Scan the code</button>
         <p class="note" id="scan-note">Or scan it with the phone's camera app.</p>
+        <p class="note">MapleLens Web is at <b>maplelens.github.io/maplelens/app</b> on your computer.</p>
       </div>
 
       <div class="win-b" id="removed" hidden>
@@ -192,6 +195,12 @@ dialog.sheet[open]{animation:up .22s ease-out}
         <p>This browser cannot receive notifications. On Android use Chrome; on iPhone use Safari (iOS 16.4 or newer).</p>
       </div>
 
+      <div class="win-b" id="switch" hidden>
+        <p><b>This phone is already connected to a MapleLens.</b> Switch it to the code you just scanned? The other one stops sending to this phone.</p>
+        <button class="btn big" id="switch-btn" type="button">Switch to this code</button>
+        <p class="note" id="switch-note"></p>
+        <button class="btn grey sm" id="keep-btn" type="button">Keep the current one</button>
+      </div>
       <div class="win-b" id="enable" hidden>
         <p>See your store from your phone, and get a notification when an item sells or the store opens or closes.</p>
         <button class="btn big" id="enable-btn" type="button">Turn on notifications</button>
@@ -286,6 +295,6 @@ dialog.sheet[open]{animation:up .22s ease-out}
 </dialog>
 
 <div class="toast" id="toast" role="status" hidden></div>
-<script type="module" src="phone.js?v=414d23baa951"></script>
+<script type="module" src="phone.js?v=baf725f719e6"></script>
 </body>
 </html>

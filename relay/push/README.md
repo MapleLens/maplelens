@@ -9,7 +9,7 @@ paired devices can make, and the phone app reads it back. The phone side is `doc
 | Route | Body | Does |
 | --- | --- | --- |
 | `GET /key` | | The VAPID public key, for `PushManager.subscribe` |
-| `POST /pair` | `{key, subscription, replaces?}` | A phone joins the pairing (at most 5; the phones already in it get a "new phone" alert, unless it renews its own subscription: `replaces` is the endpoint it had) |
+| `POST /pair` | `{key, subscription, replaces?}` | A phone joins the pairing (at most 5: a sixth is refused with 409; the phones already in it get a "new phone" alert, unless it renews its own subscription: `replaces` is the endpoint it had) |
 | `POST /unpair` | `{key, endpoint}` | One phone leaves |
 | `POST /unpair` | `{key, remove: true}` | MapleLens removes the pairing (a request with neither is refused) |
 | `POST /notify` | `{key, title, body, icon?, tag?}` | Push to every paired phone |
@@ -26,7 +26,8 @@ Storage: a Durable Object per pairing (`src/store.js`, SQLite backed) holds the 
 subscriptions, the sealed store state and, once removed, the tombstone. It is the pairing's only record: an object
 runs one request at a time on strongly consistent storage, so two phones pairing at once both stay and a phone that
 just paired is seen by the next message from anywhere. (KV, used at first, cached a missing pairing for a minute per
-location: Test right after pairing said "no phone is paired".)
+location: Test right after pairing said "no phone is paired".) A pairing unused for 60 days (no phone joining, no
+upload or check-in from MapleLens) is deleted by the object's alarm; a removed key's tombstone is kept.
 
 ## Deploy
 
@@ -122,8 +123,15 @@ What it protects, and how (each is a test in `test/relay.test.mjs`):
   secrets").
 - **Accepted:** a request for an id that has never been used takes longer (its Durable Object is created) than one
   for an existing id. It tells nothing useful: ids are 96 random bits and only ever appear next to their secret.
+  Every request with a well-formed key reaches a Durable Object, so someone sending many with random ids uses up the
+  free plan's daily object requests (100,000) for everyone, as fast as the rate limits let them; the paid plan or a
+  WAF rule on a custom domain is the answer if that happens. Ids claimed and never used are deleted after 60 days.
 - **Abuse stays bounded.** Bodies over 8 KB (150 KB for a store state) are refused, read in chunks and cut off at the limit, text fields are cut (title 120, body 600 characters),
-  and a pairing holds 5 phones at most. The rate limits are above.
+  and a pairing holds 5 phones at most: a sixth is refused rather than one dropped, which would leave the owner's
+  phone silent while it looked fine. The rate limits are above.
+- **A phone is not taken over by a link.** A phone already paired that opens another pairing's code asks before
+  switching, joins the new pairing before leaving the old one, and acts on a removal only for the pairing it holds
+  (the "disconnected" push names it).
 
 What it does not protect: anyone holding a key (a QR code photographed from a stream, a shared screenshot) can send
 messages to those phones, pair their own, upload a store state of their making (the phones and MapleLens hold the

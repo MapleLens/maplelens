@@ -111,18 +111,20 @@ async function pair(env, id, hash, body, reply) {
   return reply(200, { phones: answer.json.phones });
 }
 
-const REMOVED = {
+/** `pairing`: the id, so a phone acts on the removal of the pairing it holds only (sw.js). */
+const removedMessage = id => ({
   title: "Disconnected from MapleLens",
   body: "This phone was removed on your computer. Scan a new code to connect again.",
   tag: "unpaired",
-};
+  pairing: id,
+});
 
 async function unpair(env, id, hash, body, reply) {
   if (body.remove === true) {
     // MapleLens removed the pairing: every phone hears it, and its app clears itself (sw.js, tag "unpaired").
     const answer = await ask(env, id, "remove", { hash });
     if (!answer.ok) return reply(answer.status, answer.json);
-    await Promise.all(answer.json.phones.map(p => push(env, p, encode(REMOVED))));
+    await Promise.all(answer.json.phones.map(p => push(env, p, encode(removedMessage(id)))));
     return reply(200, { phones: 0 });
   }
   // A phone leaving names itself; a request naming nothing is refused rather than read as a removal.

@@ -32,7 +32,11 @@ class ObjectStorage {
   async deleteAll() {
     this.data.clear();
   }
+  async getAlarm() {
+    return this.alarm;
+  }
   async setAlarm(at) {
+    this.writes++;
     this.alarm = at;
   }
   async deleteAlarm() {
@@ -379,6 +383,42 @@ test("once a secret has claimed an id, another secret cannot pair, even with no 
   const answer = await call(env, "/pair", { key: WRONG, subscription: await subscription("thief") });
   assert.deepEqual(answer, { status: 404, json: { error: "not paired" } });
   assert.equal((await call(env, "/pair", { key: KEY, subscription: await subscription("owner") })).status, 200);
+});
+
+test("a full pairing refuses a new phone instead of dropping one", async () => {
+  const env = await environment();
+  const pushed = pushService();
+  for (let i = 0; i < 5; i++) await call(env, "/pair", { key: KEY, subscription: await subscription(`p${i}`) });
+  pushed.length = 0;
+  const sixth = await call(env, "/pair", { key: KEY, subscription: await subscription("sixth") });
+  assert.deepEqual(sixth, { status: 409, json: { error: "full", phones: 5 } });
+  assert.equal(pushed.length, 0, "nobody was alerted");
+  await call(env, "/notify", { key: KEY, title: "x" });
+  assert.deepEqual(pushed.map(p => p.url).sort(), [0, 1, 2, 3, 4].map(i => `https://fcm.googleapis.com/fcm/send/p${i}`));
+  // A phone already in it can still renew.
+  const renewed = { key: KEY, subscription: await subscription("p0b"), replaces: "https://fcm.googleapis.com/fcm/send/p0" };
+  assert.equal((await call(env, "/pair", renewed)).status, 200);
+});
+
+test("a pairing left unused for 60 days is forgotten; a removed key's tombstone stays", async () => {
+  const env = await environment();
+  pushService();
+  await call(env, "/pair", { key: KEY, subscription: await subscription("a") });
+  const object = env.STORES.instances.get(KEY.split(".")[0]);
+  const days = (object.storage.alarm - Date.now()) / 86400000;
+  assert.ok(days > 59 && days <= 60, `alarm in ${days} days`);
+  // MapleLens checking in every minute pushes the alarm back once a day, not every time.
+  const writes = object.storage.writes;
+  await call(env, "/state/ping", { key: KEY });
+  await call(env, "/state/ping", { key: KEY });
+  assert.equal(object.storage.writes, writes);
+  await object.alarm();
+  assert.equal(object.storage.data.size, 0);
+  assert.equal((await call(env, "/state/ping", { key: KEY })).status, 404);
+  // Removed: no alarm left to take the tombstone away.
+  await call(env, "/pair", { key: KEY, subscription: await subscription("b") });
+  await call(env, "/unpair", { key: KEY, remove: true });
+  assert.equal(object.storage.alarm, null);
 });
 
 test("nobody but the relay can send its own tags (a phone forgets its key on \"unpaired\")", async () => {
