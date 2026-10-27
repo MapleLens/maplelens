@@ -105,7 +105,8 @@ WAF → Rate limiting rules, or by the Rulesets API's `http_ratelimit` phase:
 
 A store's page sends at most one request every 4 s, a phone app one every 15 s, so 30 in 10 s is only ever a flood.
 `workers_dev = false` in `wrangler.toml` keeps the Worker off its `workers.dev` address, which no firewall rule
-covers.
+covers. This is this Worker only: the price relay (`maplelens-prices.prices-proxy.workers.dev`, outside
+this repo) keeps its `workers.dev` address, which the web app and the Windows app read prices from.
 
 ## Security
 
