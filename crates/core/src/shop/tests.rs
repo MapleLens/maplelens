@@ -887,19 +887,75 @@ fn the_owner_is_read_off_the_name_plate_and_the_balance_off_the_counter() {
     assert!(widths.lock().unwrap().iter().any(|&(w, _)| (20..=64).contains(&w)), "{:?}", widths.lock().unwrap());
 }
 
+/// A whole 1366x768 client drawn by the game's own engine (mscw-render), not a capture: an open store whose owner's name
+/// is in the pixel font, on the plate and in the status bar.
+fn render_768() -> RgbImage {
+    let path = format!("{}/../../tests/fixtures/shop_render_768.png", env!("CARGO_MANIFEST_DIR"));
+    decode_png(&std::fs::read(&path).unwrap_or_else(|e| panic!("{path}: {e}"))).unwrap()
+}
+
+/// The owner's name in `render_768`'s status bar, as the renderer reported its box: (x, y, width, height).
+const RENDER_768_HUD_NAME: (usize, usize, usize, usize) = (368, 752, 71, 9);
+
 #[test]
 #[cfg_attr(not(fixtures), ignore = "needs the local captures in tests/fixtures")]
 fn a_name_with_a_d_is_read_off_the_plate_by_the_font_alone() {
-    // Rendered at 1366x768 by the game's own engine (mscw-render): names draw 'd' as 'c' and 'l' touching, so the
-    // plate read exactly as "...cl..." and the store kept that as its owner (a player's 1366x768 screenshot, seen
-    // through the browser). The fixture is the whole client.
-    let path = format!("{}/../../tests/fixtures/shop_render_768.png", env!("CARGO_MANIFEST_DIR"));
-    let image = decode_png(&std::fs::read(&path).unwrap_or_else(|e| panic!("{path}: {e}"))).unwrap();
+    // Names draw 'd' as 'c' and 'l' touching, so the plate read exactly as "...cl..." and the store kept that as its
+    // owner (a player's 1366x768 screenshot, seen through the browser).
+    let image = render_768();
     let mut watcher = ShopWatcher::new(reader(""));
     for t in 0..3 {
         watcher.update(&image, f64::from(t));
     }
     assert_eq!(watcher.context().owner, Some(local_name("render_owner")), "{:?}", watcher.owner_reads());
+}
+
+#[test]
+#[cfg_attr(not(fixtures), ignore = "needs the local captures in tests/fixtures")]
+fn the_status_bars_name_box_holds_a_whole_pixel_font_name_however_the_client_is_captured() {
+    // The bar used to be looked for after resampling to reference pixels, which lost its outline at 1366x768 and in the
+    // scaled-down capture, and the box cut a long name's last letter.
+    let native = render_768();
+    let retina = native.upscaled_nearest(2);
+    // A browser's capture of the Retina window, scaled down to 1920 wide.
+    let shrunk = retina.resized_to(1920, 1079);
+    for (label, image) in [("native", &native), ("retina", &retina), ("shrunk", &shrunk)] {
+        let located = layout::locate(image, None, &soldlist::has_list).expect(label);
+        let view = View { frame: image, scale: located.scale };
+        let area = super::watcher::hud_name_area(&view).unwrap_or_else(|| panic!("{label}: no status bar"));
+        let (x0, y0, x1, y1) = view.frame_area(area);
+        let k = image.width as f32 / native.width as f32;
+        let (x, y, w, h) = RENDER_768_HUD_NAME;
+        let name = [x, y, x + w, y + h].map(|v| v as f32 * k);
+        let held = x0 as f32 <= name[0] && y0 as f32 <= name[1] && x1 as f32 >= name[2] && y1 as f32 >= name[3];
+        assert!(held, "{label}: box {:?} for the name at {name:?}", (x0, y0, x1, y1));
+    }
+}
+
+#[test]
+#[cfg_attr(not(fixtures), ignore = "needs the local captures in tests/fixtures")]
+fn the_owner_is_read_off_the_status_bar_when_the_plate_cannot_be() {
+    // The plate's name painted over: the status bar is all there is. The reader knows the name only when it is given
+    // whole (its ink as wide as the renderer drew it), not cut short by the box.
+    let mut image = render_768();
+    let paper = image.pixel(321, 263);
+    for y in 261..273 {
+        for x in 319..402 {
+            image.set_pixel(x, y, paper);
+        }
+    }
+    let owner = local_name("render_owner");
+    let name = owner.clone();
+    let mut watcher = ShopWatcher::new(Box::new(move |mask: &Mask| {
+        let inked: Vec<usize> = (0..mask.width).filter(|&x| (0..mask.height).any(|y| mask.get(x, y))).collect();
+        let span = inked.first().zip(inked.last()).map_or(0, |(first, last)| last - first + 1);
+        Some(if mask.height < 30 && span == RENDER_768_HUD_NAME.2 { name.clone() } else { String::new() })
+    }));
+    for t in 0..4 {
+        watcher.update(&image, f64::from(t));
+    }
+    assert_eq!(watcher.context().owner, Some(owner), "{:?}", watcher.owner_reads());
+    assert!(watcher.owner_reads().iter().all(|r| r.starts_with("hud:")), "{:?}", watcher.owner_reads());
 }
 
 #[test]

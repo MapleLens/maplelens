@@ -353,8 +353,10 @@ The game draws the shop's text two ways, and each is read exactly, OCR only fill
 
 Notifications (`core/src/notify`): `Announcer` turns watcher events into `Notification::{Sale, Store}` (Discord webhook and
 Telegram bot connectors; the webhook and the token are settings, never committed). Every message names the store's owner: the character's name is
-read from the status bar (under the job, right of the LV box: `vision::hud::find_bar` + `HUD_NAME`, light ink at low
-levels, voted over several reads), falling back to the shop window's name plate respelled from the chat log. There is
+read from the status bar (under the job, right of the LV box: `vision::hud::find_bar` on the frame as captured, whose
+1 px outline resampling had lost at 1366x768, + `HUD_NAME`, wide enough for the pixel font's long names; light ink at
+low levels, voted over several reads), falling back to the shop window's name plate respelled from the chat log (at the
+pixel-font scales the plate goes first: read exactly, it needs no vote). There is
 no typed-name setting. A store announcement waits up to `OWNER_WAIT_S` for the name.
 
 ## The site's origin holds secrets
