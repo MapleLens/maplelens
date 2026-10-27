@@ -70,6 +70,7 @@ impl HoverDetector {
             }
         };
         self.last_spot = None;
+        self.tooltip_in_view = !spots.is_empty();
         for spot in spots {
             let native = frame.crop(spot.x as usize, spot.y as usize, (spot.x + w) as usize, (spot.y + h) as usize);
             let image = if (scale - 1.0).abs() > 0.01 { native.resized(1.0 / scale) } else { native };
@@ -81,16 +82,20 @@ impl HoverDetector {
                 self.lookup(&image, &title)
             };
             if item.is_none() {
+                // The bullet in front of the title is what tells a tooltip from any other stable text on a dark
+                // blue background (a slide's heading read "EARRINGS" for a minute). A spot without one (a line inside
+                // a tooltip, found too) is passed over before it touches the count below: its read in the same
+                // look had reset the tooltip's own every time, and an item with no price never showed.
+                if find_bullet(&image, 0).is_none() || !looks_like_title(&title) {
+                    continue;
+                }
                 // As with a mouse: a title that names nothing shows a "no data" card only once it has read the same
                 // several frames in a row. Body lines of a tooltip ("Attack Speed: Fast") and half-read titles
                 // ("Steel" for "Steel Slain (+6)") change from frame to frame, an item's name does not.
                 self.unknown_streak =
                     if self.unknown_title.as_deref() == Some(title.as_str()) { self.unknown_streak + 1 } else { 1 };
                 self.unknown_title = Some(title.clone());
-                // The bullet in front of the title is what tells a tooltip from any other stable text on a dark
-                // blue background (a slide's heading read "EARRINGS" for a minute).
-                let bullet = find_bullet(&image, 0).is_some();
-                if !bullet || !looks_like_title(&title) || self.unknown_streak < config::UNKNOWN_TITLE_FRAMES {
+                if self.unknown_streak < config::UNKNOWN_TITLE_FRAMES {
                     continue;
                 }
             }

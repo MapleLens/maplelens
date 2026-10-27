@@ -6,7 +6,7 @@ mod common;
 use common::fonts;
 use maplelens_core::notify::pairing::Pairing;
 use maplelens_core::render::settings_view::{Control, SIZE, View, delay_at, delay_step, hit, is_title, render};
-use maplelens_core::settings::{EXPAND_DELAY_RANGE_S, Settings};
+use maplelens_core::settings::{Corner, EXPAND_DELAY_RANGE_S, Settings};
 
 const KEY: &str = "AbCdEfGhIjKlMnOp.qRsTuVwXyZ0123456789-_ab";
 
@@ -30,6 +30,25 @@ fn every_control_sits_inside_the_window_and_answers_at_its_centre() {
     let (cx, cy, _, _) = Control::Close.area();
     assert!(!is_title(cx + 2.0, cy + 2.0), "the close box is not a drag handle");
     assert_eq!(hit(4.0, SIZE.1 - 4.0, false), None);
+}
+
+#[test]
+fn the_corner_picker_has_its_corners_where_they_are_in_the_game() {
+    let centre = |corner| {
+        let (x, y, w, h) = Control::Corner(corner).area();
+        (x + w / 2.0, y + h / 2.0)
+    };
+    let (tl, tr, bl, br) =
+        (centre(Corner::TopLeft), centre(Corner::TopRight), centre(Corner::BottomLeft), centre(Corner::BottomRight));
+    assert!(tl.0 < tr.0 && bl.0 < br.0 && tl.1 < bl.1 && tr.1 < br.1);
+    // The four never overlap, so a click picks one.
+    for a in Corner::ALL {
+        for b in Corner::ALL.into_iter().filter(|&b| b != a) {
+            let (ax, ay, aw, ah) = Control::Corner(a).area();
+            let (bx, by, bw, bh) = Control::Corner(b).area();
+            assert!(ax + aw <= bx || bx + bw <= ax || ay + ah <= by || by + bh <= ay, "{a:?} overlaps {b:?}");
+        }
+    }
 }
 
 #[test]
@@ -71,6 +90,11 @@ fn the_picture_follows_the_state() {
         View { phone: code.clone(), ..view() },
         View { phone: code.clone(), phone_left_s: Some(61), ..view() },
         View { settings: Settings { phone_key: KEY.into(), ..Settings::default() }, ..view() },
+        View { settings: Settings { training_card: false, ..Settings::default() }, ..view() },
+        View { settings: Settings { quest_helper: false, ..Settings::default() }, ..view() },
+        View { settings: Settings { training_corner: Corner::TopLeft, ..Settings::default() }, ..view() },
+        View { hover: Some(Control::Corner(Corner::TopRight)), ..view() },
+        View { focus: Some(Control::Corner(Corner::BottomLeft)), ..view() },
     ];
     for (i, other) in changed.iter().enumerate() {
         assert_ne!(render(fonts(), other, 1.0), base, "change {i} drew nothing new");

@@ -23,9 +23,13 @@ use maplelens_core::render::RgbaImage;
 use maplelens_core::render::card::{CardSpec, render_card};
 use maplelens_core::render::font::Fonts;
 use maplelens_core::render::rank_card::render_rank_card;
+use maplelens_core::render::training_card::{Show, is_training, render_training_card};
+use maplelens_core::training::session::Tracker;
+use maplelens_core::training::watcher::{Training, TrainingWatcher};
+use maplelens_core::training::{kpq, potions};
 use maplelens_core::vision::glyphs::Atlas;
 use maplelens_core::vision::reader::{TextReader, name_atlas, title_atlas};
-use ocr::{OcrQueue, QueuedOcr};
+use ocr::{OcrQueue, QueuedImageOcr, QueuedOcr};
 use serde_json::{Value, json};
 use shopwatch::{ShopRunner, event_json, status_json};
 use wasm_bindgen::prelude::*;
@@ -90,6 +94,10 @@ pub struct Engine {
     next_info_search: f64,
     info_band: usize,
     shop: ShopRunner,
+    training: TrainingWatcher,
+    map_ocr: Arc<Mutex<OcrQueue>>,
+    training_show: Show,
+    training_card: Option<Drawn<(Training, Show, u64)>>,
     since: f64,
     card: Option<Drawn<(String, bool)>>,
     /// What the price card is about, as JSON for the page's list of recent items.
@@ -116,6 +124,8 @@ impl Engine {
         let (title_ocr, name_ocr) = (OcrQueue::shared(false), OcrQueue::shared(true));
         let title_reader = TextReader::new(title_atlas(), Box::new(QueuedOcr(title_ocr.clone())));
         let name_reader = TextReader::new(name_atlas(), Box::new(QueuedOcr(name_ocr.clone())));
+        let map_ocr = OcrQueue::shared(false);
+        let training = TrainingWatcher::new(Box::new(QueuedImageOcr(map_ocr.clone())), Tracker::new());
         Ok(Engine {
             fonts,
             hover: HoverDetector::new(catalog.clone(), title_reader),
@@ -129,6 +139,10 @@ impl Engine {
             next_info_search: 0.0,
             info_band: 0,
             shop: ShopRunner::new(),
+            training,
+            map_ocr,
+            training_show: Show { exp: true, quest: true },
+            training_card: None,
             since: 0.0,
             card: None,
             card_about: "{}".into(),
@@ -161,7 +175,7 @@ impl Engine {
 
     /// Whether the page can recognise images the atlas cannot read (the OCR fallback): without it no jobs are made.
     pub fn set_ocr(&mut self, enabled: bool) {
-        for queue in [&self.title_ocr, &self.name_ocr] {
+        for queue in [&self.title_ocr, &self.name_ocr, &self.map_ocr] {
             if let Ok(mut queue) = queue.lock() {
                 queue.set_enabled(enabled);
             }
@@ -354,8 +368,14 @@ impl Engine {
         // window by template wherever it is, and the page's guess at the title bar (which cycles while nothing else is
         // detected) would move the window under it and make it forget what it had seen.
         let shop_events: Vec<Value> = self.shop.step(|| frame.clone(), now, unix_now).iter().map(event_json).collect();
+        // EXP off the status bar and the map off the minimap, when due (it paces itself), against the wall clock:
+        // sessions are saved with their dates.
+        self.training.step(&mut screen, bounds, unix_now);
+        let training = self.training.training(unix_now);
+        self.update_training_card(&training, unix_now);
         let pending_ocr = self.title_ocr.lock().map_or(0, |q| q.waiting())
             + self.name_ocr.lock().map_or(0, |q| q.waiting())
+            + self.map_ocr.lock().map_or(0, |q| q.waiting())
             + self.shop.waiting_jobs();
         json!({
             "scale": scale,
@@ -370,9 +390,72 @@ impl Engine {
             "card": self.card.as_ref().filter(|_| hover.is_some()).map(|c| c.version),
             "rank": self.rank_card.as_ref().filter(|_| info.as_ref().is_some_and(|i| i.name.is_some())).map(|c| c.version),
             "ocr": pending_ocr,
+            "tooltip_in_view": self.hover.tooltip_in_view(),
+            "training": training_json(&training),
+            "potion_icons": self.training.potion_icons(),
+            "training_card": self.training_card.as_ref().map(|c| c.version),
             "shop": {"status": status_json(self.shop.status()), "owner": self.shop.owner(), "balance": self.shop.balance(), "events": shop_events, "looks": self.shop.looks, "undone": self.shop.undone, "owner_reads": self.shop.owner_reads()},
         })
         .to_string()
+    }
+
+    /// What the training card shows: the EXP rates, the party quest helper.
+    pub fn set_training_show(&mut self, exp: bool, quest: bool) {
+        self.training_show = Show { exp, quest };
+    }
+
+    /// Pause or resume the training session (neither time nor EXP counts while paused).
+    pub fn training_pause(&mut self, paused: bool) {
+        self.training.tracker_mut().set_paused(paused);
+    }
+
+    /// End the training session (into the history) and start a new one.
+    pub fn training_new_session(&mut self, unix_now: f64) {
+        self.training.tracker_mut().new_session(unix_now);
+    }
+
+    /// Where the page gets the list of healing and buff items (maplestory.io's Classic data).
+    pub fn potion_list_url() -> String {
+        potions::list_url()
+    }
+
+    /// The healing and buff items in that list, as `[[id, name, icon url]]` JSON.
+    pub fn potion_candidates(json: &str) -> String {
+        let items: Vec<Value> =
+            potions::candidates(json).into_iter().map(|(id, name)| json!([id, name, potions::icon_url(id)])).collect();
+        Value::Array(items).to_string()
+    }
+
+    /// An item's icon (its PNG), so the quickslots can tell which item a slot holds. False when unreadable.
+    pub fn add_potion_icon(&mut self, id: u32, name: &str, png: &[u8]) -> bool {
+        self.training.add_potion_icon(id, name, png)
+    }
+
+    /// Sessions saved by an earlier visit (the page keeps `training_save()` in localStorage).
+    pub fn load_training(&mut self, json: &str) {
+        *self.training.tracker_mut() = Tracker::from_json(json);
+    }
+
+    /// The session and its history, for the page to keep.
+    pub fn training_save(&self) -> String {
+        self.training.tracker().to_json()
+    }
+
+    /// Finished sessions, oldest first, as JSON.
+    pub fn training_history(&self) -> String {
+        serde_json::to_string(self.training.tracker().history()).unwrap_or_else(|_| "[]".into())
+    }
+
+    pub fn training_width(&self) -> u32 {
+        self.training_card.as_ref().map_or(0, |c| c.image.width as u32)
+    }
+
+    pub fn training_height(&self) -> u32 {
+        self.training_card.as_ref().map_or(0, |c| c.image.height as u32)
+    }
+
+    pub fn training_pixels(&self) -> Vec<u8> {
+        self.training_card.as_ref().map_or_else(Vec::new, |c| c.image.data.clone())
     }
 
     fn next_version(&mut self) -> u32 {
@@ -413,6 +496,21 @@ impl Engine {
             "trend": item.as_ref().and_then(|i| i.trend),
         })
         .to_string();
+    }
+
+    /// Redrawn when the numbers change, and every second while the quest's clock runs.
+    fn update_training_card(&mut self, training: &Training, unix_now: f64) {
+        let key = (training.clone(), self.training_show, unix_now as u64);
+        if self.training_card.as_ref().is_some_and(|c| c.key == key) {
+            return;
+        }
+        match render_training_card(&self.fonts, training, self.training_show, unix_now, self.card_scale) {
+            Some(image) => {
+                let version = self.next_version();
+                self.training_card = Some(Drawn { key, image, version });
+            }
+            None => self.training_card = None,
+        }
     }
 
     fn update_rank_card(&mut self, info: Option<&InfoWindow>, now: f64, unix_now: f64) {
@@ -492,7 +590,9 @@ impl Engine {
     /// Text the glyph atlas could not read, waiting for the page's OCR: `[{"id", "font", "width", "height"}]`.
     pub fn ocr_jobs(&mut self) -> String {
         let mut jobs = Vec::new();
-        for (font, queue) in [("title", &self.title_ocr), ("name", &self.name_ocr), ("shop", self.shop.queue())] {
+        let queues =
+            [("title", &self.title_ocr), ("name", &self.name_ocr), ("map", &self.map_ocr), ("shop", self.shop.queue())];
+        for (font, queue) in queues {
             if let Ok(queue) = queue.lock() {
                 jobs.extend(
                     queue.jobs().map(
@@ -506,7 +606,7 @@ impl Engine {
 
     /// Greyscale pixels of OCR job `id` (dark text on white, upscaled), as RGBA for a canvas.
     pub fn ocr_job_pixels(&self, id: u32) -> Vec<u8> {
-        [&self.title_ocr, &self.name_ocr, self.shop.queue()]
+        [&self.title_ocr, &self.name_ocr, &self.map_ocr, self.shop.queue()]
             .iter()
             .find_map(|q| {
                 q.lock()
@@ -518,7 +618,7 @@ impl Engine {
 
     /// The OCR answer for job `id`.
     pub fn ocr_answer(&mut self, id: u32, text: &str) {
-        for queue in [&self.title_ocr, &self.name_ocr, self.shop.queue()] {
+        for queue in [&self.title_ocr, &self.name_ocr, &self.map_ocr, self.shop.queue()] {
             if let Ok(mut queue) = queue.lock() {
                 queue.answer(id, text);
             }
@@ -530,8 +630,63 @@ impl Engine {
         self.catalog.len() as u32
     }
 
+    /// The Kerning City Party Quest as the page lays it out: its stages and Cloto's questions, as JSON.
+    pub fn kpq_guide() -> String {
+        json!({
+            "name": kpq::NAME,
+            "limit_s": kpq::TIME_LIMIT_S,
+            "stages": kpq::STAGES.iter().map(stage_json).collect::<Vec<_>>(),
+            "exit": stage_json(&kpq::EXIT),
+            "questions": kpq::QUESTIONS.iter().map(|q| json!({"asks": q.asks, "coupons": q.coupons})).collect::<Vec<_>>(),
+        })
+        .to_string()
+    }
+
     /// The MapleLens version.
     pub fn version() -> String {
         env!("CARGO_PKG_VERSION").to_string()
     }
+}
+
+/// The training numbers for the page (it draws its own panels from them).
+fn training_json(training: &Training) -> Value {
+    let exp = &training.exp;
+    json!({
+        "active": is_training(exp),
+        "live": exp.live,
+        "paused": exp.paused,
+        "exp": exp.reading.map(|r| r.exp),
+        "percent": exp.reading.map(|r| r.percent()),
+        "last_minute": exp.last_minute,
+        "recent_per_min": exp.recent_per_min,
+        "average_per_min": exp.average_per_min,
+        "percent_per_hour": exp.percent_per_hour,
+        "to_level_s": exp.to_level_s,
+        "session": exp.session,
+        "map": exp.map,
+        "map_stat": exp.map_stat,
+        "potions": {
+            "lines": training.potions.lines.iter().map(|l| json!({
+                "id": l.id,
+                "name": l.name,
+                "used": l.used,
+                "picked": l.picked,
+                "icon": potions::icon_url(l.id),
+            })).collect::<Vec<_>>(),
+        },
+        "quest": training.quest.map(|run| json!({
+            "stage": run.stage,
+            "stages": kpq::STAGES.len(),
+            "started": run.started,
+            "limit_s": kpq::TIME_LIMIT_S,
+            "at": stage_json(kpq::stage(run.stage)),
+        })),
+    })
+}
+
+/// One stage of the party quest: its map, name, goal and every way to stand where that is the puzzle.
+fn stage_json(stage: &kpq::Stage) -> Value {
+    let combination =
+        stage.combination.map(|(pick, of)| json!({"pick": pick, "of": of, "all": kpq::combinations(pick, of)}));
+    json!({"map": stage.map, "name": stage.name, "goal": stage.goal, "combination": combination})
 }

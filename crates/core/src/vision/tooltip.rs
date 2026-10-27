@@ -15,6 +15,13 @@ const BLUE_RANGE: (i16, i16) = (90, 160);
 const DARK_BLUE_MAX: i16 = 100;
 const DARK_BLUE_MIN: i16 = 50;
 const DARK_BLUE_LEAD: i16 = 22;
+/// Over a warm backdrop (Perion's orange rock, and smoke drifting over it) the fill turns a dull purple, (78,65,93),
+/// (55,36,68) and (83,77,116) on a live capture at Ideal Ratio: blue leads red by only 10-35 and red rises over green,
+/// which neither test above takes, so the browser's search found no tooltip there at all.
+const WARM_BLUE: (i16, i16) = (60, 125);
+/// Blue's lead over red there; a far bigger lead is a saturated blue (scenery or another window), not this blend.
+const WARM_LEAD: (i16, i16) = (8, 40);
+const WARM_GREEN_MIN: i16 = 30;
 const BAND_ROWS: (usize, usize) = (34, 42);
 const BAND_COLS: (usize, usize) = (150, 300);
 /// Low on purpose: fill blended over bright windows drifts out of the colour range.
@@ -35,12 +42,16 @@ pub(crate) fn is_fill(r: u8, g: u8, b: u8) -> bool {
     let (r, g, b) = (r as i16, g as i16, b as i16);
     let blue_lift = b - r;
     let dark = (DARK_BLUE_MIN..=DARK_BLUE_MAX).contains(&b) && b - r.max(g) >= DARK_BLUE_LEAD;
+    let warm = (WARM_BLUE.0..=WARM_BLUE.1).contains(&b)
+        && (WARM_LEAD.0..=WARM_LEAD.1).contains(&blue_lift)
+        && r >= g
+        && g >= WARM_GREEN_MIN;
     let standard = blue_lift > BLUE_OVER_RED.0
         && blue_lift < BLUE_OVER_RED.1
         && (g - r).abs() < GREEN_OVER_RED_MAX
         && b > BLUE_RANGE.0
         && b < BLUE_RANGE.1;
-    dark || standard
+    dark || warm || standard
 }
 
 // -- width ---------------------------------------------------------------------------------------------------
@@ -57,18 +68,21 @@ const MIN_EDGE_SCORE: f32 = 0.5;
 /// The winning width must beat the other by this much, else we are not sure.
 const MIN_MARGIN: f32 = 0.2;
 
-/// How strongly a vertical border line stands at about `width` px from the tooltip's left edge (0..1).
+/// How strongly a vertical border line stands at about `width` px from the tooltip's left edge (0..1), by the darkest
+/// channel.
 fn edge_score(image: &RgbImage, width: i32) -> f32 {
+    edge_score_by(image, width, |[r, g, b]| r.min(g).min(b) as i16)
+}
+
+/// The same, by the channel `level` picks.
+fn edge_score_by(image: &RgbImage, width: i32, level: impl Fn([u8; 3]) -> i16) -> f32 {
     let (y0, y1) = (LIFT_ROWS.0.min(image.height), LIFT_ROWS.1.min(image.height));
     let rows = y1 - y0;
     if rows == 0 {
         return 0.0;
     }
-    // Darkest channel: the border is light grey, the fill is blue, so this separates them on any backdrop.
-    let darkest = |x: usize, y: usize| -> i16 {
-        let [r, g, b] = image.pixel(x, y);
-        r.min(g).min(b) as i16
-    };
+    // Darkest channel: the border is light grey, the fill is blue, so this separates them on almost any backdrop.
+    let darkest = |x: usize, y: usize| -> i16 { level(image.pixel(x, y)) };
     let mut best = 0.0f32;
     for x in (width + EDGE_WINDOW_PX.0)..(width + EDGE_WINDOW_PX.1) {
         if x < LIFT_INSIDE_PX as i32 || x as usize >= image.width {
@@ -111,13 +125,25 @@ pub fn right_edge_unreadable(image: &RgbImage, widths: &[i32]) -> bool {
 const UNREADABLE_EDGE: i16 = 60;
 const UNREADABLE_SHARE: f32 = 0.7;
 
+/// Which of `widths` has a right border by its brightest channel, the way `measure_width` tells them apart. Over a warm
+/// backdrop the translucent border takes the backdrop's colour, light in red and as dark as the fill in blue
+/// ((169,100,49) beside (58,41,73) over Perion's rock): the darkest channel shows no line there, the brightest does.
+pub fn measure_width_lit(image: &RgbImage, widths: &[i32]) -> Option<i32> {
+    let scores = widths.iter().map(|&w| (edge_score_by(image, w, |[r, g, b]| r.max(g).max(b) as i16), w));
+    pick_width(scores.collect())
+}
+
 /// Which of the game's known tooltip `widths` this tooltip has, or None when it cannot be told.
 ///
 /// Tooltips are only ever a few fixed widths (narrow for equipment, wide for everything else). Finding the
 /// border anywhere on a busy backdrop is unreliable, but asking "is the border at 370 or at 450?" is not:
 /// the right one scores 0.55-1.0 on real captures, the wrong one at most 0.34.
 pub fn measure_width(image: &RgbImage, widths: &[i32]) -> Option<i32> {
-    let mut scores: Vec<(f32, i32)> = widths.iter().map(|&w| (edge_score(image, w), w)).collect();
+    pick_width(widths.iter().map(|&w| (edge_score(image, w), w)).collect())
+}
+
+/// The width whose border scores best, if it is plainly there and plainly beats the other.
+fn pick_width(mut scores: Vec<(f32, i32)>) -> Option<i32> {
     // Highest score first; on a tie the larger width wins, as Python's reverse tuple sort did.
     scores.sort_by(|a, b| b.0.total_cmp(&a.0).then(b.1.cmp(&a.1)));
     let (best, width) = *scores.first()?;

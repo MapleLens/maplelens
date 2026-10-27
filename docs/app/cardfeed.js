@@ -4,9 +4,19 @@
 //   leaving   for LINGER_MS once it is gone, the time standing still while the pointer is over a view (the player
 //             moved there to read it), then it goes and only the recent items are left (idle);
 //   recalled  when the player clicks a recent item, until the next tooltip or Back.
+// The training card (EXP rates, the party quest helper) is apart from all that: it is about the session, not the
+// mouse, so the views show it whenever no card is up, for as long as the engine sends one. While it shows, a card
+// takes its place only once two reports in a row have it, and gives it back after TRAINING_LINGER_MS.
 
 /** How long a card stays after its tooltip is gone (not counting while the pointer is over the view). */
 export const LINGER_MS = 6000;
+/** While training, a card stays only this long once its tooltip is gone: the EXP card is what the player watches. */
+const TRAINING_LINGER_MS = 2000;
+/** While training, a card replaces the EXP card once this many reports in a row have it: the browser searches the
+ *  whole frame, and one frame that only looks like a tooltip must not swap the EXP card away. Reports, not time: the
+ *  page looks at full rate while a tooltip is in view, so the second comes ~0.1 s after the first (a 0.4 s wait made
+ *  the price take over a second). */
+const CONFIRM_REPORTS = 2;
 /** No news from the engine for this long (the page was throttled, the share paused) means the tooltip is gone: a frozen
  *  "live" state must not keep a card up. */
 const STALE_MS = 1000;
@@ -26,22 +36,39 @@ export class CardFeed {
     this.sharing = false;
     this.store = null;
     this.holders = new Set();
-    /** Cards that started leaving so far: each one's countdown bar starts over. */
+    /** Cards that started leaving so far: each one's countdown bar starts over; how long the last one stays. */
     this.leaves = 0;
+    this.linger = LINGER_MS;
+    /** Reports in a row that had a card or panel. */
+    this.reports = 0;
     this.leaveAt = 0;
     this.left = 0;
     this.timer = 0;
     this.stale = 0;
+    /** The training card's ImageData, or null, and what it is about (the map, or the party quest). */
+    this.training = null;
+    this.trainingTitle = "";
+  }
+
+  /** The training card (ImageData), or null while there is none. */
+  setTraining(image) {
+    if (this.training === image) return;
+    this.training = image;
+    this.changed();
   }
 
   /** `card`: the item card's ImageData, `rank`: the rank panel's subject ({read, status, rank}), or null: what the
    *  engine shows now; `about` the item card's {name, price, trend};
-   *  `title` the item or player being read; `sharing` whether a game window is being watched; `store` {text, tone}. */
-  update({ card, rank, about }, { title = "", sharing = false, store = null } = {}) {
+   *  `title` the item or player being read; `sharing` whether a game window is being watched; `store` {text, tone};
+   *  `trainingTitle` what the training card is about. */
+  update({ card, rank, about }, { title = "", sharing = false, store = null, trainingTitle = "" } = {}) {
     this.sharing = sharing;
+    this.trainingTitle = trainingTitle;
     this.store = store;
     clearTimeout(this.stale);
-    if (card || rank) {
+    this.reports = card || rank ? this.reports + 1 : 0;
+    const confirmed = this.mode !== "idle" || !this.training || this.reports >= CONFIRM_REPORTS;
+    if ((card || rank) && confirmed) {
       this.stop();
       this.mode = "live";
       this.shown = { card, rank, about: card ? about : null, title: (card && about?.name) || title };
@@ -71,9 +98,10 @@ export class CardFeed {
     if (this.mode !== "live") return;
     this.mode = "leaving";
     this.leaves += 1;
-    this.left = LINGER_MS;
-    this.leaveAt = performance.now() + LINGER_MS;
-    if (!this.holders.size) this.timer = setTimeout(() => this.go("idle"), LINGER_MS);
+    this.linger = this.training ? TRAINING_LINGER_MS : LINGER_MS;
+    this.left = this.linger;
+    this.leaveAt = performance.now() + this.linger;
+    if (!this.holders.size) this.timer = setTimeout(() => this.go("idle"), this.linger);
     this.changed();
   }
 

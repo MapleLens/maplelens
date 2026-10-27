@@ -2,7 +2,7 @@
 
 use maplelens_core::config;
 use maplelens_core::ranking::{Fetched, Rank, RankCache, Status, look_alikes, parse_response, rank_url};
-use maplelens_core::settings::{DEFAULT_HOTKEY, Settings, delay_text};
+use maplelens_core::settings::{Corner, DEFAULT_HOTKEY, Settings, delay_text};
 use serde_json::json;
 
 fn raw() -> serde_json::Value {
@@ -89,6 +89,9 @@ fn settings_default_roundtrip_and_validation() {
         phone_key: "AbCdEfGhIjKlMnOp.qRsTuVwXyZ0123456789-_ab".into(),
         notify_sales: false,
         notify_store: false,
+        training_card: false,
+        quest_helper: false,
+        training_corner: Corner::BottomLeft,
     };
     assert_eq!(Settings::from_json(&wanted.to_json()), wanted);
     // Invalid fields fall back one by one; unknown ones are ignored.
@@ -96,6 +99,13 @@ fn settings_default_roundtrip_and_validation() {
     assert_eq!(Settings::from_json(partly), Settings { launch_at_startup: true, ..Settings::default() });
     assert_eq!(Settings::default().toggle_hotkey, DEFAULT_HOTKEY);
     assert!(Settings::default().store_status_bar);
+    assert!(Settings::default().training_card && Settings::default().quest_helper);
+    assert_eq!(Settings::default().training_corner, Corner::BottomRight);
+    assert_eq!(Settings::from_json(r#"{"training_corner": "middle"}"#).training_corner, Corner::BottomRight);
+    for corner in Corner::ALL {
+        assert_eq!(Corner::from_key(corner.key()), Some(corner));
+        assert_eq!(Corner::of(corner.is_top(), corner.is_left()), corner);
+    }
     assert!(Settings::from_json(r#"{"store_status_bar": "nope"}"#).store_status_bar, "a bad value keeps the default");
     // Only a real Discord webhook is kept; the secret survives a round trip and nothing else does.
     for bad in ["https://example.com/api/webhooks/12/abc", "not a url", "https://discord.com/api/webhooks/12/abc?x=1"] {

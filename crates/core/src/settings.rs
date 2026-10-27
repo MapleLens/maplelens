@@ -31,6 +31,68 @@ pub struct Settings {
     pub notify_sales: bool,
     /// Tell when the store is detected open or closes.
     pub notify_store: bool,
+    /// The training card's EXP rates over the game.
+    pub training_card: bool,
+    /// The training card's party quest stage and answers, on the quest's maps.
+    pub quest_helper: bool,
+    /// Which corner of the game the training card sits in.
+    pub training_corner: Corner,
+}
+
+/// A corner of the game window.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Corner {
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    #[default]
+    BottomRight,
+}
+
+impl Corner {
+    pub const ALL: [Self; 4] = [Self::TopLeft, Self::TopRight, Self::BottomLeft, Self::BottomRight];
+
+    /// How settings.json spells it.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::TopLeft => "top-left",
+            Self::TopRight => "top-right",
+            Self::BottomLeft => "bottom-left",
+            Self::BottomRight => "bottom-right",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|c| c.key() == key)
+    }
+
+    /// How the settings window says it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::TopLeft => "Top left",
+            Self::TopRight => "Top right",
+            Self::BottomLeft => "Bottom left",
+            Self::BottomRight => "Bottom right",
+        }
+    }
+
+    pub fn is_top(self) -> bool {
+        matches!(self, Self::TopLeft | Self::TopRight)
+    }
+
+    pub fn is_left(self) -> bool {
+        matches!(self, Self::TopLeft | Self::BottomLeft)
+    }
+
+    /// The corner made of `top` and `left`.
+    pub fn of(top: bool, left: bool) -> Self {
+        match (top, left) {
+            (true, true) => Self::TopLeft,
+            (true, false) => Self::TopRight,
+            (false, true) => Self::BottomLeft,
+            (false, false) => Self::BottomRight,
+        }
+    }
 }
 
 impl Default for Settings {
@@ -47,6 +109,9 @@ impl Default for Settings {
             phone_key: String::new(),
             notify_sales: true,
             notify_store: true,
+            training_card: true,
+            quest_helper: true,
+            training_corner: Corner::default(),
         }
     }
 }
@@ -73,6 +138,15 @@ impl Settings {
         }
         if let Some(v) = flag("notify_store") {
             settings.notify_store = v;
+        }
+        if let Some(v) = flag("training_card") {
+            settings.training_card = v;
+        }
+        if let Some(v) = flag("quest_helper") {
+            settings.quest_helper = v;
+        }
+        if let Some(corner) = raw.get("training_corner").and_then(Value::as_str).and_then(Corner::from_key) {
+            settings.training_corner = corner;
         }
         // Only a real Discord webhook is kept: anything else typed or pasted is dropped here, not later.
         if let Some(url) = raw.get("discord_webhook").and_then(Value::as_str)
@@ -111,6 +185,9 @@ impl Settings {
         map.insert("store_status_bar".into(), json!(self.store_status_bar));
         map.insert("notify_sales".into(), json!(self.notify_sales));
         map.insert("notify_store".into(), json!(self.notify_store));
+        map.insert("training_card".into(), json!(self.training_card));
+        map.insert("quest_helper".into(), json!(self.quest_helper));
+        map.insert("training_corner".into(), json!(self.training_corner.key()));
         map.insert("discord_webhook".into(), json!(self.discord_webhook));
         map.insert("telegram_webhook".into(), json!(self.telegram_webhook));
         map.insert("phone_key".into(), json!(self.phone_key));

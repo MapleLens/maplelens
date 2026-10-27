@@ -35,6 +35,12 @@ fn the_demo_frame_shows_a_price_card_and_a_rank_panel() {
     assert!((at[0].as_i64().unwrap() - 480).abs() <= 2 && (at[1].as_i64().unwrap() - 372).abs() <= 2, "{at}");
     assert_eq!(state["info"]["name"], "masterball");
     assert!(state["card"].as_u64().is_some());
+    // A tooltip in view: the page looks at full rate.
+    assert_eq!(state["tooltip_in_view"], true);
+    // Nothing here for the page's training, quest or store panels to show.
+    assert_eq!(state["training"]["active"], false);
+    assert!(state["training"]["quest"].is_null());
+    assert_eq!(state["shop"]["status"]["status"], "hidden");
     assert_eq!(engine.card_pixels().len(), (engine.card_width() * engine.card_height() * 4) as usize);
     // The page lists recent items by what their card is about.
     let about: Value = serde_json::from_str(&engine.card_about()).unwrap();

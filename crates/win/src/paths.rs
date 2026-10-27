@@ -22,6 +22,11 @@ pub fn snapshot_file() -> PathBuf {
     data_dir().join("list.json")
 }
 
+/// The training sessions: the one being played and the history.
+pub fn training_file() -> PathBuf {
+    data_dir().join("training.json")
+}
+
 /// Letters the glyph atlas learnt on this machine, per font.
 pub fn learnt_glyphs(font: &str) -> PathBuf {
     data_dir().join(format!("glyphs-{font}.json"))

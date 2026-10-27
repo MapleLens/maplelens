@@ -236,6 +236,10 @@ impl State {
             Control::AutoUpdate => s.check_updates = !s.check_updates,
             Control::NotifySales => s.notify_sales = !s.notify_sales,
             Control::NotifyStore => s.notify_store = !s.notify_store,
+            Control::TrainingExp => s.training_card = !s.training_card,
+            Control::TrainingQuest => s.quest_helper = !s.quest_helper,
+            Control::Corner(corner) if s.training_corner == corner => return,
+            Control::Corner(corner) => s.training_corner = corner,
             Control::PasteWebhook => return self.paste_webhook(),
             Control::TestWebhook => {
                 if self.current.discord_webhook.is_empty() {

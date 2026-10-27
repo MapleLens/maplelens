@@ -11,10 +11,10 @@ use crate::render::font::Fonts;
 use crate::render::gamewin::{self, INK, INK_DIM, PAD, VALUE_EDGE, VALUE_FILL};
 use crate::render::maple_ui::{self, ACCENT, Area, Tone, Touch};
 use crate::render::theme::with_alpha;
-use crate::settings::{EXPAND_DELAY_RANGE_S, Settings, delay_text};
+use crate::settings::{Corner, EXPAND_DELAY_RANGE_S, Settings, delay_text};
 
 /// Size in design units (device pixels at 96 DPI).
-pub const SIZE: (f32, f32) = (380.0, 618.0);
+pub const SIZE: (f32, f32) = (380.0, 700.0);
 const LABEL_W: f32 = 80.0;
 const VALUE_X: f32 = PAD + LABEL_W + 4.0;
 const VALUE_W: f32 = SIZE.0 - PAD - VALUE_X;
@@ -36,7 +36,22 @@ const STORE_Y: f32 = OVERLAY_Y + ROW_H + 5.0;
 const STARTUP_Y: f32 = STORE_Y + ROW_H + 5.0;
 const HOTKEY_Y: f32 = STARTUP_Y + ROW_H + 11.0;
 const DELAY_Y: f32 = HOTKEY_Y + ROW_H + 20.0;
-const UPDATES_Y: f32 = DELAY_Y + ROW_H + 26.0;
+const TRAINING_Y: f32 = DELAY_Y + ROW_H + 26.0;
+/// The training block: two switches on the left, the corner picker on the right.
+const TRAINING_H: f32 = 58.0;
+const TRAINING_SWITCH_W: f32 = 150.0;
+/// The picker: a small game window whose corners are the choices.
+const SCREEN: Area = (SIZE.0 - PAD - 8.0 - 108.0, TRAINING_Y + 4.0, 108.0, TRAINING_H - 8.0);
+/// A corner's card in the picker, and how far its click area reaches around it.
+const CORNER_CARD: (f32, f32) = (28.0, 14.0);
+const CORNER_INSET: f32 = 4.0;
+const CORNER_REACH: f32 = 4.0;
+/// The picker's minimap, top left: the top-left card sits beside it, as in the game.
+const MINI_MAP: (f32, f32) = (17.0, 12.0);
+/// Its status bar's share of the width: narrower than the game's (~0.42) so the bottom cards stay clear of it, as
+/// they do in the game, where the cards are narrower.
+const PICKER_BAR_SHARE: f32 = 0.34;
+const UPDATES_Y: f32 = TRAINING_Y + TRAINING_H + 24.0;
 const NOTIFY_Y: f32 = UPDATES_Y + ROW_H + 5.0;
 const NOTIFY_STORE_Y: f32 = NOTIFY_Y + ROW_H + 5.0;
 const WEBHOOK_Y: f32 = NOTIFY_STORE_Y + ROW_H + 5.0;
@@ -59,6 +74,12 @@ pub enum Control {
     Hotkey,
     ClearHotkey,
     Delay,
+    /// Show the EXP rates on the training card.
+    TrainingExp,
+    /// Show the party quest helper on it.
+    TrainingQuest,
+    /// Put the training card in this corner of the game.
+    Corner(Corner),
     AutoUpdate,
     /// Tell about sold items.
     NotifySales,
@@ -90,13 +111,19 @@ pub enum Control {
 
 impl Control {
     /// Tab order.
-    pub const ORDER: [Self; 20] = [
+    pub const ORDER: [Self; 26] = [
         Self::Overlay,
         Self::StatusBar,
         Self::Startup,
         Self::Hotkey,
         Self::ClearHotkey,
         Self::Delay,
+        Self::TrainingExp,
+        Self::TrainingQuest,
+        Self::Corner(Corner::TopLeft),
+        Self::Corner(Corner::TopRight),
+        Self::Corner(Corner::BottomLeft),
+        Self::Corner(Corner::BottomRight),
         Self::AutoUpdate,
         Self::NotifySales,
         Self::NotifyStore,
@@ -131,6 +158,12 @@ impl Control {
             Self::Hotkey => (VALUE_X, HOTKEY_Y, VALUE_W - CLEAR_W - 6.0, ROW_H),
             Self::ClearHotkey => (SIZE.0 - PAD - CLEAR_W, HOTKEY_Y, CLEAR_W, ROW_H),
             Self::Delay => (VALUE_X + 8.0, DELAY_Y, VALUE_W - 92.0, ROW_H),
+            Self::TrainingExp => (VALUE_X + 2.0, TRAINING_Y + 3.0, TRAINING_SWITCH_W, ROW_H - 2.0),
+            Self::TrainingQuest => (VALUE_X + 2.0, TRAINING_Y + ROW_H + 3.0, TRAINING_SWITCH_W, ROW_H - 2.0),
+            Self::Corner(corner) => {
+                let (x, y, w, h) = corner_card(corner);
+                (x - CORNER_REACH, y - CORNER_REACH, w + 2.0 * CORNER_REACH, h + 2.0 * CORNER_REACH)
+            }
             Self::AutoUpdate => row(UPDATES_Y),
             Self::NotifySales => row(NOTIFY_Y),
             Self::NotifyStore => row(NOTIFY_STORE_Y),
@@ -149,6 +182,16 @@ impl Control {
             Self::Update => (SIZE.0 - PAD - 110.0, BUTTONS_Y, 110.0, ROW_H),
         }
     }
+}
+
+/// Where the picker draws `corner`'s card: in that corner of its game window, the top-left one beside the minimap.
+fn corner_card(corner: Corner) -> Area {
+    let (sx, sy, sw, sh) = SCREEN;
+    let (w, h) = CORNER_CARD;
+    let left = sx + CORNER_INSET + if corner == Corner::TopLeft { MINI_MAP.0 + 3.0 } else { 0.0 };
+    let x = if corner.is_left() { left } else { sx + sw - CORNER_INSET - w };
+    let y = if corner.is_top() { sy + CORNER_INSET } else { sy + sh - CORNER_INSET - h };
+    (x, y, w, h)
 }
 
 /// A webhook or bot row's buttons counted from the right edge.
@@ -268,6 +311,7 @@ pub fn render(fonts: &Fonts, view: &View<'_>, factor: f32) -> RgbaImage {
 
     hotkey(&mut cv, view);
     delay(&mut cv, view);
+    training(&mut cv, view);
     webhook(&mut cv, view);
     telegram_bot(&mut cv, view);
     phone_rows(&mut cv, view);
@@ -340,6 +384,82 @@ fn delay(cv: &mut Canvas<'_>, view: &View<'_>) {
     let right = area.0 + area.2 - 8.0;
     cv.text(right, area.1 + ROW_H / 2.0 + 4.0, &delay_text(seconds), Ink::new(11.5, INK).bold(), Anchor::RS);
     note(cv, area, "How long to rest on an item before its card opens up");
+}
+
+/// The training card: what it shows, and the corner of the game it sits in, picked on a small drawing of the game.
+fn training(cv: &mut Canvas<'_>, view: &View<'_>) {
+    let s = &view.settings;
+    let area = (VALUE_X, TRAINING_Y, VALUE_W, TRAINING_H);
+    gamewin::pill(cv, (PAD, TRAINING_Y, LABEL_W, ROW_H), "TRAINING", 11.0);
+    field(cv, area, false, false);
+    for (control, text, on) in [
+        (Control::TrainingExp, "My EXP rates", s.training_card),
+        (Control::TrainingQuest, "Party quest helper", s.quest_helper),
+    ] {
+        let (x, y, w, h) = control.area();
+        if view.touch(control).hover {
+            cv.rounded((x, y, w, h), 2.0, Some([239, 236, 226, 255]), None);
+        }
+        maple_ui::check_box(cv, x + 5.0, y + (h - 14.0) / 2.0, on, view.touch(control).hover);
+        cv.text(x + 27.0, y + h / 2.0 + 4.0, text, Ink::new(11.5, INK), Anchor::LS);
+    }
+    picker(cv, view);
+    let shown = if s.training_card || s.quest_helper {
+        format!("In the game's {} corner: click another to move it", s.training_corner.name().to_lowercase())
+    } else {
+        "Switched off: tick what the card should show".to_string()
+    };
+    let width = SIZE.0 - PAD - VALUE_X;
+    cv.text(
+        VALUE_X + 2.0,
+        TRAINING_Y + TRAINING_H + 12.0,
+        &fit(cv, &shown, NOTE_SIZE, width),
+        Ink::new(NOTE_SIZE, INK_DIM),
+        Anchor::LS,
+    );
+}
+
+/// A small game window: sky, the minimap top left, the status bar along the bottom, and a card in each corner, the
+/// chosen one lit up in the game's orange.
+fn picker(cv: &mut Canvas<'_>, view: &View<'_>) {
+    let (x, y, w, h) = SCREEN;
+    cv.rounded((x, y, w, h), 4.0, Some([52, 66, 101, 255]), None);
+    cv.gradient((x + 2.0, y + 2.0, w - 4.0, h - 4.0), 3.0, &[(0.0, [118, 178, 236, 255]), (1.0, [196, 228, 250, 255])]);
+    // A strip of ground, and the status bar centred on it.
+    cv.rect(x + 2.0, y + h - 7.0, w - 4.0, 5.0, [124, 168, 82, 255]);
+    let bar_w = w * PICKER_BAR_SHARE;
+    cv.rounded((x + (w - bar_w) / 2.0, y + h - 9.0, bar_w, 7.0), 1.5, Some([58, 62, 74, 255]), None);
+    for (i, colour) in [[226, 60, 60, 255], [64, 132, 228, 255], [220, 214, 72, 255]].into_iter().enumerate() {
+        let gauge_w = (bar_w - 8.0) / 3.0;
+        cv.rect(x + (w - bar_w) / 2.0 + 2.0 + i as f32 * (gauge_w + 2.0), y + h - 6.0, gauge_w, 2.0, colour);
+    }
+    let (mw, mh) = MINI_MAP;
+    cv.rounded(
+        (x + CORNER_INSET, y + CORNER_INSET, mw, mh),
+        1.5,
+        Some([236, 242, 250, 255]),
+        Some([88, 108, 140, 255]),
+    );
+    cv.rect(x + CORNER_INSET + 3.0, y + CORNER_INSET + 5.0, mw - 6.0, 4.0, [150, 186, 214, 255]);
+    let chosen = view.settings.training_corner;
+    let off = !view.settings.training_card && !view.settings.quest_helper;
+    for corner in Corner::ALL {
+        let control = Control::Corner(corner);
+        let touch = view.touch(control);
+        let (cx, cy, cw, ch) = corner_card(corner);
+        if corner == chosen && !off {
+            cv.rounded((cx, cy + 1.0, cw, ch), 3.0, Some(with_alpha([0, 0, 0, 255], 60)), None);
+            cv.gradient((cx, cy, cw, ch), 3.0, &maple_ui::ORANGE_STOPS);
+            cv.rounded((cx, cy, cw, ch), 3.0, None, Some(maple_ui::ORANGE_EDGE));
+            // Two lines of text on the little card.
+            cv.rect(cx + 5.0, cy + 4.0, cw - 11.0, 2.0, [255, 255, 255, 230]);
+            cv.rect(cx + 5.0, cy + 8.5, cw - 16.0, 2.0, [255, 255, 255, 170]);
+        } else {
+            let fill = if touch.hover { 150 } else { 80 };
+            let edge = if touch.hover { ACCENT } else { with_alpha([255, 255, 255, 255], 210) };
+            cv.rounded((cx, cy, cw, ch), 3.0, Some(with_alpha([255, 255, 255, 255], fill)), Some(edge));
+        }
+    }
 }
 
 fn webhook(cv: &mut Canvas<'_>, view: &View<'_>) {
