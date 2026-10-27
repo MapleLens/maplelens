@@ -1,12 +1,12 @@
 // MapleLens Web: capture the game window (the page offers nothing else; the sample, video and frame-folder sources are
 // test hooks started by a URL parameter), feed frames to the engine, show the cards in the page and, on request, in a picture-in-picture window that floats over the game.
 
-import { Lens } from "./lens.js?v=90ad6397ac36";
-import { CardView, floatingSize, openFloating } from "./cards.js?v=90ad6397ac36";
-import { Prices } from "./prices.js?v=90ad6397ac36";
-import { drawMapleQr } from "./mapleqr.js?v=90ad6397ac36";
-import { StoreBook } from "./storebook.js?v=90ad6397ac36";
-import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=90ad6397ac36";
+import { Lens } from "./lens.js?v=8b9ad7f5f293";
+import { CardView, floatingSize, openFloating } from "./cards.js?v=8b9ad7f5f293";
+import { Prices } from "./prices.js?v=8b9ad7f5f293";
+import { drawMapleQr } from "./mapleqr.js?v=8b9ad7f5f293";
+import { StoreBook } from "./storebook.js?v=8b9ad7f5f293";
+import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=8b9ad7f5f293";
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -129,14 +129,14 @@ function showTelegram(editing = false) {
 
 /** Phones paired with the key, as last asked; null before the first answer. */
 let phones = null;
-let pairing = null;
 
 function showPhone() {
   const set = Boolean(shopSettings.phone);
   $("phone-state").textContent = !set ? "Not connected"
     : phones === null ? "Checking…"
     : phones ? `${phones} phone${phones > 1 ? "s" : ""} connected` : "No phone yet";
-  $("phone-connect").textContent = set && phones ? "Add a phone" : "Connect";
+  // One phone per pairing: once it is connected, Remove is the way to connect another.
+  $("phone-connect").hidden = Boolean(set && phones);
   $("phone-test").hidden = !set || !phones;
   $("phone-clear").hidden = !set;
 }
@@ -184,13 +184,14 @@ function phoneAnswer(key, answer) {
   else if (answer.ok || answer.status === 404) setPhones(answer.ok ? answer.json.phones || 0 : 0);
 }
 
-/** MapleLens checking in: how many phones are paired (none once the pairing is gone). */
+/** MapleLens checking in: how many phones are paired (none once the pairing is gone). Resolves to the relay's answer. */
 async function phoneStatus() {
   const key = shopSettings.phone;
-  if (!key) return;
+  if (!key) return null;
   const answer = await relay("state/ping", { key });
   lastCheckIn = Date.now();
   phoneAnswer(key, answer);
+  return answer;
 }
 
 /** Every few seconds: the sealed store book to the phones when it changed, else a check-in each minute. */
@@ -217,17 +218,81 @@ async function syncPhones() {
   }
 }
 
-function hidePairing() {
+/** The pairing dialog while it is open: `view` is "code" (the QR code up), "connected" or "expired". */
+let pairing = null;
+
+const PAIR_BUTTONS = {
+  code: ["Hide code", "I've scanned it"],
+  connected: ["Done", "Send a test"],
+  expired: ["Close", "Show it again"],
+};
+
+function pairView(view) {
+  for (const [id, shown] of [["pair-code", "code"], ["pair-connected", "connected"], ["pair-expired", "expired"]]) {
+    $(id).hidden = view !== shown;
+  }
+  [$("pair-back").textContent, $("pair-main").textContent] = PAIR_BUTTONS[view];
+  $("pair-main").disabled = false;
+  $("phone-dialog-title").textContent = view === "connected" ? "Phone connected" : "Connect your phone";
+}
+
+/** Stops waiting for a phone and wipes the code: it is the key. */
+function stopWaiting() {
   if (pairing) {
     clearInterval(pairing.poll);
+    clearInterval(pairing.tick);
     clearTimeout(pairing.timeout);
   }
+  const qr = $("phone-qr");
+  qr.getContext("2d").clearRect(0, 0, qr.width, qr.height);
+}
+
+/** Closes the dialog (Hide code, Done, Esc, a click outside, Remove). */
+function hidePairing() {
+  stopWaiting();
   pairing = null;
-  $("phone-pair").hidden = true;
+  if ($("phone-dialog").open) $("phone-dialog").close();
+}
+
+/** "Waiting for your phone · hides in 1:52", or what the last check found. */
+function showWait() {
+  if (pairing?.view !== "code") return;
+  const left = Math.max(0, Math.ceil((pairing.since + QR_SHOWN_MS - Date.now()) / 1000));
+  $("pair-wait").textContent = pairing.note || `Waiting for your phone · hides in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+}
+
+function pairingEnded(view) {
+  stopWaiting();
+  pairing = { view };
+  pairView(view);
+  if (view === "connected") {
+    $("pair-test-note").textContent = "Press Send a test to see one arrive";
+    $("pair-test-note").className = "pair-status ok";
+    $("phone-note").textContent = "Phone connected";
+  }
+}
+
+/** A check while the code is up: a new phone ends the wait; a failed check says so (the next may get through). */
+async function checkPairing(asked) {
+  const waiting = pairing;
+  const answer = await phoneStatus();
+  if (pairing !== waiting || pairing?.view !== "code") return;
+  if (phones > pairing.before) return pairingEnded("connected");
+  pairing.note = !answer ? ""
+    : answer.status === 0 ? "Can't reach MapleLens's relay: check your connection"
+    : answer.status === 429 ? "The relay asks to slow down: checking again shortly"
+    : !answer.ok && answer.status !== 404 ? `The relay answered HTTP ${answer.status}: still trying`
+    : asked ? "No phone yet: on the phone, open the link and tap Turn on notifications"
+    : pairing.note?.startsWith("No phone yet") ? pairing.note : "";
+  showWait();
 }
 
 /** Shows the QR code (a new key the first time) and waits for a phone to pair with it. */
 async function showPairing() {
+  if (shopSettings.phone && phones) {
+    $("phone-note").textContent = "A phone is already connected: Remove it first to connect another";
+    return;
+  }
   if (!shopSettings.phone) {
     shopSettings.phone = newKey();
     saveShopSettings();
@@ -240,22 +305,23 @@ async function showPairing() {
     $("phone-note").textContent = "Pairing needs the page over https (open it from the website)";
     return;
   }
+  stopWaiting();
   await drawMapleQr($("phone-qr"), modules, new URL("../assets/meso.png", location.href).href);
   // Removed while the code was being drawn: its key is dead.
   if (key !== shopSettings.phone) return;
-  hidePairing();
-  $("phone-pair").hidden = false;
   const before = phones || 0;
   pairing = {
-    poll: setInterval(async () => {
-      await phoneStatus();
-      if (phones > before) {
-        hidePairing();
-        $("phone-note").textContent = "Phone connected";
-      }
-    }, PAIR_POLL_MS),
-    timeout: setTimeout(hidePairing, QR_SHOWN_MS),
+    view: "code",
+    since: Date.now(),
+    before,
+    note: "",
+    poll: setInterval(() => checkPairing(false), PAIR_POLL_MS),
+    tick: setInterval(showWait, 1000),
+    timeout: setTimeout(() => pairingEnded("expired"), QR_SHOWN_MS),
   };
+  pairView("code");
+  showWait();
+  if (!$("phone-dialog").open) $("phone-dialog").showModal();
   showPhone();
 }
 
@@ -771,10 +837,37 @@ async function main() {
   });
   const phoneNote = text => { $("phone-note").textContent = text; };
   $("phone-connect").addEventListener("click", () => { phoneNote(""); if (lens) showPairing(); });
-  $("phone-hide").addEventListener("click", hidePairing);
+  const dialog = $("phone-dialog");
+  // Esc, the close box and a click on the backdrop all close it, and the code goes with it. Watched on the `open`
+  // attribute: a browser that holds back the close event (a hidden tab) must not leave the code polling.
+  new MutationObserver(() => { if (!dialog.open) hidePairing(); }).observe(dialog, { attributes: true, attributeFilter: ["open"] });
+  dialog.addEventListener("click", e => { if (e.target === dialog) dialog.close(); });
+  $("pair-back").addEventListener("click", hidePairing);
+  $("pair-main").addEventListener("click", async () => {
+    const view = pairing?.view;
+    if (view === "code") {
+      pairing.note = "Checking…";
+      showWait();
+      await checkPairing(true);
+    } else if (view === "connected") {
+      const note = $("pair-test-note");
+      $("pair-main").disabled = true;
+      note.textContent = "Sending a test notification…";
+      const result = await lens.testNotify("phone", { phone: shopSettings.phone });
+      $("pair-main").disabled = false;
+      note.textContent = result.ok ? "Sent: check your phone" : result.text;
+      note.className = result.ok ? "pair-status ok" : "pair-status";
+      // A refusal may mean the key was removed elsewhere (410): the check-in finds out and forgets it.
+      if (!result.ok) phoneStatus();
+    } else if (view === "expired") {
+      showPairing();
+    }
+  });
   $("phone-test").addEventListener("click", async () => {
     phoneNote("Sending…");
-    phoneNote((await lens.testNotify("phone", { phone: shopSettings.phone })).text);
+    const result = await lens.testNotify("phone", { phone: shopSettings.phone });
+    phoneNote(result.text);
+    if (!result.ok) phoneStatus();
   });
   $("phone-clear").addEventListener("click", async () => {
     hidePairing();

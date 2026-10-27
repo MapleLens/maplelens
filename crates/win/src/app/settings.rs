@@ -31,6 +31,9 @@ impl App {
                 self.check_for_update();
             }
         }
+        if new.phone_key != old.phone_key {
+            self.phone.set_key(&new.phone_key);
+        }
         if new.notify() != old.notify() {
             self.notifier.configure(new.notify());
         }

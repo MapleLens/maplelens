@@ -4,8 +4,11 @@
 mod common;
 
 use common::fonts;
+use maplelens_core::notify::pairing::Pairing;
 use maplelens_core::render::settings_view::{Control, SIZE, View, delay_at, delay_step, hit, is_title, render};
 use maplelens_core::settings::{EXPAND_DELAY_RANGE_S, Settings};
+
+const KEY: &str = "AbCdEfGhIjKlMnOp.qRsTuVwXyZ0123456789-_ab";
 
 fn view() -> View<'static> {
     View { version: "0.2.0", update_label: "Update now", can_check: true, ..View::default() }
@@ -13,16 +16,20 @@ fn view() -> View<'static> {
 
 #[test]
 fn every_control_sits_inside_the_window_and_answers_at_its_centre() {
-    let all = [Control::Close].into_iter().chain(Control::ORDER);
-    for control in all {
-        let (x, y, w, h) = control.area();
-        assert!(x >= 0.0 && y >= 0.0 && x + w <= SIZE.0 && y + h <= SIZE.1, "{control:?} is off the window");
-        assert_eq!(hit(x + w / 2.0, y + h / 2.0), Some(control));
+    for panel in [false, true] {
+        for &control in [Control::Close].iter().chain(Control::order(panel)) {
+            let (x, y, w, h) = control.area();
+            assert!(x >= 0.0 && y >= 0.0 && x + w <= SIZE.0 && y + h <= SIZE.1, "{control:?} is off the window");
+            assert_eq!(hit(x + w / 2.0, y + h / 2.0, panel), Some(control));
+        }
     }
+    // Behind the pairing panel nothing answers.
+    let (x, y, w, h) = Control::Overlay.area();
+    assert_eq!(hit(x + w / 2.0, y + h / 2.0, true), None);
     assert!(is_title(40.0, 10.0));
     let (cx, cy, _, _) = Control::Close.area();
     assert!(!is_title(cx + 2.0, cy + 2.0), "the close box is not a drag handle");
-    assert_eq!(hit(4.0, SIZE.1 - 4.0), None);
+    assert_eq!(hit(4.0, SIZE.1 - 4.0, false), None);
 }
 
 #[test]
@@ -50,6 +57,8 @@ fn the_picture_is_the_window_size_at_any_dpi_and_opaque_inside() {
 
 #[test]
 fn the_picture_follows_the_state() {
+    let mut code = Pairing::default();
+    code.show_code(KEY, 0.0);
     let base = render(fonts(), &view(), 1.0);
     let changed = [
         View { settings: Settings { overlay_enabled: false, ..Settings::default() }, ..view() },
@@ -59,6 +68,9 @@ fn the_picture_follows_the_state() {
         View { hover: Some(Control::Check), ..view() },
         View { can_update: true, ..view() },
         View { update_text: "Version 9.9.9 is available.", ..view() },
+        View { phone: code.clone(), ..view() },
+        View { phone: code.clone(), phone_left_s: Some(61), ..view() },
+        View { settings: Settings { phone_key: KEY.into(), ..Settings::default() }, ..view() },
     ];
     for (i, other) in changed.iter().enumerate() {
         assert_ne!(render(fonts(), other, 1.0), base, "change {i} drew nothing new");
@@ -66,4 +78,20 @@ fn the_picture_follows_the_state() {
     // A disabled button does not react to the pointer.
     let pressed = View { pressed: Some(Control::Update), ..view() };
     assert_eq!(render(fonts(), &pressed, 1.0), base);
+}
+
+#[test]
+fn the_pairing_panel_shows_the_code_and_hides_it_with_the_panel() {
+    let paired = Settings { phone_key: KEY.into(), ..Settings::default() };
+    let mut phone = Pairing::default();
+    phone.show_code(KEY, 0.0);
+    let up = render(fonts(), &View { settings: paired.clone(), phone: phone.clone(), ..view() }, 1.0);
+    // The code's navy dots are drawn in the middle of the panel.
+    let (cx, cy) = (up.width / 2, 260);
+    let dark = (cx - 100..cx + 100).filter(|&x| up.pixel(x, cy)[..3] == [44, 50, 71]).count();
+    assert!(dark > 20, "{dark} navy pixels across the code");
+    phone.hide_panel();
+    let down = render(fonts(), &View { settings: paired, phone, ..view() }, 1.0);
+    let dark = (cx - 100..cx + 100).filter(|&x| down.pixel(x, cy)[..3] == [44, 50, 71]).count();
+    assert_eq!(dark, 0, "no code once the panel is closed");
 }

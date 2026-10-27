@@ -2,6 +2,7 @@
 
 mod follow;
 mod map;
+mod phone;
 mod settings;
 mod status;
 mod updates;
@@ -15,6 +16,7 @@ use std::time::{Duration, Instant};
 use maplelens_core::config;
 use maplelens_core::market::catalog::Catalog;
 use maplelens_core::market::sample::sample_items;
+use maplelens_core::notify::pairing::Pairing;
 use maplelens_core::pipeline::hover::Hover;
 use maplelens_core::pipeline::info::InfoWindow;
 use maplelens_core::ranking::{RankCache, Status};
@@ -27,6 +29,7 @@ use windows::Win32::UI::WindowsAndMessaging::{DispatchMessageW, MSG, PM_REMOVE, 
 
 use crate::layered::LayeredWindow;
 use crate::notify::{Notifier, TestAnswer};
+use crate::phone::PhoneLink;
 use crate::settings_window::{SettingsEvent, SettingsWindow};
 use crate::shop::ShopUpdate;
 use crate::tray::{Tray, TrayCommand};
@@ -120,6 +123,9 @@ pub struct App {
     notifier: Notifier,
     /// The answer to a test message on its way back.
     notify_test: Option<Receiver<TestAnswer>>,
+    /// The phone pairing's requests to the relay, and what the settings window shows of it.
+    phone: PhoneLink,
+    pairing: Pairing,
     hover_events: Receiver<Option<Hover>>,
     info_events: Receiver<Option<InfoWindow>>,
     catalog_updates: Receiver<Catalog>,
@@ -213,6 +219,8 @@ impl App {
             tray: Tray::new(icon)?,
             notifier,
             notify_test: None,
+            phone: PhoneLink::spawn(settings.phone_key.clone()),
+            pairing: Pairing::default(),
             settings_window: SettingsWindow::new(icon, update::install::can_self_update(&exe)),
             hover_events,
             info_events,
@@ -277,6 +285,7 @@ impl App {
                 SettingsEvent::TestNotify(service, settings) => {
                     self.notify_test = Some(self.notifier.test(service, settings));
                 }
+                SettingsEvent::Phone(action) => self.phone_action(action),
                 SettingsEvent::CheckUpdates => self.check_for_update(),
                 SettingsEvent::Update => self.start_update(),
             }
@@ -306,6 +315,9 @@ impl App {
         }
         if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.follow_status())).is_err() {
             crate::error!("status pill tick failed");
+        }
+        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.follow_phone())).is_err() {
+            crate::error!("phone tick failed");
         }
         while let Ok(catalog) = self.catalog_updates.try_recv() {
             let catalog = Arc::new(catalog);

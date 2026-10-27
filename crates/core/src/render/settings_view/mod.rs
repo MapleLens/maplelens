@@ -1,16 +1,20 @@
 //! The settings window, drawn like one of the game's own windows (pure): what it looks like for a state, and which
 //! control sits under a point. The Windows app shows the picture and feeds the clicks and keys back.
 
-use super::RgbaImage;
-use super::canvas::{Anchor, Canvas, Ink};
-use super::font::Fonts;
-use super::gamewin::{self, INK, INK_DIM, PAD, VALUE_EDGE, VALUE_FILL};
-use super::maple_ui::{self, ACCENT, Area, Tone, Touch};
+mod panel;
+
+use crate::notify::pairing::{Pairing, Panel, Route};
 use crate::notify::{discord, telegram};
+use crate::render::RgbaImage;
+use crate::render::canvas::{Anchor, Canvas, Ink};
+use crate::render::font::Fonts;
+use crate::render::gamewin::{self, INK, INK_DIM, PAD, VALUE_EDGE, VALUE_FILL};
+use crate::render::maple_ui::{self, ACCENT, Area, Tone, Touch};
+use crate::render::theme::with_alpha;
 use crate::settings::{EXPAND_DELAY_RANGE_S, Settings, delay_text};
 
 /// Size in design units (device pixels at 96 DPI).
-pub const SIZE: (f32, f32) = (380.0, 536.0);
+pub const SIZE: (f32, f32) = (380.0, 618.0);
 const LABEL_W: f32 = 80.0;
 const VALUE_X: f32 = PAD + LABEL_W + 4.0;
 const VALUE_W: f32 = SIZE.0 - PAD - VALUE_X;
@@ -21,6 +25,10 @@ const SLIDER_STEPS: f64 = 10.0;
 /// One tick per half second.
 const TICKS: usize = 6;
 const STATUS_H: f32 = 48.0;
+const PHONE_CONNECT_W: f32 = 96.0;
+const PANEL_BUTTON_W: f32 = 132.0;
+/// The pairing panel's buttons, at its foot.
+const PANEL_BUTTONS_Y: f32 = SIZE.1 - gamewin::STRIP_H - 14.0 - ROW_H;
 const CREDIT: &str = "Changes save as you make them";
 
 const OVERLAY_Y: f32 = 36.0;
@@ -36,7 +44,10 @@ const TELEGRAM_Y: f32 = WEBHOOK_Y + ROW_H + 24.0;
 /// Width of the Paste / Test / Clear buttons beside the webhook and bot boxes.
 const WEBHOOK_BUTTON_W: f32 = 52.0;
 const WEBHOOK_BUTTON_GAP: f32 = 4.0;
-const STATUS_Y: f32 = TELEGRAM_Y + ROW_H + 24.0;
+const PHONE_Y: f32 = TELEGRAM_Y + ROW_H + 24.0;
+/// The phone's buttons sit on a row of their own under its state: "Add a phone" needs the room.
+const PHONE_BUTTONS_Y: f32 = PHONE_Y + ROW_H + 5.0;
+const STATUS_Y: f32 = PHONE_BUTTONS_Y + ROW_H + 24.0;
 const BUTTONS_Y: f32 = STATUS_Y + STATUS_H + 6.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,13 +74,23 @@ pub enum Control {
     /// Find the chat that wrote to the bot, then send a test message to it.
     TestTelegram,
     ClearTelegram,
+    /// Show the pairing code (a new key the first time).
+    ConnectPhone,
+    /// Send a test notification to the paired phones.
+    TestPhone,
+    /// Remove the pairing at the relay; every phone is told.
+    RemovePhone,
+    /// The pairing panel's grey button: Hide code, Done, Close.
+    PanelBack,
+    /// Its orange one: I've scanned it, Send a test, Show it again.
+    PanelMain,
     Check,
     Update,
 }
 
 impl Control {
     /// Tab order.
-    pub const ORDER: [Self; 17] = [
+    pub const ORDER: [Self; 20] = [
         Self::Overlay,
         Self::StatusBar,
         Self::Startup,
@@ -85,9 +106,19 @@ impl Control {
         Self::PasteTelegram,
         Self::TestTelegram,
         Self::ClearTelegram,
+        Self::ConnectPhone,
+        Self::TestPhone,
+        Self::RemovePhone,
         Self::Check,
         Self::Update,
     ];
+    /// Tab order while the pairing panel is up: nothing behind it can be reached.
+    pub const PANEL_ORDER: [Self; 2] = [Self::PanelBack, Self::PanelMain];
+
+    /// The controls that can be reached, in Tab order.
+    pub fn order(panel: bool) -> &'static [Self] {
+        if panel { &Self::PANEL_ORDER } else { &Self::ORDER }
+    }
 
     /// Where the control is, in design units.
     pub fn area(self) -> Area {
@@ -109,6 +140,11 @@ impl Control {
             Self::PasteTelegram => row_button(TELEGRAM_Y, 2),
             Self::TestTelegram => row_button(TELEGRAM_Y, 1),
             Self::ClearTelegram => row_button(TELEGRAM_Y, 0),
+            Self::ConnectPhone => (VALUE_X, PHONE_BUTTONS_Y, PHONE_CONNECT_W, ROW_H),
+            Self::TestPhone => (VALUE_X + PHONE_CONNECT_W + 6.0, PHONE_BUTTONS_Y, 60.0, ROW_H),
+            Self::RemovePhone => (VALUE_X + PHONE_CONNECT_W + 72.0, PHONE_BUTTONS_Y, 72.0, ROW_H),
+            Self::PanelBack => (SIZE.0 / 2.0 - PANEL_BUTTON_W - 5.0, PANEL_BUTTONS_Y, PANEL_BUTTON_W, ROW_H),
+            Self::PanelMain => (SIZE.0 / 2.0 + 5.0, PANEL_BUTTONS_Y, PANEL_BUTTON_W, ROW_H),
             Self::Check => (SIZE.0 - PAD - 216.0, BUTTONS_Y, 100.0, ROW_H),
             Self::Update => (SIZE.0 - PAD - 110.0, BUTTONS_Y, 110.0, ROW_H),
         }
@@ -130,14 +166,14 @@ fn inside((x, y, w, h): Area, px: f32, py: f32) -> bool {
     px >= x && py >= y && px < x + w && py < y + h
 }
 
-/// The control under design point (x, y).
-pub fn hit(x: f32, y: f32) -> Option<Control> {
-    [Control::Close].into_iter().chain(Control::ORDER).find(|c| inside(c.area(), x, y))
+/// The control under design point (x, y); only the panel's own while the pairing panel is up.
+pub fn hit(x: f32, y: f32, panel: bool) -> Option<Control> {
+    [Control::Close].into_iter().chain(Control::order(panel).iter().copied()).find(|c| inside(c.area(), x, y))
 }
 
 /// The title bar, where a drag moves the window.
 pub fn is_title(x: f32, y: f32) -> bool {
-    inside((0.0, 0.0, SIZE.0, gamewin::PANEL_TOP), x, y) && hit(x, y).is_none()
+    inside((0.0, 0.0, SIZE.0, gamewin::PANEL_TOP), x, y) && hit(x, y, false).is_none()
 }
 
 /// The expand delay a click or drag at design x sets, in the slider's tenth-of-a-second steps.
@@ -166,6 +202,10 @@ pub struct View<'a> {
     pub notify_note: &'a str,
     /// What the last bot token paste or test came to ("" before any).
     pub telegram_note: &'a str,
+    /// The phone: its state, the pairing panel and the code.
+    pub phone: Pairing,
+    /// Seconds before the pairing code hides itself, while it is up.
+    pub phone_left_s: Option<u32>,
     /// "Update now", or "View release" for a build that cannot replace itself.
     pub update_label: &'a str,
     /// Some(what is held so far) while the hotkey box listens for a combo.
@@ -183,9 +223,22 @@ impl View<'_> {
             Control::ClearHotkey => self.settings.toggle_hotkey == 0 && self.capturing.is_none(),
             Control::TestWebhook | Control::ClearWebhook => self.settings.discord_webhook.is_empty(),
             Control::TestTelegram | Control::ClearTelegram => self.settings.telegram_webhook.is_empty(),
+            Control::ConnectPhone => self.phone_connected(),
+            Control::TestPhone => !self.phone_ready() || self.phone.busy.is_some(),
+            Control::RemovePhone => self.settings.phone_key.is_empty() || self.phone.busy.is_some(),
             _ => false,
         };
         Touch { hover: self.hover == Some(control), pressed: self.pressed == Some(control) && !disabled, disabled }
+    }
+
+    /// One phone per pairing: once one is connected, Remove is the way to connect another.
+    pub fn phone_connected(&self) -> bool {
+        !self.settings.phone_key.is_empty() && self.phone.phones.unwrap_or(0) > 0
+    }
+
+    /// A test can go: a key, and a phone paired with it as far as is known.
+    pub fn phone_ready(&self) -> bool {
+        !self.settings.phone_key.is_empty() && self.phone.phones != Some(0)
     }
 }
 
@@ -217,11 +270,16 @@ pub fn render(fonts: &Fonts, view: &View<'_>, factor: f32) -> RgbaImage {
     delay(&mut cv, view);
     webhook(&mut cv, view);
     telegram_bot(&mut cv, view);
+    phone_rows(&mut cv, view);
     update_status(&mut cv, view);
     maple_ui::button(&mut cv, Control::Check.area(), "Check now", Tone::Grey, view.touch(Control::Check));
     maple_ui::button(&mut cv, Control::Update.area(), view.update_label, Tone::Orange, view.touch(Control::Update));
 
-    if let Some(focus) = view.focus {
+    let panel = view.phone.panel != Panel::Hidden;
+    if panel {
+        panel::draw(&mut cv, view);
+    }
+    if let Some(focus) = view.focus.filter(|f| Control::order(panel).contains(f)) {
         maple_ui::focus_ring(&mut cv, focus.area());
     }
     let strip_mid = h - gamewin::STRIP_H / 2.0 - 2.0;
@@ -340,6 +398,36 @@ fn secret_row(
     cv.text(VALUE_X + 2.0, y + h + 12.0, &fit(cv, hint, NOTE_SIZE, width), Ink::new(NOTE_SIZE, INK_DIM), Anchor::LS);
 }
 
+fn phone_rows(cv: &mut Canvas<'_>, view: &View<'_>) {
+    let has_key = !view.settings.phone_key.is_empty();
+    let area = (VALUE_X, PHONE_Y, VALUE_W, ROW_H);
+    let (x, y, _, h) = area;
+    gamewin::pill(cv, (PAD, y, LABEL_W, h), "PHONE", 11.0);
+    field(cv, area, false, false);
+    let phones = view.phone.phones.unwrap_or(0);
+    let dot = match (has_key, phones) {
+        (false, _) => INK_DIM,
+        (true, 0) => ACCENT,
+        _ => panel::GREEN,
+    };
+    cv.circle(x + 12.0, y + h / 2.0, 4.0, dot, Some((with_alpha([0, 0, 0, 255], 60), 1.0)));
+    let state = view.phone.state_text(has_key);
+    cv.text(
+        x + 22.0,
+        y + h / 2.0 + 4.0,
+        &state,
+        Ink::new(11.5, if has_key { INK } else { INK_DIM }).bold(),
+        Anchor::LS,
+    );
+    maple_ui::button(cv, Control::ConnectPhone.area(), "Connect", Tone::Orange, view.touch(Control::ConnectPhone));
+    let test = if view.phone.busy == Some(Route::Test) { "Sending…" } else { "Test" };
+    maple_ui::button(cv, Control::TestPhone.area(), test, Tone::Grey, view.touch(Control::TestPhone));
+    let remove = if view.phone.busy == Some(Route::Remove) { "Removing…" } else { "Remove" };
+    maple_ui::button(cv, Control::RemovePhone.area(), remove, Tone::Grey, view.touch(Control::RemovePhone));
+    let hint = fit(cv, view.phone.hint(has_key), NOTE_SIZE, VALUE_W);
+    cv.text(VALUE_X + 2.0, PHONE_BUTTONS_Y + ROW_H + 12.0, &hint, Ink::new(NOTE_SIZE, INK_DIM), Anchor::LS);
+}
+
 fn update_status(cv: &mut Canvas<'_>, view: &View<'_>) {
     let area = (VALUE_X, STATUS_Y, VALUE_W, STATUS_H);
     cv.rounded(area, 2.0, Some(VALUE_EDGE), None);
@@ -359,7 +447,7 @@ fn update_status(cv: &mut Canvas<'_>, view: &View<'_>) {
 }
 
 /// `text` as it is when it fits `width`, else cut to fit.
-fn fit(cv: &Canvas<'_>, text: &str, size: f32, width: f32) -> String {
+pub(super) fn fit(cv: &Canvas<'_>, text: &str, size: f32, width: f32) -> String {
     if cv.measure(text, size, false) <= width { text.to_string() } else { ellipsize(cv, text, size, width) }
 }
 

@@ -33,6 +33,8 @@ mod notify;
 mod ocr;
 #[cfg(windows)]
 mod paths;
+#[cfg(windows)]
+mod phone;
 #[cfg(all(windows, test))]
 mod reading_bench;
 #[cfg(windows)]
