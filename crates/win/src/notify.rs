@@ -144,13 +144,14 @@ fn run(inbox: Receiver<Job>) {
     }
 }
 
-/// Looks the sold items' pictures up by name (each name once a run; a failed lookup is tried again next sale).
+/// Looks up by name the pictures of sold items without the game's id (those with one are its picture): each name once
+/// a run, a failed lookup tried again next sale.
 fn find_pictures(pictures: &mut Pictures, batch: &[Notification]) {
     for name in pictures.wanted(batch) {
         let response = net::agent(TIMEOUT_S).get(picture::search_url(&name)).call();
         match response {
             Ok(mut response) if response.status() == 200 => match response.body_mut().read_to_string() {
-                Ok(answer) => pictures.learn(&name, &answer, Pictures::game_id(batch, &name)),
+                Ok(answer) => pictures.learn(&name, &answer),
                 Err(error) => crate::warn!("picture of {name:?}: {error}"),
             },
             Ok(response) => crate::warn!("picture of {name:?}: maplestory.io answered HTTP {}", response.status()),
