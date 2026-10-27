@@ -10,8 +10,9 @@
 <!-- The address carries the pairing key: no page it loads from learns it, and nothing it runs can send it elsewhere. -->
 <meta name="referrer" content="no-referrer">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://maplestory.io; connect-src https://push.maple.observer; worker-src 'self'; manifest-src 'self'; media-src 'self' blob:; base-uri 'none'; form-action 'none'; object-src 'none'">
-<!-- No start_url in the manifest: the app added to the home screen opens this very address, pairing key included
-     (on iPhone the home-screen app has its own storage, so the key must travel in the address). -->
+<!-- No start_url in this manifest: the app added to the home screen opens this very address, pairing key included
+     (on iPhone the home-screen app has its own storage, so the key must travel in the address). Chrome offers to
+     install only a manifest that names its start_url, so phone.js points other browsers at install.webmanifest. -->
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="../../assets/favicon.ico">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -320,6 +321,6 @@ dialog.sheet[open]{animation:up .22s ease-out}
 </dialog>
 
 <div class="toast" id="toast" role="status" hidden></div>
-<script type="module" src="phone.js?v=564b2b48e7a0"></script>
+<script type="module" src="phone.js?v=cae61cd22445"></script>
 </body>
 </html>
