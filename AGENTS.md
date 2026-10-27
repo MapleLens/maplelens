@@ -246,9 +246,11 @@ same frames through the Rust watcher (373 real captures, 22 ms a frame against P
   two minutes with Show it again; closing it wipes the code. What every relay answer means is `notify::pairing`
   (shared wording, tested); the Windows app's requests are `crate::phone` (a thread: `/state/ping` every 4 s while
   the code is up, each minute otherwise; `/notify`; `/unpair`), and the QR is drawn by `render::maple_qr`, the same
-  design as `mapleqr.js` and `examples/phone_qr`. The Windows app does not upload the sealed store dashboard (the
-  page's `storebook.js`): its phones show "Waiting for your computer" on the Store tab and get notifications only, and
-  its panel says so. `cargo test -p maplelens live_phone_relay -- --ignored` walks a fresh key through the real relay.
+  design as `mapleqr.js` and `examples/phone_qr`. The Windows app keeps the same store book (`notify::storebook`, the
+  page's JSON shape; fed by the shop thread, pictures by the notifier, saved to `storebook.json`) and uploads it from
+  that thread (`/state/put` every 5 s at most while a phone is paired and it changed), sealed by `seal.rs` exactly as
+  `relay.js` `seal` (HKDF-SHA256 + AES-256-GCM on Windows' CNG; tested on RFC 5869 / NIST vectors, and the phone's
+  `unseal` opens it). `cargo test -p maplelens live_phone_relay -- --ignored` walks a fresh key through the real relay.
 - The phone app is also a dashboard of the store: the page keeps a store book (`docs/app/storebook.js`: sales with item
   pictures (the worker posts each one the engine finds: `Engine::picture_url`), chat, visits, who is inside, status, owner, mesos; kept in localStorage), seals it with AES-GCM under
   HKDF(pairing secret) (`phone/relay.js` `seal`) and uploads it when it changed (every 5 s at most; a check-in each
@@ -264,8 +266,8 @@ same frames through the Rust watcher (373 real captures, 22 ms a frame against P
   tries on unanswered reads. Lines are read by the game's own fonts
   first (`shop::text`), so the browser asks Tesseract only for letters the fonts have not learnt (a sale of known
   letters needs no OCR at all: `the_shop_is_followed_in_the_browser_and_its_sales_are_read_without_ocr`).
-- The status the player sees is core's: `status_pill::text_for` / `tone_for` give the Windows pill's wording ("Open the
-  Sold Items window") and its tone, and the browser shows exactly that on the page and in the floating window
+- The status the player sees is core's: `status_pill::text_for` / `tone_for` give the Windows pill's wording ("Press the
+  SOLD ITEMS button", bold on the page and the phone) and its tone, and the browser shows exactly that on the page and in the floating window
   (`cards.js` `setStore`). Tested live against the real game window (Chrome started with
   `--auto-select-desktop-capture-source=MapleStory --remote-debugging-port`, the share started over DevTools with a user
   gesture): "Store detected", 24 ms mean a frame at 1080p-class, and the visitors the Windows watcher reported.

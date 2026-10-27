@@ -5,7 +5,7 @@
 // Fastest path per phone: Android receives push in the browser tab itself (scan, tap, done; installing is optional).
 // iPhone only lets home-screen apps receive push, so the page is installed once, and the app can pair by scanning.
 
-import { KEY_SHAPE, PAIR_CACHE, PAIR_REQUEST, relay, RELAY_URL, unseal } from "./relay.js?v=8b9ad7f5f293";
+import { KEY_SHAPE, PAIR_CACHE, PAIR_REQUEST, relay, RELAY_URL, unseal } from "./relay.js?v=1f61e1c1afcc";
 
 const $ = id => document.getElementById(id);
 const STORED_KEY = "maplelens.phone.key";
@@ -396,7 +396,13 @@ function render() {
   $("status").textContent = state.pill;
   $("live").replaceChildren(...state.live.split(SEPARATOR).map((part, i) => el("span", { className: "part", textContent: i ? `· ${part}` : part })));
   $("hint").hidden = !state.hint;
-  $("hint").textContent = state.hint || "";
+  $("hint").className = state.tone === "warn" ? "hint-line warn" : "hint-line";
+  // Sales are read off the Sold Items list: until it is open they arrive as "Something sold", so it is said loudly.
+  if (s.status?.word === "need-sold-window") {
+    $("hint").replaceChildren(el("b", { textContent: state.hint }), "Until it's open, sales show up as \"Something sold\" without the item.");
+  } else {
+    $("hint").textContent = state.hint || "";
+  }
   $("balance").textContent = Number.isFinite(s.balance) ? grouped(s.balance) : "–";
 
   const today = startOfDay(now);

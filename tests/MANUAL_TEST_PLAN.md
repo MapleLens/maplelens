@@ -68,7 +68,7 @@ Run the console view in a second terminal if wanted: `maplelens --shop` (prints 
 |---|---|---|
 | 5.1 | Open your store (set up, not yet open) | Pill bottom-left: "Store not open" (grey) |
 | 5.2 | Open it, Sold Items window open | "Store detected" (green); console `OPENED` once |
-| 5.3 | Close the Sold Items window | "Open the Sold Items window" (amber) |
+| 5.3 | Close the Sold Items window | "Press the SOLD ITEMS button" (amber, bold) |
 | 5.4 | Someone buys one item | `SALE <item> x<n> to <buyer>`, exactly once |
 | 5.5 | Same buyer buys the same thing twice | Two `SALE` lines, never three |
 | 5.6 | A sale while Sold Items is closed | `SALE? +N mesos …`; opening the window then reports the `SALE` |

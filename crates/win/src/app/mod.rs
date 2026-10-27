@@ -171,12 +171,20 @@ impl App {
         // The Store Permit watcher always runs (the pill needs it); --debug also prints its events, and sold items
         // go to the notification connectors (Discord, Telegram).
         let notifier = Notifier::spawn(settings.notify());
+        let book = crate::phone::load_book();
+        notifier.share_book(book.clone());
+        let shop_book = book.clone();
         let (shop_notifier, shop_catalog) = (notifier.clone(), catalog.clone());
         let (shop_tx, shop_events) = mpsc::channel();
         std::thread::Builder::new()
             .name("shop-watcher".into())
             .spawn(move || {
-                shop::run(ui, Some(shop_tx), shop::Emit::new(debug, debug, Some(shop_notifier)), shop_catalog);
+                shop::run(
+                    ui,
+                    Some(shop_tx),
+                    shop::Emit::new(debug, debug, Some(shop_notifier)).with_book(shop_book),
+                    shop_catalog,
+                );
             })
             .map_err(|e| windows::core::Error::new(windows::core::HRESULT(-1), e.to_string()))?;
         workers::spawn_ranks(ranks.clone(), clock);
@@ -219,7 +227,7 @@ impl App {
             tray: Tray::new(icon)?,
             notifier,
             notify_test: None,
-            phone: PhoneLink::spawn(settings.phone_key.clone()),
+            phone: PhoneLink::spawn(settings.phone_key.clone(), book),
             pairing: Pairing::default(),
             settings_window: SettingsWindow::new(icon, update::install::can_self_update(&exe)),
             hover_events,

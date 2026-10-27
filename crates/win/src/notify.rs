@@ -6,9 +6,10 @@ use std::time::{Duration, Instant};
 
 use maplelens_core::notify::picture::{self, Pictures};
 use maplelens_core::notify::{
-    Connector, Notification, NotifySettings, Request, connectors, refusal, retry_after, telegram,
+    Connector, Notification, NotifySettings, Request, Sale, connectors, item_icon_url, refusal, retry_after, telegram,
 };
 
+use crate::phone::SharedBook;
 use crate::{net, paths};
 
 /// Sales that come together are one message: the shop shows a burst when a player buys several things, and a
@@ -23,6 +24,7 @@ const TIMEOUT_S: u64 = 10;
 
 enum Job {
     Settings(NotifySettings),
+    Book(SharedBook),
     Sales(Vec<Notification>),
     Test(Service, NotifySettings, Sender<TestAnswer>),
 }
@@ -66,6 +68,11 @@ impl Notifier {
         let _ = self.jobs.send(Job::Settings(settings));
     }
 
+    /// Sold items' pictures, once found, also go to the phones' store book.
+    pub fn share_book(&self, book: SharedBook) {
+        let _ = self.jobs.send(Job::Book(book));
+    }
+
     /// Things that happened (sold items); they go out after a moment, together with any that follow.
     pub fn send(&self, notifications: Vec<Notification>) {
         if !notifications.is_empty() {
@@ -88,9 +95,11 @@ fn run(inbox: Receiver<Job>) {
     // Whose store the last notification was about: the test message names it too.
     let mut owner: Option<String> = None;
     let mut pictures = Pictures::default();
+    let mut book: Option<SharedBook> = None;
     while let Ok(job) = inbox.recv() {
         match job {
             Job::Settings(new) => settings = new,
+            Job::Book(shared) => book = Some(shared),
             Job::Test(service, test, answer) => {
                 let _ = answer.send(test_message(service, test, owner.as_deref()));
             }
@@ -102,6 +111,7 @@ fn run(inbox: Receiver<Job>) {
                     match inbox.recv_timeout(left) {
                         Ok(Job::Sales(more)) => batch.extend(more),
                         Ok(Job::Settings(new)) => settings = new,
+                        Ok(Job::Book(shared)) => book = Some(shared),
                         Ok(Job::Test(service, test, answer)) => {
                             let _ = answer.send(test_message(service, test, owner.as_deref()));
                         }
@@ -114,6 +124,9 @@ fn run(inbox: Receiver<Job>) {
                 }
                 find_pictures(&mut pictures, &batch);
                 pictures.fill(&mut batch);
+                if let Some(book) = &book {
+                    picture_book(book, &batch);
+                }
                 for connector in connectors(&settings) {
                     for request in connector.requests(&batch, paths::now_unix()) {
                         if let Some(since) = last_sent.and_then(|at| MIN_GAP.checked_sub(at.elapsed())) {
@@ -144,6 +157,22 @@ fn find_pictures(pictures: &mut Pictures, batch: &[Notification]) {
             Err(error) => crate::warn!("picture of {name:?}: {error}"),
         }
     }
+}
+
+/// The sold items' pictures into the store book, so the phone shows them beside their sales.
+fn picture_book(book: &SharedBook, batch: &[Notification]) {
+    let mut book = book.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let before = book.changed;
+    book.changed = false;
+    for notification in batch {
+        if let Notification::Sale(Sale { item, picture: Some(id), .. }) = notification {
+            book.set_picture(item, &item_icon_url(*id));
+        }
+    }
+    if book.changed {
+        crate::phone::save_book(&book);
+    }
+    book.changed |= before;
 }
 
 /// The store a notification is about, when it says.

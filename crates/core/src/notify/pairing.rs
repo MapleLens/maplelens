@@ -21,6 +21,8 @@ pub enum Route {
     Test,
     /// `/unpair` with `remove: true`.
     Remove,
+    /// `/state/put`: the sealed store book; answers the phone count like a check-in.
+    Upload,
 }
 
 impl Route {
@@ -29,6 +31,7 @@ impl Route {
             Self::Ping => "/state/ping",
             Self::Test => "/notify",
             Self::Remove => "/unpair",
+            Self::Upload => "/state/put",
         }
     }
 }
@@ -256,7 +259,7 @@ impl Pairing {
     /// The answer to `route`.
     pub fn on_reply(&mut self, route: Route, reply: Reply) -> Effect {
         match route {
-            Route::Ping => self.on_ping(reply),
+            Route::Ping | Route::Upload => self.on_ping(reply),
             Route::Test => self.on_test(reply),
             Route::Remove => self.on_remove(reply),
         }
@@ -326,7 +329,7 @@ mod tests {
 
     #[test]
     fn a_removed_key_is_forgotten_from_any_route() {
-        for route in [Route::Ping, Route::Test, Route::Remove] {
+        for route in [Route::Ping, Route::Test, Route::Remove, Route::Upload] {
             let mut pairing = Pairing { phones: Some(1), ..Pairing::default() };
             pairing.show_code(KEY, 0.0);
             assert_eq!(pairing.on_reply(route, status(410)), Effect::Forget, "{route:?}");

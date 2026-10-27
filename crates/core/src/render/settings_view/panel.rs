@@ -111,8 +111,7 @@ fn connected(cv: &mut Canvas<'_>, view: &View<'_>, y: f32) {
     let mut y = y + 14.0;
     let lines = [
         "It buzzes when an item sells and when your store opens or closes: the NOTIFY boxes choose which.",
-        "Its Store tab says \"Waiting for your computer\": the live store view comes from the web app. \
-         Notifications come from here.",
+        "Its Store tab shows your store live while MapleLens runs: sales, visitors, chat and your balance.",
     ];
     for text in lines {
         y = paragraph(cv, LEFT, y, WIDTH, text, INK_DIM) + 8.0;

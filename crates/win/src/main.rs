@@ -42,6 +42,8 @@ mod refresh;
 #[cfg(windows)]
 mod screenshot;
 #[cfg(windows)]
+mod seal;
+#[cfg(windows)]
 mod settings_window;
 #[cfg(windows)]
 mod shop;
