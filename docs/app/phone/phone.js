@@ -588,9 +588,15 @@ async function start() {
 }
 
 // Android Chrome offers its install dialog when it judges the page installable: a home-screen icon, optional there.
+// It may come after the first view is shown, so the landing page's button appears when it does.
 addEventListener("beforeinstallprompt", event => {
   event.preventDefault();
   installPrompt = event;
+  $("install-landing").hidden = false;
+});
+addEventListener("appinstalled", () => {
+  installPrompt = null;
+  $("install-landing").hidden = $("install-group").hidden = true;
 });
 navigator.serviceWorker?.addEventListener("message", ({ data }) => {
   if (data?.type === "unpaired") removed();
@@ -598,12 +604,15 @@ navigator.serviceWorker?.addEventListener("message", ({ data }) => {
 });
 document.addEventListener("visibilitychange", () => { if (!document.hidden && !$("dashboard").hidden) refresh(); });
 
-$("install-btn").addEventListener("click", async () => {
+// A prompt can be shown once: both buttons go until Chrome offers another.
+async function install() {
   installPrompt?.prompt();
   await installPrompt?.userChoice;
   installPrompt = null;
-  $("install-group").hidden = true;
-});
+  $("install-landing").hidden = $("install-group").hidden = true;
+}
+$("install-btn").addEventListener("click", install);
+$("install-landing-btn").addEventListener("click", install);
 $("enable-btn").addEventListener("click", enable);
 $("switch-btn").addEventListener("click", enable);
 $("keep-btn").addEventListener("click", () => {
