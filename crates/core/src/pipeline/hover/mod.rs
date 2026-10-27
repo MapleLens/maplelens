@@ -165,9 +165,9 @@ impl HoverDetector {
         self.bar_checked_at = now;
         let height = bounds.h.min(scaled(config::STATUS_BAR_STRIP_HEIGHT, ui_scale(bounds)));
         let strip = screen.grab(Rect::new(bounds.x, bounds.bottom() - height, bounds.w, height));
-        // Hidden (Cash Shop, a cut scene) or covered by a menu: keep the last measurement.
+        // Hidden (Cash Shop, a cut scene) or covered by a menu: no reading (the settled scale stays).
         if let Some(bar) = find_bar(&strip) {
-            self.ui.set(bounds, bar.width as f32 / config::STATUS_BAR_WIDTH as f32);
+            self.ui.set(bounds, bar.width as f32 / config::STATUS_BAR_WIDTH as f32, now);
         }
     }
 

@@ -56,9 +56,40 @@ fn scale_follows_window_height_until_measured_and_resets_on_resize() {
     let client = Rect::new(0, 0, 2560, 1440);
     let ui = UiScale::default();
     assert_eq!(ui.of(client), 1.2);
-    ui.set(client, 0.62); // "Ideal Ratio": the UI keeps its size whatever the window
+    ui.set(client, 0.62, 0.0); // "Ideal Ratio": the UI keeps its size whatever the window
+    ui.set(client, 0.62, 1.0);
+    assert_eq!(ui.of(client), 1.2, "two readings do not decide yet");
+    ui.set(client, 0.62, 2.0);
+    assert_eq!(ui.of(client), 0.62);
+    ui.set(client, 1.2, 3.0); // one frame with a menu over the outline
     assert_eq!(ui.of(client), 0.62);
     assert_eq!(ui.of(Rect::new(0, 0, 1920, 1200)), 1.0); // another window size: measure again
+}
+
+#[test]
+fn a_title_bar_guess_is_the_same_client() {
+    // The browser cycles its guess at the window's title bar (0-47 px), which changes the height it passes.
+    let ui = UiScale::default();
+    for (t, inset) in [0, 31, 39, 47, 0].into_iter().enumerate() {
+        ui.set(Rect::new(0, inset, 1920, 1080 - inset), 0.577, t as f64);
+    }
+    assert_eq!(ui.of(Rect::new(0, 39, 1920, 1041)), 0.577);
+    assert_eq!(ui.of(Rect::new(0, 0, 1920, 1080)), 0.577);
+}
+
+#[test]
+fn a_ratio_switch_on_the_same_client_takes_over_within_seconds() {
+    let client = Rect::new(0, 0, 1920, 1080);
+    let ui = UiScale::default();
+    for t in 0..10 {
+        ui.set(client, 0.9, t as f64);
+    }
+    let switched = (10..20).find(|&t| {
+        ui.set(client, 0.577, t as f64);
+        ui.of(client) == 0.577
+    });
+    let after = switched.expect("Ideal Ratio took over") - 10;
+    assert!((2..=5).contains(&after), "{after} s");
 }
 
 fn paste(frame: &mut RgbImage, image: &RgbImage, at: (usize, usize)) {
@@ -85,7 +116,12 @@ fn ideal_ratio_game_reads_tooltips_at_the_bars_scale() {
     let leg = Item { category: Some("Etc".into()), price: Some(5.0), ..Item::named("Octopus Leg") };
     let mut detector =
         HoverDetector::new(Arc::new(Catalog::new([leg], None)), TextReader::new(title_atlas(), Box::new(NoOcr)));
-    let hover = detector.step(&mut screen, bounds, 0.0).expect("tooltip read at the measured scale");
+    // The bar is read once a second and settles after a few readings.
+    let last = config::SCALE_VOTE_MIN_READINGS - 1;
+    for t in 0..last {
+        detector.step(&mut screen, bounds, t as f64);
+    }
+    let hover = detector.step(&mut screen, bounds, last as f64).expect("tooltip read at the measured scale");
     assert_eq!(hover.title, "Octopus Leg");
     assert!((hover.scale - scale).abs() < 0.005, "{}", hover.scale);
     assert!((detector.ui_scale().of(bounds) - scale).abs() < 0.005);

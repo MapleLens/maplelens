@@ -15,6 +15,7 @@ pub mod pipeline;
 pub mod placement;
 pub mod ranking;
 pub mod render;
+pub mod scale_vote;
 pub mod settings;
 pub mod shop;
 pub mod vision;

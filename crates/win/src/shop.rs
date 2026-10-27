@@ -7,7 +7,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::Sender;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use maplelens_core::config;
 use maplelens_core::geometry::{Rect, UiScale, scaled, ui_scale};
@@ -146,7 +146,6 @@ pub fn run(ui: Arc<UiScale>, updates: Option<Sender<ShopUpdate>>, emit: Emit, ca
     let mut watcher = new_watcher();
     let mut source: Option<Source> = None;
     let mut last = ShopUpdate { hwnd: 0, status: ShopStatus::Hidden };
-    let start = Instant::now();
     loop {
         let delay = match game::find_game_window() {
             None => {
@@ -163,8 +162,9 @@ pub fn run(ui: Arc<UiScale>, updates: Option<Sender<ShopUpdate>>, emit: Emit, ca
                 let source = source.as_mut().expect("just set");
                 if let Some(frame) = grab(source) {
                     let client = game::client_rect(hwnd).unwrap_or_default();
-                    measure_ui(&ui, &frame, client);
-                    let events = watcher.update(&frame, start.elapsed().as_secs_f64());
+                    let now = paths::uptime();
+                    measure_ui(&ui, &frame, client, now);
+                    let events = watcher.update(&frame, now);
                     for event in &events {
                         emit.event(event, &frame);
                     }
@@ -217,14 +217,15 @@ fn grab(source: &mut Source) -> Option<RgbImage> {
 }
 
 /// The game's UI scale from its status bar, which the frame shows even while the game is covered ("UI Size:
-/// Ideal Ratio" keeps the UI small whatever the window). A hidden or covered bar keeps the last measurement.
-pub(crate) fn measure_ui(ui: &UiScale, frame: &RgbImage, client: Rect) {
+/// Ideal Ratio" keeps the UI small whatever the window). A hidden or covered bar is no reading. `now` is
+/// `paths::uptime`, the clock the hover thread's readings are on too.
+pub(crate) fn measure_ui(ui: &UiScale, frame: &RgbImage, client: Rect, now: f64) {
     if (frame.width as i32, frame.height as i32) != (client.w, client.h) {
         return;
     }
     let height = frame.height.min(scaled(config::STATUS_BAR_STRIP_HEIGHT, ui_scale(client)).max(0) as usize);
     if let Some(bar) = find_bar(&frame.rows_from(frame.height - height)) {
-        ui.set(client, bar.width as f32 / config::STATUS_BAR_WIDTH as f32);
+        ui.set(client, bar.width as f32 / config::STATUS_BAR_WIDTH as f32, now);
     }
 }
 

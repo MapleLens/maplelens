@@ -170,7 +170,18 @@ pub fn locate(
     previous: Option<&Located>,
     has_list: &dyn Fn(&View<'_>, Point) -> bool,
 ) -> Option<Located> {
-    let mut marker = markers::find_shop(frame, previous.map(|p| p.marker))?;
+    let (marker, measured) = measure(frame, previous)?;
+    let scale = match previous {
+        Some(p) if same_scale(measured, p.scale) => p.scale,
+        _ => measured,
+    };
+    Some(place(frame, marker, scale, previous, has_list))
+}
+
+/// The shop's markers on `frame` and the scale this frame alone measures (the buttons' width, refined by the chat
+/// page's); `previous` is where to look first.
+pub fn measure(frame: &RgbImage, previous: Option<&Located>) -> Option<(ShopMarker, f32)> {
+    let marker = markers::find_shop(frame, previous.map(|p| p.marker))?;
     let mut scale = marker.scale;
     if let Some(width) = page_width(frame, marker, scale) {
         let measured = width / PAGE_W;
@@ -181,11 +192,22 @@ pub fn locate(
     if (scale - 1.0).abs() <= SNAP_TO_ONE {
         scale = 1.0;
     }
-    if let Some(p) = previous
-        && (scale / p.scale - 1.0).abs() <= HOLD
-    {
-        scale = p.scale;
-    }
+    Some((marker, scale))
+}
+
+/// Is a measure of `measured` the held scale `held`? (See `HOLD`.)
+pub fn same_scale(measured: f32, held: f32) -> bool {
+    (measured / held - 1.0).abs() <= HOLD
+}
+
+/// The shop at `marker`, read at `scale` (decided by the caller from `measure`); `previous` is where it was.
+pub fn place(
+    frame: &RgbImage,
+    mut marker: ShopMarker,
+    scale: f32,
+    previous: Option<&Located>,
+    has_list: &dyn Fn(&View<'_>, Point) -> bool,
+) -> Located {
     let near = |a: (i32, i32), b: (i32, i32)| (a.0 - b.0).abs() <= JITTER && (a.1 - b.1).abs() <= JITTER;
     if let Some(p) = previous
         && scale == p.scale
@@ -200,7 +222,7 @@ pub fn locate(
     let held = previous.filter(|p| p.scale == scale).and_then(|p| p.sold_box);
     let sold_box = markers::find_sold(frame, scale, held, &|at| has_list(&view, to_reference(at, SOLD_FROM_BOX)))
         .map(|at| held.filter(|&h| near(at, h)).unwrap_or(at));
-    Some(Located {
+    Located {
         marker,
         scale,
         sold_box,
@@ -208,7 +230,7 @@ pub fn locate(
             enter: Some(to_reference((marker.x, marker.y), ENTER_FROM_BUTTON)),
             sold_x: sold_box.map(|at| to_reference(at, SOLD_FROM_BOX)),
         },
-    })
+    }
 }
 
 // Offsets from the anchors, in reference pixels.

@@ -14,6 +14,7 @@ use super::text::{self, bitmap_block};
 use super::{ListKind, ShopContext, ShopEvent, ShopStatus, chatlog};
 use crate::image::RgbImage;
 use crate::market::catalog::Catalog;
+use crate::scale_vote::ScaleVote;
 use crate::vision::Mask;
 use crate::vision::gaps::fill_gaps;
 use crate::vision::hud::find_bar;
@@ -85,6 +86,24 @@ fn padded(mask: &Mask, pad: usize) -> Mask {
     out
 }
 
+/// The scale to read a frame at, given this frame's measure and the scale the shop was last read at (`held`): the
+/// held one while the measure agrees with it or the last seconds' measures have not settled elsewhere (the pointer
+/// over a button, a tooltip over the chat page's edge). With nothing measured for that long (a new store, the game
+/// switching resolution, which hides the window 15-30 s) this measure is believed.
+pub(super) fn settle_scale(vote: &mut ScaleVote, held: Option<f32>, measured: f32, now: f64) -> f32 {
+    let fresh = vote.recent(now) == 0;
+    if fresh {
+        vote.reset();
+    }
+    let held = if fresh { None } else { held };
+    let settled = vote.push(measured, now);
+    match held {
+        None => measured,
+        Some(held) if layout::same_scale(measured, held) => held,
+        Some(held) => settled.filter(|&s| !layout::same_scale(s, held)).unwrap_or(held),
+    }
+}
+
 /// Cloning a watcher copies its state and shares the reader: the browser reads text asynchronously, so a frame whose
 /// text is not read yet is undone (the state restored from a clone) and tried again when the answers are in.
 #[derive(Clone)]
@@ -95,6 +114,8 @@ pub struct ShopWatcher {
     /// Where the shop was when its lists were last read: a window back after frames without it (the game switching
     /// resolution or ratio) at another scale or place holds lists read another way.
     lists_at: Option<Located>,
+    /// The scales the shop's markers measured over the last few seconds: one frame never rescales the shop.
+    scale_vote: ScaleVote,
     last: Option<Observation>,
     /// Confirmed: STATE_FRAMES consecutive frames agreed; None = no shop window.
     state: Option<StoreState>,
@@ -144,6 +165,7 @@ impl ShopWatcher {
             read: Arc::new(Mutex::new(read)),
             located: None,
             lists_at: None,
+            scale_vote: ScaleVote::default(),
             last: None,
             state: None,
             candidate: None,
@@ -275,7 +297,10 @@ impl ShopWatcher {
             return Vec::new();
         }
         let before = self.located;
-        let located = layout::locate(frame, before.as_ref(), &soldlist::has_list);
+        let located = layout::measure(frame, before.as_ref()).map(|(marker, measured)| {
+            let scale = settle_scale(&mut self.scale_vote, self.lists_at.map(|l| l.scale), measured, now);
+            layout::place(frame, marker, scale, before.as_ref(), &soldlist::has_list)
+        });
         if located.is_none() && before.is_some_and(|b| layout::window_remains(frame, &b)) {
             // Something covers the buttons (a tooltip, the pointer) but the window is still there: no news.
             return Vec::new();

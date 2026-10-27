@@ -95,7 +95,8 @@ a screenshot of the running overlay over the game (`maplelens --screenshot OUT.p
 ```
 crates/core/src/          platform-free; everything here is unit-testable
   config.rs               every tunable number, with a comment saying why
-  geometry.rs             Rect, Point, ui_scale (client height / 1200)
+  geometry.rs             Rect, Point, ui_scale (client height / 1200), UiScale (the status bar's readings, voted)
+  scale_vote.rs           ScaleVote: a scale settled on the last 5 s of readings, never on one frame
   image.rs                RgbImage / GrayImage, separable resize, PNG decode/encode
   vision/
     tooltip.rs            tooltip_present, measure_width
@@ -188,6 +189,9 @@ it alone in the console.
 - Offsets are measured at UI scale 1 from those markers; `layout::View` crops any part in reference pixels, resampling
   only that part (never the whole frame), and text masks are taken from the frame's own pixels. Scale and markers
   are held while new measures are within 1.2% / 2 px: a moved marker reads as a dragged window and forgets the lists.
+  A measure further off rescales only once the last 5 s of measures settle on it (`watcher::settle_scale`, a
+  `ScaleVote`): the pointer over a button once made one frame read 3% off and forgot every list. After 5 s without
+  the shop (a resolution switch hides it 15-30 s) the first measure is believed, as before.
 - When the buttons are not found but the chat page is still where it was (a tooltip or the pointer over them), the
   look brings no news rather than a closing. A tooltip's dark blue reaching over the chat page makes it covered: its
   edge would read as a line.
@@ -379,6 +383,19 @@ and 3 wrong, and with letters the 1x atlas had learnt from that font, 9 of 22.
 - A name counts once two polls read it alike; one odd read keeps the settled name.
 - Capital I and lowercase l are the same bar in that font: an unknown name is retried with its I/l look-alikes
   (`ranking::look_alikes`, at most 3).
+
+## The UI scale is voted, never one frame's
+
+`UiScale` (shared by the hover, info and map threads, and the browser engine) takes the status bar's width as a
+reading (`config::STATUS_BAR_CHECK_S`, by the hover thread and, on Windows, the shop thread too) and answers with
+`ScaleVote`'s decision: the readings of the last `SCALE_VOTE_WINDOW_S` (5 s), clustered within
+`SCALE_VOTE_TOLERANCE` (1%), the largest cluster's median once it has `SCALE_VOTE_MIN_READINGS` (3) and is more than
+half the window; otherwise the value already settled stays. A real change (a resize, "UI Size", full screen) takes
+over in ~3 s; before the first decision the client height stands in. Readings are kept per client, and a client of
+the same width and a height within 48 px is the same one: the browser's title bar guess (0/31/39/47 px, cycled while
+nothing is detected) had changed the client every 1.5 s and thrown the measured scale away each time, so in Ideal
+Ratio the page flipped between 0.64 and the height's 0.9. Every writer must time readings on one clock: on Windows
+`paths::uptime`, in the browser `performance.now()`. A clock that goes back starts the window over.
 
 ## Stream footage
 

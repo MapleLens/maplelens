@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use maplelens_core::config;
 use maplelens_core::geometry::{Rect, UiScale, scaled};
@@ -114,7 +114,6 @@ pub fn spawn_hover(
                 detector.captures = Some(Vec::new());
             }
             let (mut screen, mut watch) = (GdiScreen::new(), GameWatch::default());
-            let start = Instant::now();
             loop {
                 while let Ok(catalog) = updates.try_recv() {
                     detector.set_catalog(catalog);
@@ -125,7 +124,7 @@ pub fn spawn_hover(
                     Err(delay) => (None, delay), // never draw over other apps
                     Ok(hwnd) => match game::client_rect(hwnd) {
                         Some(bounds) => {
-                            let hover = detector.step(&mut screen, bounds, start.elapsed().as_secs_f64());
+                            let hover = detector.step(&mut screen, bounds, paths::uptime());
                             let scale = ui.of(bounds);
                             if (scale - logged_scale).abs() > 0.005 {
                                 crate::info!("UI scale {scale:.3} (client {}x{})", bounds.w, bounds.h);

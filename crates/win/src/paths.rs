@@ -1,5 +1,5 @@
-//! Where MapleLens keeps its files (one per-user folder: no admin rights, nothing next to the game), and the wall
-//! clock the cards' "3h ago" ages are measured against.
+//! Where MapleLens keeps its files (one per-user folder: no admin rights, nothing next to the game), the wall
+//! clock the cards' "3h ago" ages are measured against, and the steady clock the detector threads share.
 
 use std::path::PathBuf;
 
@@ -47,4 +47,11 @@ pub fn write_atomic(path: &std::path::Path, contents: &[u8]) -> std::io::Result<
 /// Seconds since the Unix epoch, now.
 pub fn now_unix() -> f64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64())
+}
+
+/// Seconds since the first call, on a steady clock: the threads that vote on the UI scale (`UiScale`) must all
+/// time their readings on this one.
+pub fn uptime() -> f64 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START.get_or_init(std::time::Instant::now).elapsed().as_secs_f64()
 }
