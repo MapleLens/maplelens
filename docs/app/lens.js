@@ -48,7 +48,7 @@ export class Lens {
     this.catalogCount = 0;
     this.tesseract = null;
     this.tesseractLoading = null;
-    this.worker = new Worker(new URL("worker.js?v=b74844f6fa4d", base), { type: "module" });
+    this.worker = new Worker(new URL("worker.js?v=e9e6e648a0ae", base), { type: "module" });
     this.worker.onerror = event => reject(new Error(event.message || "the engine could not start"));
     this.counts = {};
     this.bytes = 0;

@@ -32,15 +32,20 @@ pub fn valid_key(key: &str) -> Option<&str> {
     (base64url(id, 16..=32) && base64url(secret, 22..=64)).then_some(key)
 }
 
+/// The share of a drawn QR code's width the meso coin's tile covers (docs/app/mapleqr.js, examples/phone_qr.rs):
+/// with high error correction a fifth of the width (4% of the modules) is well within what the code recovers.
+pub const LOGO_SHARE: f64 = 0.2;
+
 /// What the QR code carries: the phone page with the key.
 pub fn phone_url(key: &str) -> String {
     format!("{PHONE_PAGE}?pair={key}")
 }
 
 /// The QR code of `text` as rows of dark (true) and light modules, `width` by `width`, without the quiet zone.
-/// Medium error correction: the code is read off a monitor, often at an angle, by a phone camera.
+/// High error correction: the drawn code has the meso coin over its centre (`LOGO_SHARE` of its width), which the
+/// other 30% of recovery covers with room to spare for a monitor read at an angle.
 pub fn qr_modules(text: &str) -> Option<(usize, Vec<bool>)> {
-    let code = qrcode::QrCode::with_error_correction_level(text, qrcode::EcLevel::M).ok()?;
+    let code = qrcode::QrCode::with_error_correction_level(text, qrcode::EcLevel::H).ok()?;
     let modules = code.to_colors().into_iter().map(|c| c == qrcode::Color::Dark).collect();
     Some((code.width(), modules))
 }
@@ -199,8 +204,8 @@ mod tests {
     fn the_pairing_address_fits_a_small_qr_code() {
         let (width, modules) = qr_modules(&phone_url(KEY)).unwrap();
         assert_eq!(modules.len(), width * width);
-        // Version 6 (41 modules) or smaller: large modules read off a monitor from across a desk.
-        assert!(width <= 41, "{width}");
+        // Version 10 (57 modules) or smaller: modules stay big enough to read off a monitor from across a desk.
+        assert!(width <= 57, "{width}");
         // The finder pattern's corner is dark.
         assert!(modules[0] && modules[width - 1]);
     }

@@ -229,6 +229,9 @@ function validSubscription(subscription) {
     return null;
   }
   if (url.protocol !== "https:" || url.port || url.username || url.password || endpoint.length > 1024) return null;
+  // Only an address already in the URL standard's own form (what browsers' PushManager gives): a backslash, a
+  // percent-encoded host or a trailing dot that one parser reads one way and another differently is refused.
+  if (url.href !== endpoint) return null;
   if (!PUSH_HOSTS.some(host => host.test(url.hostname))) return null;
   // An uncompressed P-256 point (65 bytes) and a 16-byte secret, as every browser makes them.
   if (!/^[A-Za-z0-9_-]{86,88}$/.test(p256dh || "") || !/^[A-Za-z0-9_-]{22,24}$/.test(auth || "")) return null;

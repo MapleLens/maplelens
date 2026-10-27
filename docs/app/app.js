@@ -1,11 +1,12 @@
 // MapleLens Web: capture the game window (the page offers nothing else; the sample, video and frame-folder sources are
 // test hooks started by a URL parameter), feed frames to the engine, show the cards in the page and, on request, in a picture-in-picture window that floats over the game.
 
-import { Lens } from "./lens.js?v=b74844f6fa4d";
-import { CardView, floatingSize, openFloating } from "./cards.js?v=b74844f6fa4d";
-import { Prices } from "./prices.js?v=b74844f6fa4d";
-import { StoreBook } from "./storebook.js?v=b74844f6fa4d";
-import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=b74844f6fa4d";
+import { Lens } from "./lens.js?v=e9e6e648a0ae";
+import { CardView, floatingSize, openFloating } from "./cards.js?v=e9e6e648a0ae";
+import { Prices } from "./prices.js?v=e9e6e648a0ae";
+import { drawMapleQr } from "./mapleqr.js?v=e9e6e648a0ae";
+import { StoreBook } from "./storebook.js?v=e9e6e648a0ae";
+import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=e9e6e648a0ae";
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -217,15 +218,7 @@ async function showPairing() {
     $("phone-note").textContent = "Pairing needs the page over https (open it from the website)";
     return;
   }
-  const width = Math.sqrt(modules.length);
-  // Four modules of quiet zone around the code, as scanners expect.
-  const canvas = $("phone-qr");
-  canvas.width = canvas.height = width + 8;
-  const context = canvas.getContext("2d");
-  context.fillStyle = "#fff";
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  context.fillStyle = "#000";
-  modules.forEach((dark, i) => { if (dark) context.fillRect(4 + (i % width), 4 + Math.floor(i / width), 1, 1); });
+  await drawMapleQr($("phone-qr"), modules, new URL("../assets/meso.png", location.href).href);
   hidePairing();
   $("phone-pair").hidden = false;
   const before = phones || 0;

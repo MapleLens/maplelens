@@ -83,6 +83,12 @@ Cloudflare's rate limiting binding (counted per Cloudflare location, 60 s window
 A real store sends far less: MapleLens batches a burst of sales into one message, and the page polls `/status` every
 4 s only while its QR code is up (at most 2 minutes). Over a limit the answer is 429 with `retry_after`.
 
+These are a brake, not a wall. Cloudflare's binding counts per data centre and settles its counts after the fact, so
+a fast burst gets through before it bites: in the pentest, 70 back-to-back requests from one address were limited
+1, 10 and 0 times in three runs (the last with a forged `CF-Connecting-IP`, which made no difference). Nothing
+depends on them for access: every route needs a key of 224 random bits. They keep a runaway sender or a careless
+script from costing much; for hard ceilings put the relay on a custom domain and add a WAF rate-limiting rule.
+
 ## Security
 
 What it protects, and how (each is a test in `test/relay.test.mjs`):
@@ -101,7 +107,8 @@ What it protects, and how (each is a test in `test/relay.test.mjs`):
   and hides it as soon as a phone pairs (a streamed screen is public). Every phone that joins a pairing triggers an
   alert on the phones already in it, and **Remove** in MapleLens deletes the pairing, so a new QR code is a new key.
 - **The relay can't be pointed at other servers.** Subscriptions must be `https` URLs on the browsers' push hosts (no
-  port, no credentials, no lookalike hosts), and redirects are not followed. Icons are accepted from the item
+  port, no credentials, no lookalike hosts, and only in the URL standard's own form, so a backslash or an odd
+  encoding that two parsers read differently is refused), and redirects are not followed. Icons are accepted from the item
   picture host only (`maplestory.io/api/`): any other icon URL would tell its server the phone's IP address.
 - **Other websites can't use it from their visitors' browsers.** CORS answers only `ALLOWED_ORIGINS` and localhost,
   and a request with any other `Origin` is refused. Non-browser callers still need a key; the key is the credential.

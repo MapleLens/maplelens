@@ -198,6 +198,9 @@ test("subscriptions must point at a browser's push service", async () => {
     "https://user@fcm.googleapis.com/a",
     "https://fcm.googleapis.com:8443/a",
     "https://169.254.169.254/latest",
+    "https://fcm.googleapis.com\\@evil.example/x",
+    "https://FCM.googleapis.com/fcm/send/a",
+    "https://fcm.googleapis.com/fcm/send/a b",
   ]) {
     const answer = await call(env, "/pair", { key: KEY, subscription: { ...good, endpoint } });
     assert.deepEqual(answer, { status: 400, json: { error: "subscription" } }, endpoint);
