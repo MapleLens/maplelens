@@ -5,8 +5,10 @@
 
 pub mod announce;
 pub mod discord;
+pub mod pairing;
 pub mod phone;
 pub mod picture;
+pub mod storebook;
 pub mod telegram;
 
 /// What happened.

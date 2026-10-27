@@ -29,7 +29,7 @@ fn look(status: ShopStatus) -> Option<(Icon, Rgba, &'static str)> {
     Some(match status {
         ShopStatus::Hidden => return None,
         ShopStatus::Watching => (Icon::Check, theme::UP, "Store detected"),
-        ShopStatus::NeedSoldWindow => (Icon::Warn, theme::WARN, "Open the Sold Items window"),
+        ShopStatus::NeedSoldWindow => (Icon::Warn, theme::WARN, "Press the SOLD ITEMS button"),
         ShopStatus::Scrolled => (Icon::Warn, theme::WARN, "Scroll the lists back to the newest"),
         ShopStatus::Covered => (Icon::Warn, theme::WARN, "Shop window is partly covered"),
         ShopStatus::NotOpen => (Icon::Dot, GREY, "Store not open"),
@@ -38,6 +38,18 @@ fn look(status: ShopStatus) -> Option<(Icon, Rgba, &'static str)> {
 
 pub fn text_for(status: ShopStatus) -> Option<&'static str> {
     look(status).map(|(_, _, text)| text)
+}
+
+/// A word for the status that pages and the phone act on ("need-sold-window").
+pub fn word_for(status: ShopStatus) -> &'static str {
+    match status {
+        ShopStatus::Hidden => "hidden",
+        ShopStatus::NotOpen => "not-open",
+        ShopStatus::Watching => "watching",
+        ShopStatus::NeedSoldWindow => "need-sold-window",
+        ShopStatus::Scrolled => "scrolled",
+        ShopStatus::Covered => "covered",
+    }
 }
 
 /// How the status reads at a glance, for a status line that is not drawn like the pill (the browser's): "ok" (all

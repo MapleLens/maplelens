@@ -5,7 +5,7 @@
 //             player "holds" it), so the numbers can still be read after the mouse moves on;
 //   empty     nothing to show: a short hint.
 
-import { paint } from "./lens.js?v=90ad6397ac36";
+import { paint } from "./lens.js?v=1f61e1c1afcc";
 
 const FIT_KEY = "maplelens.cards.fit";
 
@@ -34,7 +34,7 @@ const CSS = `
 .cv-store[hidden]{display:none}
 .cv-store i{flex:none;width:9px;height:9px;border-radius:50%;background:#8a94b8}
 .cv-store[data-tone=ok] i{background:#4ee08a}.cv-store[data-tone=ok]{color:#bff0d2}
-.cv-store[data-tone=warn] i{background:#ffb938}.cv-store[data-tone=warn]{color:#ffd98a}
+.cv-store[data-tone=warn] i{background:#ffb938}.cv-store[data-tone=warn]{color:#ffd98a;font-weight:bold}
 .cv-body{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;padding:10px;overflow:hidden auto;scrollbar-width:thin;scrollbar-color:#3b4f8c #101a36}
 .cv-stack{margin:auto 0;display:flex;flex-direction:column;align-items:center;gap:10px;max-width:100%}
 .cv-body canvas{display:block;flex:none;max-width:100%;height:auto;filter:drop-shadow(0 6px 12px #0007);transition:opacity .25s,filter .25s}
@@ -97,7 +97,7 @@ export class CardView {
     stack.append(this.empty, this.canvases.card, this.canvases.rank);
     this.body.append(stack);
     this.foot = el("footer", "cv-foot");
-    // The Store Permit's status, worded as the Windows app's pill words it ("Open the Sold Items window").
+    // The Store Permit's status, worded as the Windows app's pill words it ("Press the SOLD ITEMS button").
     this.store = el("div", "cv-store", { hidden: true });
     this.store.append(el("i"), el("span", "cv-store-text"));
     this.root.append(head, this.store, this.body, this.foot);

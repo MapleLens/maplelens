@@ -3,6 +3,7 @@
 use maplelens_core::mapinfo::{MapInfo, Mob, Npc};
 use maplelens_core::market::sample::sample_items;
 use maplelens_core::market::time::parse_iso;
+use maplelens_core::notify::pairing::{Pairing, QR_SHOWN_S, Reply};
 use maplelens_core::ranking::{Rank, RankResult, Status};
 use maplelens_core::render::RgbaImage;
 use maplelens_core::render::card::{CardSpec, render_card};
@@ -125,7 +126,41 @@ fn main() {
         hover: None,
         focus: None,
         pressed: Some(Control::Update),
-        ..view
+        ..view.clone()
     };
     save(&settings_view::render(&fonts, &busy, 1.5), &out.join("settings_busy.png"));
+    phone_steps(&fonts, &out, &view);
+}
+
+/// The phone's row and the pairing panel in each of their states.
+fn phone_steps(fonts: &Fonts, out: &std::path::Path, view: &View<'_>) {
+    let key = "AbCdEfGhIjKlMnOp.qRsTuVwXyZ0123456789-_ab";
+    let paired = maplelens_core::settings::Settings { phone_key: key.into(), ..Default::default() };
+    let mut code = Pairing::default();
+    code.show_code(key, 0.0);
+    let mut connected = code.clone();
+    connected.on_ping(Reply { status: Some(200), phones: Some(1) });
+    let mut expired = code.clone();
+    expired.tick(QR_SHOWN_S);
+    let mut tested = connected.clone();
+    tested.on_test(Reply { status: Some(200), phones: None });
+    let mut idle = Pairing::default();
+    idle.on_ping(Reply { status: Some(200), phones: Some(1) });
+    let steps = [
+        ("code", code, Some(113)),
+        ("connected", connected, None),
+        ("tested", tested, None),
+        ("expired", expired, None),
+        ("idle", idle, None),
+    ];
+    for (name, phone, left) in steps {
+        let shown = View {
+            settings: paired.clone(),
+            phone,
+            phone_left_s: left,
+            hover: Some(Control::PanelMain),
+            ..view.clone()
+        };
+        save(&settings_view::render(fonts, &shown, 1.0), &out.join(format!("settings_phone_{name}.png")));
+    }
 }

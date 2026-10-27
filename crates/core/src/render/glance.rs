@@ -20,7 +20,7 @@ const SPARK_H: f32 = 24.0;
 /// Under half a percent reads as noise, so it shows as "steady".
 const FLAT_TREND: f64 = 0.005;
 
-fn coin() -> &'static (usize, usize, Vec<u8>) {
+pub(crate) fn coin() -> &'static (usize, usize, Vec<u8>) {
     static COIN: OnceLock<(usize, usize, Vec<u8>)> = OnceLock::new();
     COIN.get_or_init(|| decode_png_rgba(include_bytes!("../../assets/meso.png")).unwrap_or((1, 1, vec![0; 4])))
 }

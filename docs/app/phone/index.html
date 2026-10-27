@@ -77,6 +77,9 @@ button{font:inherit}
 @keyframes pulse{50%{opacity:.35}}
 @media (prefers-reduced-motion:reduce){.state.ok:before{animation:none}}
 .hint-line{font-size:13px;background:#fff7da;border:1px solid #e8c25a;border-radius:8px;padding:8px 10px;color:#5b4300}
+/* Something to do in the game: said loud enough to read at a glance. */
+.hint-line.warn{font-size:14px;background:#ffe2a8;border:2px solid #f08a00;color:#4a2a00}
+.hint-line.warn b{display:block;font-size:16px;margin-bottom:2px}
 .till{display:flex;align-items:center;gap:12px;background:linear-gradient(#fff8dc,#ffeeb0);border:1px solid #e8c25a;border-radius:10px;padding:10px 12px}
 .till img{width:30px;height:31px;flex:none}
 .till b{display:block;font:28px/1 "Lilita One",Tahoma,sans-serif;color:#5b3a00;font-variant-numeric:tabular-nums}
@@ -213,7 +216,7 @@ dialog.sheet[open]{animation:up .22s ease-out}
     <div class="waiting" id="waiting" hidden>
       <img class="px" src="../../assets/meso.png" alt="">
       <h2>Waiting for your computer</h2>
-      <p>Open <b>MapleLens Web</b> on your computer and share the game window. Your store shows up here as soon as MapleLens sees it.</p>
+      <p>Run <b>MapleLens</b> on your computer: the Windows app, or MapleLens Web with the game window shared. Your store shows up here as soon as MapleLens sees it.</p>
       <p>Notifications are already on.</p>
     </div>
 
@@ -295,6 +298,6 @@ dialog.sheet[open]{animation:up .22s ease-out}
 </dialog>
 
 <div class="toast" id="toast" role="status" hidden></div>
-<script type="module" src="phone.js?v=90ad6397ac36"></script>
+<script type="module" src="phone.js?v=1f61e1c1afcc"></script>
 </body>
 </html>

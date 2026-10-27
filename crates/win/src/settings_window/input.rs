@@ -49,7 +49,7 @@ impl State {
 
     /// Tab, Space/Enter, the arrows on the slider, Esc. True when the key was used.
     fn navigate(&mut self, vk: VIRTUAL_KEY) -> bool {
-        let order = Control::ORDER;
+        let order = Control::order(self.panel());
         match vk {
             VK_TAB => {
                 let back = held().shift;
@@ -63,7 +63,7 @@ impl State {
                 self.focus = Some(order[next]);
             }
             VK_SPACE | VK_RETURN => {
-                if let Some(focus) = self.focus {
+                if let Some(focus) = self.focus.filter(|f| order.contains(f)) {
                     self.activate(focus);
                 }
             }
@@ -71,6 +71,8 @@ impl State {
                 let up = vk == VK_RIGHT || vk == VK_UP;
                 self.set_delay(settings_view::delay_step(self.current.expand_delay_s, up));
             }
+            // Esc closes the pairing panel first, then the window.
+            VK_ESCAPE if self.panel() => self.events.push(super::SettingsEvent::Phone(super::PhoneAction::HidePanel)),
             VK_ESCAPE => self.hide(),
             _ => return false,
         }
@@ -114,11 +116,11 @@ impl State {
                 if self.dragging {
                     self.set_delay(settings_view::delay_at(at.0));
                 }
-                self.hover = settings_view::hit(at.0, at.1);
+                self.hover = settings_view::hit(at.0, at.1, self.panel());
             }
             WM_MOUSELEAVE => (self.tracking_leave, self.hover) = (false, None),
             WM_LBUTTONDOWN => {
-                let control = settings_view::hit(at.0, at.1);
+                let control = settings_view::hit(at.0, at.1, self.panel());
                 // SAFETY: our own window; the matching release is in WM_LBUTTONUP.
                 unsafe { SetCapture(hwnd) };
                 (self.pressed, self.show_focus) = (control, false);
@@ -144,7 +146,7 @@ impl State {
                 unsafe {
                     let _ = ReleaseCapture();
                 }
-                if let Some(control) = pressed.filter(|&p| settings_view::hit(at.0, at.1) == Some(p)) {
+                if let Some(control) = pressed.filter(|&p| settings_view::hit(at.0, at.1, self.panel()) == Some(p)) {
                     self.activate(control);
                 }
             }

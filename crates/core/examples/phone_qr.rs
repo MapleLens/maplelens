@@ -4,60 +4,28 @@
 
 use std::fmt::Write;
 
-use maplelens_core::notify::phone::{LOGO_SHARE, PHONE_PAGE, qr_modules};
+use maplelens_core::notify::phone::{PHONE_PAGE, qr_modules};
+use maplelens_core::render::maple_qr::{QUIET, alignment_centres, in_finder, logo_span};
 
 const INK: &str = "#2c3247";
 const PAPER: &str = "#ffffff";
 const ORANGE_TOP: &str = "#d0700a";
 const ORANGE_BOTTOM: &str = "#8a4300";
 const EDGE: &str = "#ffad1f";
-/// Scanners expect four light modules around the code.
-const QUIET: usize = 4;
 /// The coin, as pixel-art rectangles (an SVG shown as an image cannot load another file, so it is copied in).
 const MESO: &str = include_str!("../../../docs/assets/meso.svg");
 /// The coin's size in its own pixels (meso.svg's viewBox).
 const MESO_SIZE: (f64, f64) = (23.0, 24.0);
-/// Alignment pattern centres per version (ISO/IEC 18004, annex E), versions 2 to 15. They are drawn solid, as in
-/// mapleqr.js: as separate dots, the gaps between them broke the dark ring a scanner looks for at large sizes.
-const ALIGNMENT: [&[usize]; 16] = [
-    &[],
-    &[],
-    &[6, 18],
-    &[6, 22],
-    &[6, 26],
-    &[6, 30],
-    &[6, 34],
-    &[6, 22, 38],
-    &[6, 24, 42],
-    &[6, 26, 46],
-    &[6, 28, 50],
-    &[6, 30, 54],
-    &[6, 32, 58],
-    &[6, 34, 62],
-    &[6, 26, 46, 66],
-    &[6, 26, 48, 70],
-];
 
 fn main() {
     let (width, modules) = qr_modules(PHONE_PAGE).expect("the page address fits a QR code");
     let size = (width + 2 * QUIET) as f64;
     let at = |n: usize| (n + QUIET) as f64;
-    let span = {
-        let span = ((width as f64 * LOGO_SHARE).round() as usize).max(7);
-        if span % 2 == 1 { span } else { span + 1 }
-    };
+    let span = logo_span(width);
     let from = (width - span) / 2;
-    let finder = |x: usize, y: usize| {
-        let corner = |cx: usize, cy: usize| x >= cx && x < cx + 7 && y >= cy && y < cy + 7;
-        corner(0, 0) || corner(width - 7, 0) || corner(0, width - 7)
-    };
+    let finder = |x: usize, y: usize| in_finder(x, y, width);
     let under_logo = |x: usize, y: usize| x >= from && x < from + span && y >= from && y < from + span;
-    let positions = ALIGNMENT.get((width - 17) / 4).copied().unwrap_or(&[]);
-    let marks: Vec<(usize, usize)> = positions
-        .iter()
-        .flat_map(|&y| positions.iter().map(move |&x| (x, y)))
-        .filter(|&(x, y)| !finder(x, y))
-        .collect();
+    let marks = alignment_centres(width);
     let in_mark = |x: usize, y: usize| marks.iter().any(|&(cx, cy)| x.abs_diff(cx) <= 2 && y.abs_diff(cy) <= 2);
 
     let mut svg = String::new();

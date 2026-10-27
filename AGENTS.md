@@ -116,9 +116,9 @@ crates/core/src/          platform-free; everything here is unit-testable
                           insights, format, time (ISO-8601 without a date crate), sample
   ranking/                classicrank.com model, URL, response parsing, RankCache (pacing is the caller's)
   render/                 canvas (tiny-skia + ab_glyph, Ink text style), theme, font, card, glance, details,
-                          origin, range_bar, gamewin, rank_card, status_pill, map_card -> RgbaImage;
+                          origin, range_bar, gamewin, rank_card, status_pill, map_card, maple_qr -> RgbaImage;
                           maple_ui (game-style buttons, check boxes, slider), settings_view (the settings window:
-                          picture + hit-testing)
+                          picture + hit-testing; panel.rs: the phone's pairing panel)
   pipeline/               Screen trait + FrameScreen; HoverDetector (hover/elsewhere.rs: pushed-up tooltips and the
                           no-mouse search), InfoDetector, MapScanner (map.rs)
   mapinfo/                map helper data: models, resolve (OCR title -> map), vote (settles noisy reads), data
@@ -138,6 +138,7 @@ crates/win/src/           the Windows app (only this crate talks to Win32)
                           log.rs, paths.rs, icon.rs, screenshot.rs
   maps/                   map helper: scanner thread, maplestory.io client, sprite and map caches, lookup service;
                           app/map.rs: the card. ocr.rs also reads whole lines with positions (CachedLines)
+  phone.rs                the phone pairing's relay requests (a thread); app/phone.rs: its presses and answers
   shop.rs, wgc.rs         the shop watcher thread (and `--shop`), fed by Windows Graphics Capture; app/status.rs:
                           the status pill
   update/                 signed self-update: version, manifest (Ed25519), net (allow-listed hosts), check
@@ -238,7 +239,18 @@ same frames through the Rust watcher (373 real captures, 22 ms a frame against P
   post) switches it only after a tap, joining the new pairing before leaving the old, and the key leaves the address
   bar once kept (not in an iPhone Safari tab, which installs from that address). A pairing takes 5 phones; a sixth is
   refused (409), never one dropped silently, and an unused pairing is deleted after 60 days. The website's QR (`docs/assets/phone-qr.svg`) is
-  `cargo run -p maplelens-core --example phone_qr`. The Windows app keeps `phone_key` but has no pairing UI yet.
+  `cargo run -p maplelens-core --example phone_qr`. Both apps pair one phone at a time: once one is connected there is
+  no Connect, and Remove is the way to another (the relay still takes 5, for pairings made before). The pairing
+  steps live in a modal (`#phone-dialog` on the page; on Windows a panel over the settings window,
+  `render/settings_view/panel.rs`): the code with numbered steps, then "connected" with Send a test, or "hidden" after
+  two minutes with Show it again; closing it wipes the code. What every relay answer means is `notify::pairing`
+  (shared wording, tested); the Windows app's requests are `crate::phone` (a thread: `/state/ping` every 4 s while
+  the code is up, each minute otherwise; `/notify`; `/unpair`), and the QR is drawn by `render::maple_qr`, the same
+  design as `mapleqr.js` and `examples/phone_qr`. The Windows app keeps the same store book (`notify::storebook`, the
+  page's JSON shape; fed by the shop thread, pictures by the notifier, saved to `storebook.json`) and uploads it from
+  that thread (`/state/put` every 5 s at most while a phone is paired and it changed), sealed by `seal.rs` exactly as
+  `relay.js` `seal` (HKDF-SHA256 + AES-256-GCM on Windows' CNG; tested on RFC 5869 / NIST vectors, and the phone's
+  `unseal` opens it). `cargo test -p maplelens live_phone_relay -- --ignored` walks a fresh key through the real relay.
 - The phone app is also a dashboard of the store: the page keeps a store book (`docs/app/storebook.js`: sales with item
   pictures (the worker posts each one the engine finds: `Engine::picture_url`), chat, visits, who is inside, status, owner, mesos; kept in localStorage), seals it with AES-GCM under
   HKDF(pairing secret) (`phone/relay.js` `seal`) and uploads it when it changed (every 5 s at most; a check-in each
@@ -254,8 +266,8 @@ same frames through the Rust watcher (373 real captures, 22 ms a frame against P
   tries on unanswered reads. Lines are read by the game's own fonts
   first (`shop::text`), so the browser asks Tesseract only for letters the fonts have not learnt (a sale of known
   letters needs no OCR at all: `the_shop_is_followed_in_the_browser_and_its_sales_are_read_without_ocr`).
-- The status the player sees is core's: `status_pill::text_for` / `tone_for` give the Windows pill's wording ("Open the
-  Sold Items window") and its tone, and the browser shows exactly that on the page and in the floating window
+- The status the player sees is core's: `status_pill::text_for` / `tone_for` give the Windows pill's wording ("Press the
+  SOLD ITEMS button", bold on the page and the phone) and its tone, and the browser shows exactly that on the page and in the floating window
   (`cards.js` `setStore`). Tested live against the real game window (Chrome started with
   `--auto-select-desktop-capture-source=MapleStory --remote-debugging-port`, the share started over DevTools with a user
   gesture): "Store detected", 24 ms mean a frame at 1080p-class, and the visitors the Windows watcher reported.

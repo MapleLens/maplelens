@@ -14,7 +14,7 @@ use maplelens_core::market::catalog::Catalog;
 use maplelens_core::notify::announce::Announcer;
 use maplelens_core::notify::picture::{Pictures, search_url};
 use maplelens_core::notify::{Notification, NotifySettings, Request, connectors};
-use maplelens_core::render::status_pill::{text_for, tone_for};
+use maplelens_core::render::status_pill::{text_for, tone_for, word_for};
 use maplelens_core::shop::watcher::{ReadText, ShopWatcher};
 use maplelens_core::shop::{ShopEvent, ShopStatus};
 use maplelens_core::vision::Mask;
@@ -293,21 +293,10 @@ pub fn event_json(event: &ShopEvent) -> Value {
 /// app says.
 pub fn status_json(status: ShopStatus) -> Value {
     json!({
-        "status": status_word(status),
+        "status": word_for(status),
         "text": text_for(status),
         "tone": tone_for(status),
     })
-}
-
-fn status_word(status: ShopStatus) -> &'static str {
-    match status {
-        ShopStatus::Hidden => "hidden",
-        ShopStatus::NotOpen => "not-open",
-        ShopStatus::Watching => "watching",
-        ShopStatus::NeedSoldWindow => "need-sold-window",
-        ShopStatus::Scrolled => "scrolled",
-        ShopStatus::Covered => "covered",
-    }
 }
 
 #[cfg(test)]
