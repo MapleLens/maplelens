@@ -411,6 +411,13 @@ Ratio the page flipped between 0.64 and the height's 0.9. Every writer must time
 `paths::uptime`, in the browser `performance.now()`. A reading up to 1 s older than the newest goes in its place
 (the hover thread reads the clock before its grab); a clock that goes back further starts the window over.
 
+A map smaller than the client (Kerning City Pharmacy) is drawn with black around it, and that black joins the bar's
+1 px outline: its top row is dark from edge to edge, and every reading there was the whole width (1.53 in Ideal
+Ratio), so the vote settled on it and no tooltip was found. `hud::side` steps out of such a black area to the last
+column before the bar's light inside; only then are the sides, not the run, checked for centring, and the row under
+the top must be the bar's inside (black above it too). On 1,071 saved frames this changed only frames with black or
+dark scenery beside the bar, each to the true width.
+
 ## Stream footage
 
 Twitch footage (1080p, H.264) is how detections are reviewed over time without a play session: `stream-bench.ps1`
