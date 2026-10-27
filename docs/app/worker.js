@@ -10,7 +10,7 @@
 //               {type: "notify-test-result", ok, text, telegramWebhook?} · {type: "catalog-loaded", id, items | error} ·
 //               {type: "error", message}
 
-import init, { Engine } from "./pkg/maplelens_web.js?v=507c4b8ceb67";
+import init, { Engine } from "./pkg/maplelens_web.js?v=96ef814f580b";
 
 /** One rank lookup every two seconds stays under classicrank.com's 30 requests a minute. */
 const RANK_GAP_MS = 2000;
@@ -35,7 +35,7 @@ const post = (message, transfer = []) => self.postMessage(message, transfer);
 
 async function start({ fonts, glyphs, cardScale, ocr }) {
   // Named explicitly so scripts/stamp-web.ps1 can version it together with the glue.
-  await init({ module_or_path: new URL("./pkg/maplelens_web_bg.wasm?v=507c4b8ceb67", import.meta.url) });
+  await init({ module_or_path: new URL("./pkg/maplelens_web_bg.wasm?v=96ef814f580b", import.meta.url) });
   const [regular, bold] = await Promise.all(fonts.map(url => fetch(url).then(r => r.arrayBuffer())));
   engine = new Engine(new Uint8Array(regular), new Uint8Array(bold));
   engine.card_scale = cardScale || 1;
@@ -69,6 +69,12 @@ async function deliver({ service = "Discord", url, body }) {
   return { ok: false, text: `${service} keeps refusing for going too fast` };
 }
 
+/** `request` sent, or its `fallback` if the service refuses it (a picture it could not fetch: the same text alone). */
+async function deliverOrFallback(request) {
+  const result = await deliver(request);
+  return result.ok || !request.fallback ? result : deliver({ service: request.service, ...request.fallback });
+}
+
 /** A test message to one service; a Telegram URL without its chat is first completed by asking the bot who wrote to
  *  it, and the whole URL comes back with the answer for the page to keep. */
 async function testNotify({ service, webhook, telegramWebhook }) {
@@ -76,7 +82,7 @@ async function testNotify({ service, webhook, telegramWebhook }) {
   if (service !== "telegram") {
     const request = engine.notify_test_request(webhook, now);
     if (!request) return { ok: false, text: "Paste a Discord webhook URL first" };
-    const r = await deliver(JSON.parse(request));
+    const r = await deliverOrFallback(JSON.parse(request));
     return { ok: r.ok, text: r.ok ? "Sent: check your Discord channel" : `Not sent: ${r.text}` };
   }
   let url = telegramWebhook;
@@ -89,7 +95,7 @@ async function testNotify({ service, webhook, telegramWebhook }) {
     found = url = Engine.telegram_linked(url, r.answer);
     if (!url) return { ok: false, text: "No message to the bot yet: send it /start in Telegram, then Test again" };
   }
-  const r = await deliver(JSON.parse(engine.telegram_test_request(url, now)));
+  const r = await deliverOrFallback(JSON.parse(engine.telegram_test_request(url, now)));
   return { ok: r.ok, text: r.ok ? "Sent: check your Telegram chat" : `Not sent: ${r.text}`, telegramWebhook: found };
 }
 
@@ -99,12 +105,23 @@ async function drainOutbox() {
   try {
     while (outbox.length) {
       const request = outbox.shift();
-      const result = await deliver(request);
+      const result = await deliverOrFallback(request);
       post({ type: "notify-status", service: request.service, ok: result.ok, text: result.ok ? `Last message sent to ${request.service}` : result.text });
       await new Promise(resolve => setTimeout(resolve, SEND_GAP_MS));
     }
   } finally {
     sending = false;
+  }
+}
+
+/** The sold items' pictures, looked up by name on maplestory.io before the sales go out (the engine waits a few
+ *  seconds for them; a failed lookup is not handed in). */
+function lookUpPictures() {
+  for (const { name, url } of JSON.parse(engine.take_picture_lookups())) {
+    fetch(url, { headers: { Accept: "application/json" } })
+      .then(response => response.ok ? response.text() : null)
+      .then(answer => { if (answer !== null) engine.picture_found(name, answer); })
+      .catch(() => {});
   }
 }
 
@@ -166,6 +183,7 @@ function frame({ bitmap, inset, scale }) {
     const json = engine.learnt_glyphs(font);
     if (json) post({ type: "glyphs", font, json });
   }
+  lookUpPictures();
   collectRequests();
   lookUpRanks();
 }

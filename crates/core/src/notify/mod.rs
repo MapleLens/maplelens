@@ -5,6 +5,7 @@
 
 pub mod announce;
 pub mod discord;
+pub mod picture;
 pub mod telegram;
 
 /// What happened.
@@ -34,8 +35,10 @@ pub struct Sale {
     pub quantity: u64,
     /// What the store received for it (the meso counter's gain), when known.
     pub mesos: Option<i64>,
-    /// The game's item id, for the item's picture.
+    /// The game's (MapleStory Classic's) item id.
     pub item_id: Option<u64>,
+    /// The item's picture on maplestory.io, whose ids are not the game's: found by name (`picture::Pictures`).
+    pub picture: Option<u64>,
     /// The player whose store it is.
     pub store: Option<String>,
     /// The store's meso counter after it, when known.
@@ -46,6 +49,10 @@ pub struct Sale {
 pub fn item_icon_url(item_id: u64) -> String {
     format!("{}/item/{item_id}/icon", crate::config::MAP_API)
 }
+
+/// The item the test messages' example sale shows (Pet Food, sold by NPCs: in every version's data, with the same
+/// id in the game and on maplestory.io).
+pub const EXAMPLE_ITEM: (&str, u64) = ("Pet Food", 2_120_000);
 
 /// 1234567 -> "1,234,567".
 pub fn grouped(number: i64) -> String {
@@ -58,10 +65,13 @@ pub fn grouped(number: i64) -> String {
 }
 
 /// One HTTP POST with a JSON body.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Request {
     pub url: String,
     pub body: String,
+    /// What to send instead if the service refuses this one (a message with a picture it could not fetch: the same
+    /// message as text).
+    pub fallback: Option<Box<Request>>,
 }
 
 /// Where notifications can go.

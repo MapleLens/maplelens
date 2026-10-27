@@ -263,6 +263,17 @@ export class Engine {
         }
     }
     /**
+     * @param {string} name
+     * @param {string} answer
+     */
+    picture_found(name, answer) {
+        const ptr0 = passStringToWasm0(name, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(answer, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+        const len1 = WASM_VECTOR_LEN;
+        wasm.engine_picture_found(this.__wbg_ptr, ptr0, len0, ptr1, len1);
+    }
+    /**
      * One frame of the game window (RGBA, as a canvas gives it). `top_inset` rows at the top are the window's
      * title bar, not the game; `scale` is the game's UI scale (0 = from the game's height). `now` is seconds on
      * any steady clock, `unix_now` seconds since the epoch. Returns the state as JSON.
@@ -369,7 +380,29 @@ export class Engine {
         wasm.engine_set_shop(this.__wbg_ptr, enabled);
     }
     /**
-     * HTTP requests to send now, `[{"url", "body"}]` JSON (POST, JSON): sales that came in since the last call.
+     * Sold items whose picture to look up first, `[{"name", "url"}]` JSON (GET maplestory.io); each answer's text
+     * goes to `picture_found`. The sales wait a few seconds for them.
+     * @returns {string}
+     */
+    take_picture_lookups() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.engine_take_picture_lookups(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            deferred1_0 = r0;
+            deferred1_1 = r1;
+            return getStringFromWasm0(r0, r1);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * HTTP requests to send now, `[{"service", "url", "body", "fallback"?}]` JSON (POST, JSON): sales that came in
+     * since the last call; `fallback` (`{"url", "body"}`) goes instead if the service refuses the request.
      * @returns {string}
      */
     take_requests() {

@@ -226,7 +226,9 @@ fn a_telegram_webhook_is_completed_with_its_chat_then_tested() {
     assert!(engine.telegram_test_request(&unlinked, 0.0).is_none(), "no chat yet");
     let test: Value = serde_json::from_str(&engine.telegram_test_request(&linked, 0.0).unwrap()).unwrap();
     assert_eq!(test["service"], "Telegram");
-    assert!(test["url"].as_str().unwrap().ends_with("/sendMessage"));
+    // With the example sale's picture, and the same text alone if Telegram cannot fetch it.
+    assert!(test["url"].as_str().unwrap().ends_with("/sendPhoto"));
+    assert!(test["fallback"]["url"].as_str().unwrap().ends_with("/sendMessage"));
     assert_eq!(serde_json::from_str::<Value>(test["body"].as_str().unwrap()).unwrap()["chat_id"], 111);
     assert_eq!(Engine::notify_refusal("Telegram", 401), "Telegram does not know that bot token (revoked?)");
 }
