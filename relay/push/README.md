@@ -54,8 +54,11 @@ Run `npm test` before every deploy. For a **new** account (from scratch), do thi
    ```bash
    npx wrangler secret put VAPID_PUBLIC
    ```
-3. Deploy (above). The first deploy also creates the `StoreState` Durable Object class (the `[[migrations]]` entry). The relay's address is printed; it must match `RELAY_URL` in `docs/app/phone/relay.js`,
-   `docs/app/phone/sw.js` and `crates/core/src/notify/phone.rs`.
+3. Deploy (above). The first deploy also creates the `StoreState` Durable Object class (the `[[migrations]]` entry)
+   and the custom domain in `routes` (`push.maple.observer`, on the `maple.observer` zone of the same account). That
+   address must match `RELAY_URL` in `docs/app/phone/relay.js`, `docs/app/phone/sw.js` and
+   `crates/core/src/notify/phone.rs`, and the `connect-src` of `docs/app/index.html` and `docs/app/phone/index.html`.
+4. Add the firewall rule (below, "Rate limits").
 
 A new VAPID key pair makes every phone pair again (their subscriptions are tied to the old public key).
 `ALLOWED_ORIGINS` (in `wrangler.toml`) lists the sites whose pages may call the relay; `http://localhost` is always
@@ -87,7 +90,22 @@ These are a brake, not a wall. Cloudflare's binding counts per data centre and s
 a fast burst gets through before it bites: in the pentest, 70 back-to-back requests from one address were limited
 1, 10 and 0 times in three runs (the last with a forged `CF-Connecting-IP`, which made no difference). Nothing
 depends on them for access: every route needs a key of 224 random bits. They keep a runaway sender or a careless
-script from costing much; for hard ceilings put the relay on a custom domain and add a WAF rate-limiting rule.
+script from costing much.
+
+The hard ceiling is the zone's firewall, before the Worker runs (so a blocked request costs no Worker or Durable
+Object request): one rate-limiting rule on `maple.observer` (the free plan's one), in the dashboard under Security →
+WAF → Rate limiting rules, or by the Rulesets API's `http_ratelimit` phase:
+
+| Field | Value |
+| --- | --- |
+| Match | `http.host eq "push.maple.observer"` |
+| Counted by | IP address (and data centre) |
+| Limit | 30 requests per 10 seconds |
+| Action | Block, for 10 seconds |
+
+A store's page sends at most one request every 4 s, a phone app one every 15 s, so 30 in 10 s is only ever a flood.
+`workers_dev = false` in `wrangler.toml` keeps the Worker off its `workers.dev` address, which no firewall rule
+covers.
 
 ## Security
 
@@ -124,8 +142,8 @@ What it protects, and how (each is a test in `test/relay.test.mjs`):
 - **Accepted:** a request for an id that has never been used takes longer (its Durable Object is created) than one
   for an existing id. It tells nothing useful: ids are 96 random bits and only ever appear next to their secret.
   Every request with a well-formed key reaches a Durable Object, so someone sending many with random ids uses up the
-  free plan's daily object requests (100,000) for everyone, as fast as the rate limits let them; the paid plan or a
-  WAF rule on a custom domain is the answer if that happens. Ids claimed and never used are deleted after 60 days.
+  free plan's daily object requests (100,000) for everyone, as fast as the rate limits let them; the firewall rule
+  above caps one address at 3 requests a second, and the paid plan lifts the quota if many addresses join in. Ids claimed and never used are deleted after 60 days.
 - **Abuse stays bounded.** Bodies over 8 KB (150 KB for a store state) are refused, read in chunks and cut off at the limit, text fields are cut (title 120, body 600 characters),
   and a pairing holds 5 phones at most: a sixth is refused rather than one dropped, which would leave the owner's
   phone silent while it looked fine. The rate limits are above.

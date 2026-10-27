@@ -9,7 +9,7 @@
 <meta name="robots" content="noindex">
 <!-- The address carries the pairing key: no page it loads from learns it, and nothing it runs can send it elsewhere. -->
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://maplestory.io; connect-src https://maplelens-push.prices-proxy.workers.dev; worker-src 'self'; manifest-src 'self'; media-src 'self' blob:; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://maplestory.io; connect-src https://push.maple.observer; worker-src 'self'; manifest-src 'self'; media-src 'self' blob:; base-uri 'none'; form-action 'none'; object-src 'none'">
 <!-- No start_url in the manifest: the app added to the home screen opens this very address, pairing key included
      (on iPhone the home-screen app has its own storage, so the key must travel in the address). -->
 <link rel="manifest" href="manifest.webmanifest">
@@ -295,6 +295,6 @@ dialog.sheet[open]{animation:up .22s ease-out}
 </dialog>
 
 <div class="toast" id="toast" role="status" hidden></div>
-<script type="module" src="phone.js?v=f970eba269ab"></script>
+<script type="module" src="phone.js?v=f90ab2c1f1d1"></script>
 </body>
 </html>

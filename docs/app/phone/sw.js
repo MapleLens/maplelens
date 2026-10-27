@@ -2,7 +2,7 @@
 // browser renews the push subscription, pairs the new one with the key the page left in the cache.
 
 // A classic worker (module service workers are newer than push on some phones), so relay.js's values are repeated.
-const RELAY_URL = "https://maplelens-push.prices-proxy.workers.dev";
+const RELAY_URL = "https://push.maple.observer";
 const PAIR_CACHE = "maplelens-phone";
 const PAIR_REQUEST = "pair-key";
 

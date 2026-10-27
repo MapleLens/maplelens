@@ -3,7 +3,9 @@
 name = "maplelens-push"
 main = "src/index.js"
 compatibility_date = "2026-10-01"
-workers_dev = true
+workers_dev = false
+# The relay's address: on the project's domain, so the domain's firewall rule (README.md, "Rate limits") sees every request.
+routes = [{ pattern = "push.maple.observer", custom_domain = true }]
 preview_urls = false
 
 [vars]

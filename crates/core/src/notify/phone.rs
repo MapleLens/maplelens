@@ -7,7 +7,7 @@ use serde_json::json;
 use super::{Connector, Notification, Request, Sale, StoreChange, grouped, item_icon_url};
 
 /// The relay; `docs/app/phone/relay.js` has the same address.
-pub const RELAY_URL: &str = "https://maplelens-push.prices-proxy.workers.dev";
+pub const RELAY_URL: &str = "https://push.maple.observer";
 /// The phone page the QR code opens.
 pub const PHONE_PAGE: &str = "https://maplelens.github.io/maplelens/app/phone/";
 /// The relay keeps this much of a title and a body (a push message holds ~4 KB).

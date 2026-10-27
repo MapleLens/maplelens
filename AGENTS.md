@@ -224,7 +224,7 @@ same frames through the Rust watcher (373 real captures, 22 ms a frame against P
   none). Each name is searched once; the browser holds a batch up to 8 s for the answers. `cargo test -p maplelens live_discord -- --ignored` sends to
   `MAPLELENS_DISCORD_WEBHOOK`; `live_telegram` links and writes through the bot in `MAPLELENS_TELEGRAM_BOT`.
 - Phone notifications (`notify::phone`, setting `phone_key`): Web Push through MapleLens's relay, `relay/push` (a
-  Cloudflare Worker in this repo: `npx wrangler deploy` from that folder, `npm test` there for its crypto; VAPID and
+  Cloudflare Worker in this repo at `https://push.maple.observer`, behind that zone's firewall rate limit: `npx wrangler deploy` from that folder, `npm test` there for its crypto; VAPID and
   aes128gcm are hand-written on WebCrypto, no dependency). A pairing key is `<id>.<secret>` (made by the page,
   `phone/relay.js` `newKey`); the relay stores only the secret's SHA-256 and the phones' subscriptions (a Durable Object
   per pairing, the pairing's only record: KV cached a missing pairing for a minute per location), never a message, and accepts push endpoints on the browsers' own push hosts only. The web app shows the key as a QR code of

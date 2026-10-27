@@ -1,7 +1,7 @@
 // The phone notification relay (relay/push in the repository): shared by the phone page and the MapleLens page that
 // shows the pairing QR code. The Rust side's copy is `notify::phone::RELAY_URL`; sw.js repeats these too.
 
-export const RELAY_URL = "https://maplelens-push.prices-proxy.workers.dev";
+export const RELAY_URL = "https://push.maple.observer";
 /** Where the page leaves the pairing key for the service worker (which has no localStorage). */
 export const PAIR_CACHE = "maplelens-phone";
 export const PAIR_REQUEST = "pair-key";
