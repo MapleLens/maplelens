@@ -38,6 +38,11 @@ export class StoreBook {
     }
   }
 
+  /** The items whose sales have no picture, each once. */
+  unpictured() {
+    return [...new Set(this.book.sales.filter(sale => sale.item && !sale.icon).map(sale => sale.item))];
+  }
+
   /** One look's shop state: `{status, owner, balance, events}` as the engine gives it. */
   update(shop, now = Date.now()) {
     if (!shop) return;

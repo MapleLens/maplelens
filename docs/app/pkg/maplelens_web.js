@@ -62,6 +62,29 @@ export class Engine {
         return ret >>> 0;
     }
     /**
+     * The picture of the price list's item of exactly this name, for sales the page kept without one.
+     * @param {string} name
+     * @returns {string | undefined}
+     */
+    catalog_picture(name) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passStringToWasm0(name, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.engine_catalog_picture(retptr, this.__wbg_ptr, ptr0, len0);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            let v2;
+            if (r0 !== 0) {
+                v2 = getStringFromWasm0(r0, r1);
+                wasm.__wbindgen_export(r0, r1 * 1, 1);
+            }
+            return v2;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
      * Items with prices (the demo has two).
      * @returns {number}
      */

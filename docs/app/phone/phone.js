@@ -5,7 +5,8 @@
 // Fastest path per phone: Android receives push in the browser tab itself (scan, tap, done; installing is optional).
 // iPhone only lets home-screen apps receive push, so the page is installed once, and the app can pair by scanning.
 
-import { KEY_SHAPE, PAIR_CACHE, PAIR_REQUEST, relay, RELAY_URL, unseal } from "./relay.js?v=d5e2993c70a9";
+import { pullToRefresh } from "./pull.js?v=347aacee3ee9";
+import { KEY_SHAPE, PAIR_CACHE, PAIR_REQUEST, relay, RELAY_URL, unseal } from "./relay.js?v=347aacee3ee9";
 
 const $ = id => document.getElementById(id);
 const STORED_KEY = "maplelens.phone.key";
@@ -630,6 +631,17 @@ for (const name of ["sales", "chat", "visits"]) {
     render();
   });
 }
+// The store asked again on the dashboard; elsewhere the pairing's steps are looked at again (a code scanned with the
+// camera app, notifications allowed in the phone's settings).
+pullToRefresh(document.querySelector("main"), $("ptr"), async () => {
+  if (new URLSearchParams(location.search).has("demo")) return demo();
+  if (!$("dashboard").hidden) {
+    await refresh();
+    if (unreachable) toast("No connection. Showing what MapleLens sent earlier.");
+    return;
+  }
+  await start();
+}, () => !scanning && !$("settings").open);
 start().catch(error => {
   show("unsupported", "error");
   $("unsupported").querySelector("p").textContent = `Something went wrong: ${error.message || error}`;

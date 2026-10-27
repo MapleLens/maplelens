@@ -28,3 +28,32 @@ fetch("https://api.github.com/repos/MapleLens/maplelens/releases/latest")
     document.querySelectorAll(".js-dl-meta").forEach(s => s.textContent = `${zip.name} · ${size} · Windows 10/11`);
   })
   .catch(() => {});
+
+// On a phone: the steps to connect it to MapleLens on the computer, for the Windows app or the web app.
+const connect = document.getElementById("connect");
+if (connect) {
+  document.querySelectorAll(".js-connect").forEach(b => b.addEventListener("click", () => {
+    connect.showModal();
+    window.goatcounter?.count?.({path: "connect-phone", title: "Connect to MapleLens", event: true});
+  }));
+  document.getElementById("connect-close").addEventListener("click", () => connect.close());
+  // A tap on the dimmed backdrop closes it, as on every phone.
+  connect.addEventListener("click", event => { if (event.target === connect) connect.close(); });
+  const ways = connect.querySelectorAll(".seg button");
+  ways.forEach(b => b.addEventListener("click", () => {
+    ways.forEach(o => o.setAttribute("aria-pressed", String(o === b)));
+    connect.querySelectorAll("ol[data-way]").forEach(ol => ol.hidden = ol.dataset.way !== b.dataset.way);
+  }));
+  // The computer needs MapleLens too: the phone's share sheet sends it there (mail, a chat), else the link is copied.
+  const share = document.getElementById("connect-share");
+  share.addEventListener("click", async () => {
+    const url = "https://maplelens.github.io/maplelens/";
+    try {
+      if (navigator.share) await navigator.share({title: "MapleLens", url});
+      else {
+        await navigator.clipboard.writeText(url);
+        share.textContent = "Link copied";
+      }
+    } catch {}
+  });
+}

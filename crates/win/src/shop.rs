@@ -83,6 +83,16 @@ impl Emit {
         }
     }
 
+    /// Pictures from the price list for the sales the book kept without one (saved before pictures came by id).
+    fn fill_pictures(&self, catalog: &Catalog) {
+        if let Some(book) = &self.book {
+            let mut book = book.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if book.fill_pictures(catalog) {
+                crate::phone::save_book(&book);
+            }
+        }
+    }
+
     fn line(&self, message: &str) {
         crate::debug!("shop: {message}");
         if self.console {
@@ -157,6 +167,7 @@ struct Source {
 
 /// Watch until `updates` is closed (the app quit) or forever (`--shop`).
 pub fn run(ui: Arc<UiScale>, updates: Option<Sender<ShopUpdate>>, emit: Emit, catalog: Arc<Catalog>) {
+    emit.fill_pictures(&catalog);
     let new_watcher = || {
         let mut watcher = ShopWatcher::new(reader());
         watcher.set_catalog(catalog.clone());
