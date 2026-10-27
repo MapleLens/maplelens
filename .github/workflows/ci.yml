@@ -156,7 +156,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      # The relay's routes, crypto and abuse cases (relay/push/test), against an in-memory KV and Durable Object.
+      # The relay's routes, crypto and abuse cases (relay/push/test), against in-memory Durable Objects.
       - run: npm test
         working-directory: relay/push
       # The self-hosted Tesseract and jsQR are byte for byte what scripts/vendor.mjs checked against npm's integrity.

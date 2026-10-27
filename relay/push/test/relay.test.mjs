@@ -1,4 +1,4 @@
-// npm test — the relay's routes against an in-memory KV and a fake push service: what a stranger can and
+// npm test — the relay's routes against in-memory Durable Objects and a fake push service: what a stranger can and
 // cannot do with or without a key.
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -10,40 +10,24 @@ const SITE = "https://maplelens.github.io";
 const KEY = "AbCdEfGhIjKlMnOp.qRsTuVwXyZ0123456789-_ab";
 const WRONG = "AbCdEfGhIjKlMnOp.zzzzzzzzzzzzzzzzzzzzzzzzzz";
 
-class Kv {
-  constructor() {
-    this.data = new Map();
-    this.writes = 0;
-  }
-  async get(id, type) {
-    const value = this.data.get(id);
-    return value === undefined ? null : type === "json" ? JSON.parse(value) : value;
-  }
-  async put(id, value) {
-    this.writes++;
-    this.data.set(id, value);
-  }
-  async delete(id) {
-    this.writes++;
-    this.data.delete(id);
-  }
-}
-
-/** Durable Object storage as the KV-style API the relay uses. */
+/** Durable Object storage, the part of its API the relay uses. */
 class ObjectStorage {
   constructor() {
     this.data = new Map();
     this.alarm = null;
+    this.writes = 0;
   }
   async get(key) {
     if (Array.isArray(key)) return new Map(key.filter(k => this.data.has(k)).map(k => [k, this.data.get(k)]));
     return this.data.get(key);
   }
   async put(entries) {
-    for (const [k, v] of Object.entries(entries)) this.data.set(k, v);
+    this.writes++;
+    for (const [k, v] of Object.entries(entries)) this.data.set(k, structuredClone(v));
   }
   async delete(key) {
-    this.data.delete(key);
+    this.writes++;
+    for (const k of [key].flat()) this.data.delete(k);
   }
   async deleteAll() {
     this.data.clear();
@@ -68,6 +52,13 @@ class Objects {
     const instance = this.instances.get(id);
     return { fetch: request => instance.fetch(request) };
   }
+  /** Everything every object has stored, as text. */
+  dump() {
+    return JSON.stringify([...this.instances.values()].map(o => [...o.storage.data.entries()]));
+  }
+  get writes() {
+    return [...this.instances.values()].reduce((n, o) => n + o.storage.writes, 0);
+  }
 }
 
 class Limiter {
@@ -85,7 +76,6 @@ class Limiter {
 async function environment(limits = {}) {
   const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
   return {
-    PAIRS: new Kv(),
     STORES: new Objects(),
     STATE_LIMIT: new Limiter(limits.state ?? 1000),
     CLIENT_LIMIT: new Limiter(limits.client ?? 1000),
@@ -146,7 +136,7 @@ test("nothing is stored but the secret's hash and the subscriptions", async () =
   pushService();
   await call(env, "/pair", { key: KEY, subscription: await subscription("a") });
   await call(env, "/notify", { key: KEY, title: "Sold: Pet Food", body: "Bought by Buyer" });
-  const stored = [...env.PAIRS.data.values()].join();
+  const stored = env.STORES.dump();
   assert.ok(!stored.includes(KEY.split(".")[1]), "the secret is not stored");
   assert.ok(!stored.includes("Pet Food") && !stored.includes("Buyer"), "no message is stored");
 });
@@ -157,7 +147,8 @@ test("a wrong secret can neither send, read, unpair nor join, and looks like no 
   await call(env, "/pair", { key: KEY, subscription: await subscription("owner") });
   const nothing = { status: 404, json: { error: "not paired" } };
   assert.deepEqual(await call(env, "/notify", { key: WRONG, title: "spam" }), nothing);
-  assert.deepEqual(await call(env, "/unpair", { key: WRONG }), nothing);
+  assert.deepEqual(await call(env, "/unpair", { key: WRONG, remove: true }), nothing);
+  assert.deepEqual(await call(env, "/unpair", { key: WRONG, endpoint: "https://fcm.googleapis.com/fcm/send/owner" }), nothing);
   assert.deepEqual(await call(env, "/pair", { key: WRONG, subscription: await subscription("thief") }), nothing);
   assert.deepEqual(await call(env, "/status", { key: WRONG }), { status: 200, json: { phones: 0 } });
   assert.deepEqual(await call(env, "/notify", { key: "AAAAAAAAAAAAAAAAAAAAAA.never-paired-secret-xxxxxx", title: "x" }), nothing);
@@ -180,10 +171,10 @@ test("re-pairing an unchanged phone writes nothing and announces nothing", async
   const phone = await subscription("owner");
   await call(env, "/pair", { key: KEY, subscription: phone });
   await call(env, "/pair", { key: KEY, subscription: await subscription("second") });
-  const writes = env.PAIRS.writes;
+  const writes = env.STORES.writes;
   const alerts = pushed.length;
   await call(env, "/pair", { key: KEY, subscription: phone });
-  assert.equal(env.PAIRS.writes, writes);
+  assert.equal(env.STORES.writes, writes);
   assert.equal(pushed.length, alerts);
 });
 
@@ -234,7 +225,7 @@ test("bad requests are refused before any lookup", async () => {
   assert.equal((await call(env, "/notify", { key: "a.b", title: "x" })).status, 400);
   assert.equal((await call(env, "/notify", { key: KEY, title: "x" }, { origin: "https://evil.example" })).status, 403);
   assert.equal((await call(env, "/nowhere", {})).status, 404);
-  assert.equal(env.PAIRS.writes, 0);
+  assert.equal(env.STORES.instances.size, 0);
 });
 
 test("rate limits: per address for everything and for pairing, per pairing for sending", async () => {
@@ -298,52 +289,96 @@ test("removing on the computer tells every phone and forgets the state; a phone 
   await call(env, "/unpair", { key: KEY, endpoint: "https://fcm.googleapis.com/fcm/send/b" });
   assert.equal(pushed.length, 0);
   assert.equal((await call(env, "/state/ping", { key: KEY })).json.phones, 1, "the computer sees the phone count drop");
-  await call(env, "/unpair", { key: KEY });
+  await call(env, "/unpair", { key: KEY, remove: true });
   assert.deepEqual(pushed.map(p => p.url), ["https://fcm.googleapis.com/fcm/send/a"]);
   assert.deepEqual(await call(env, "/state/get", { key: KEY }), { status: 410, json: { error: "removed" } });
   const left = env.STORES.instances.get(KEY.split(".")[0]).storage.data;
   assert.deepEqual([...left.keys()].sort(), ["hash", "removed"], "the sealed state is deleted, a tombstone stays");
 });
 
-test("a removed key stays removed: no re-pairing, no revival from a stale KV copy, and nothing told to others", async () => {
+test("a removed key stays removed: no re-pairing, nothing sent, and nothing told to others", async () => {
   const env = await environment();
-  pushService();
+  const pushed = pushService();
   const phone = await subscription("a");
   await call(env, "/pair", { key: KEY, subscription: phone });
-  const copy = [...env.PAIRS.data.entries()];
-  await call(env, "/unpair", { key: KEY });
+  await call(env, "/unpair", { key: KEY, remove: true });
+  pushed.length = 0;
   // The phone app re-pairs on start with the key it still holds.
   assert.deepEqual(await call(env, "/pair", { key: KEY, subscription: phone }), { status: 410, json: { error: "removed" } });
-  assert.equal(env.PAIRS.data.size, 0);
-  // KV read back stale at another location.
-  for (const [k, v] of copy) env.PAIRS.data.set(k, v);
   assert.equal((await call(env, "/state/get", { key: KEY })).status, 410);
   assert.deepEqual(await call(env, "/notify", { key: KEY, title: "x" }), { status: 410, json: { error: "removed" } });
   assert.equal((await call(env, "/status", { key: KEY })).status, 410);
+  assert.equal(pushed.length, 0);
   // A wrong secret learns nothing about the tombstone.
   assert.deepEqual(await call(env, "/state/get", { key: WRONG }), { status: 404, json: { error: "not paired" } });
 });
 
-test("a pairing whose last phone uninstalled can pair again, but is not revived from stale KV meanwhile", async () => {
+test("an unpair naming no phone is refused, not read as a removal", async () => {
+  const env = await environment();
+  const pushed = pushService();
+  await call(env, "/pair", { key: KEY, subscription: await subscription("a") });
+  await call(env, "/pair", { key: KEY, subscription: await subscription("b") });
+  pushed.length = 0;
+  for (const body of [{ key: KEY }, { key: KEY, endpoint: null }, { key: KEY, remove: "yes" }]) {
+    assert.deepEqual(await call(env, "/unpair", body), { status: 400, json: { error: "endpoint" } });
+  }
+  assert.equal(pushed.length, 0);
+  assert.deepEqual((await call(env, "/status", { key: KEY })).json, { phones: 2 });
+});
+
+test("a pairing whose last phone uninstalled says so, and can pair again", async () => {
   const env = await environment();
   pushService(url => (url.endsWith("/gone") ? 410 : 201));
   await call(env, "/pair", { key: KEY, subscription: await subscription("gone") });
-  const copy = [...env.PAIRS.data.entries()];
-  await call(env, "/notify", { key: KEY, title: "x" });
-  for (const [k, v] of copy) env.PAIRS.data.set(k, v);
-  assert.equal((await call(env, "/state/ping", { key: KEY })).status, 404);
-  env.PAIRS.data.clear();
+  assert.deepEqual(await call(env, "/notify", { key: KEY, title: "x" }), { status: 404, json: { sent: 0, phones: 0 } });
   assert.equal((await call(env, "/pair", { key: KEY, subscription: await subscription("new") })).status, 200);
   assert.equal((await call(env, "/state/ping", { key: KEY })).json.phones, 1);
 });
 
-test("a pairing made before the store object existed is adopted from KV", async () => {
+test("a phone pairing while a message is sent stays paired when a dead phone is dropped", async () => {
+  const env = await environment();
+  const late = await subscription("late");
+  let joining;
+  const pushed = pushService(url => {
+    // The push to the dead phone is answered after another phone has paired.
+    if (url.endsWith("/gone") && !joining) joining = call(env, "/pair", { key: KEY, subscription: late });
+    return url.endsWith("/gone") ? 410 : 201;
+  });
+  await call(env, "/pair", { key: KEY, subscription: await subscription("gone") });
+  await call(env, "/pair", { key: KEY, subscription: await subscription("here") });
+  pushed.length = 0;
+  joining = undefined;
+  await call(env, "/notify", { key: KEY, title: "x" });
+  await joining;
+  pushed.length = 0;
+  await call(env, "/notify", { key: KEY, title: "y" });
+  const urls = pushed.map(p => p.url).sort();
+  assert.deepEqual(urls, ["https://fcm.googleapis.com/fcm/send/here", "https://fcm.googleapis.com/fcm/send/late"]);
+});
+
+test("a phone renewing its subscription replaces its old one without a new-phone alert", async () => {
+  const env = await environment();
+  const pushed = pushService();
+  await call(env, "/pair", { key: KEY, subscription: await subscription("owner") });
+  await call(env, "/pair", { key: KEY, subscription: await subscription("old") });
+  pushed.length = 0;
+  const renewed = { key: KEY, subscription: await subscription("renewed"), replaces: "https://fcm.googleapis.com/fcm/send/old" };
+  assert.deepEqual(await call(env, "/pair", renewed), { status: 200, json: { phones: 2 } });
+  assert.equal(pushed.length, 0, "nobody was alerted");
+  // Naming an endpoint that is not in the pairing makes it a new phone like any other.
+  const other = { key: KEY, subscription: await subscription("other"), replaces: "https://fcm.googleapis.com/fcm/send/nope" };
+  await call(env, "/pair", other);
+  assert.equal(pushed.length, 2);
+});
+
+test("once a secret has claimed an id, another secret cannot pair, even with no phone left", async () => {
   const env = await environment();
   pushService();
-  await call(env, "/pair", { key: KEY, subscription: await subscription("a") });
-  env.STORES = new Objects();
-  assert.equal((await call(env, "/state/ping", { key: KEY })).json.phones, 1);
-  assert.equal((await call(env, "/state/ping", { key: WRONG })).status, 404);
+  await call(env, "/pair", { key: KEY, subscription: await subscription("owner") });
+  await call(env, "/unpair", { key: KEY, endpoint: "https://fcm.googleapis.com/fcm/send/owner" });
+  const answer = await call(env, "/pair", { key: WRONG, subscription: await subscription("thief") });
+  assert.deepEqual(answer, { status: 404, json: { error: "not paired" } });
+  assert.equal((await call(env, "/pair", { key: KEY, subscription: await subscription("owner") })).status, 200);
 });
 
 test("nobody but the relay can send its own tags (a phone forgets its key on \"unpaired\")", async () => {
@@ -358,16 +393,6 @@ test("nobody but the relay can send its own tags (a phone forgets its key on \"u
   assert.equal(unpaired, plain, "the reserved tag was dropped");
   assert.equal(newPhone, plain);
   assert.ok(store > plain, "an ordinary tag goes through");
-});
-
-test("once the store object knows a pairing, another secret cannot pair even where KV has not caught up", async () => {
-  const env = await environment();
-  pushService();
-  await call(env, "/pair", { key: KEY, subscription: await subscription("owner") });
-  env.PAIRS.data.clear(); // KV at another location, not yet showing the pairing
-  const answer = await call(env, "/pair", { key: WRONG, subscription: await subscription("thief") });
-  assert.deepEqual(answer, { status: 404, json: { error: "not paired" } });
-  assert.equal(env.PAIRS.data.size, 0, "nothing was written");
 });
 
 test("a body with no Content-Length is cut off at the limit, not read whole", async () => {

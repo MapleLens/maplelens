@@ -11,10 +11,6 @@ preview_urls = false
 ALLOWED_ORIGINS = "https://maplelens.github.io,https://maplelens-preview.prices-proxy.workers.dev"
 VAPID_SUBJECT = "https://maplelens.github.io/maplelens/"
 
-[[kv_namespaces]]
-binding = "PAIRS"
-id = "b1634704bf364755bb7af56484d654a7"
-
 # Rate limits (Workers rate limiting: per Cloudflare location, periods of 10 or 60 s). See README.md.
 # Every address, every POST: a player's page polls /status every 4 s while its QR code is up and sends a few messages.
 [[ratelimits]]
@@ -22,7 +18,7 @@ name = "CLIENT_LIMIT"
 namespace_id = "7303"
 simple = { limit = 60, period = 60 }
 
-# Per address: pairing and unpairing write KV (1,000 writes a day on the free plan).
+# Per address: pairing and unpairing write storage.
 [[ratelimits]]
 name = "PAIR_LIMIT"
 namespace_id = "7302"
@@ -40,7 +36,7 @@ name = "STATE_LIMIT"
 namespace_id = "7304"
 simple = { limit = 60, period = 60 }
 
-# The sealed store state, one object per pairing (src/store.js). SQLite-backed: on the free plan.
+# One object per pairing: its hash, phones and sealed store state (src/store.js). SQLite-backed: on the free plan.
 [[durable_objects.bindings]]
 name = "STORES"
 class_name = "StoreState"

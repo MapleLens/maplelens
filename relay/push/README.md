@@ -9,21 +9,24 @@ paired devices can make, and the phone app reads it back. The phone side is `doc
 | Route | Body | Does |
 | --- | --- | --- |
 | `GET /key` | | The VAPID public key, for `PushManager.subscribe` |
-| `POST /pair` | `{key, subscription}` | A phone joins the pairing (at most 5; the phones already in it get a "new phone" alert) |
-| `POST /unpair` | `{key, endpoint?}` | One phone leaves; without `endpoint` the whole pairing is deleted |
+| `POST /pair` | `{key, subscription, replaces?}` | A phone joins the pairing (at most 5; the phones already in it get a "new phone" alert, unless it renews its own subscription: `replaces` is the endpoint it had) |
+| `POST /unpair` | `{key, endpoint}` | One phone leaves |
+| `POST /unpair` | `{key, remove: true}` | MapleLens removes the pairing (a request with neither is refused) |
 | `POST /notify` | `{key, title, body, icon?, tag?}` | Push to every paired phone |
 | `POST /status` | `{key}` | `{phones}`: how many are paired |
 | `POST /state/put` | `{key, blob}` | MapleLens uploads the sealed store state; answers `{phones}` |
 | `POST /state/ping` | `{key}` | MapleLens checks in (each minute); answers `{phones}`, so it notices a phone leaving |
 | `POST /state/get` | `{key}` | The phone app reads `{blob, at, seen, phones}` (`seen`: MapleLens's last check-in) |
 
-Removing on the computer (`/unpair` without `endpoint`) pushes a "disconnected" notification to every phone, whose app
+Removing on the computer (`/unpair` with `remove: true`) pushes a "disconnected" notification to every phone, whose app
 clears itself, and leaves a tombstone: that key answers 410 on every route from then on.
 
 No dependencies: VAPID (RFC 8292) and message encryption (RFC 8291) are written on WebCrypto in `src/webpush.js`.
-Storage: KV holds pairings (secret hash + push subscriptions); a Durable Object per pairing (`src/store.js`, SQLite
-backed) holds the sealed store state, a copy of the hash and phone count (so the frequent state routes need no KV
-read), and the tombstone of a removed pairing (KV is eventually consistent; the object is not).
+Storage: a Durable Object per pairing (`src/store.js`, SQLite backed) holds the secret's hash, the phones' push
+subscriptions, the sealed store state and, once removed, the tombstone. It is the pairing's only record: an object
+runs one request at a time on strongly consistent storage, so two phones pairing at once both stay and a phone that
+just paired is seen by the next message from anywhere. (KV, used at first, cached a missing pairing for a minute per
+location: Test right after pairing said "no phone is paired".)
 
 ## Deploy
 
@@ -39,22 +42,18 @@ npx wrangler deploy
 
 Run `npm test` before every deploy. For a **new** account (from scratch), do this once before the first deploy:
 
-1. Create the KV namespace and put its `id` in `wrangler.toml` under `[[kv_namespaces]]`:
-   ```bash
-   npx wrangler kv namespace create PAIRS
-   ```
-2. Make the VAPID key pair (prints two lines, `VAPID_PRIVATE_JWK=...` and `VAPID_PUBLIC=...`):
+1. Make the VAPID key pair (prints two lines, `VAPID_PRIVATE_JWK=...` and `VAPID_PUBLIC=...`):
    ```bash
    node keys.mjs
    ```
-3. Store both as secrets; paste each value when asked (never commit them):
+2. Store both as secrets; paste each value when asked (never commit them):
    ```bash
    npx wrangler secret put VAPID_PRIVATE_JWK
    ```
    ```bash
    npx wrangler secret put VAPID_PUBLIC
    ```
-4. Deploy (above). The first deploy also creates the `StoreState` Durable Object class (the `[[migrations]]` entry). The relay's address is printed; it must match `RELAY_URL` in `docs/app/phone/relay.js`,
+3. Deploy (above). The first deploy also creates the `StoreState` Durable Object class (the `[[migrations]]` entry). The relay's address is printed; it must match `RELAY_URL` in `docs/app/phone/relay.js`,
    `docs/app/phone/sw.js` and `crates/core/src/notify/phone.rs`.
 
 A new VAPID key pair makes every phone pair again (their subscriptions are tied to the old public key).
@@ -63,10 +62,10 @@ allowed, for development. A test copy of the site on another origin needs its or
 
 Always deploy with this folder's config (`-c wrangler.toml` if another `wrangler.*` file could be found above it).
 
-Costs: the free Workers plan covers 100,000 requests and 1,000 KV writes a day, and SQLite Durable Objects 100,000
-requests a day. Only pairing, unpairing and forgetting an uninstalled phone write KV (an unchanged phone re-pairing
-does not). A watched store costs at most 12 state uploads and 1 check-in a minute, and only while a phone is paired
-and something changed; an open phone app reads every 15 s. Watch the dashboard's Workers, KV and Durable Objects
+Costs: the free Workers plan covers 100,000 requests a day, and SQLite Durable Objects 100,000 requests and 100,000
+row writes a day. Pairing, unpairing, forgetting an uninstalled phone and a state upload write (an unchanged phone
+re-pairing does not). A watched store costs at most 12 state uploads and 1 check-in a minute, and only while a phone is paired
+and something changed; an open phone app reads every 15 s. Watch the dashboard's Workers and Durable Objects
 metrics; the paid plan ($5 a month) lifts every limit far above this.
 
 ## Rate limits
@@ -75,8 +74,8 @@ Cloudflare's rate limiting binding (counted per Cloudflare location, 60 s window
 
 | Limit | Key | Allows | Why |
 | --- | --- | --- | --- |
-| `CLIENT_LIMIT` | caller's IP | 60 POSTs a minute | Checked before the body is read: junk can't buy KV reads |
-| `PAIR_LIMIT` | caller's IP | 5 pair/unpair a minute | They write KV, the scarce resource |
+| `CLIENT_LIMIT` | caller's IP | 60 POSTs a minute | Checked before the body is read: junk can't buy storage reads |
+| `PAIR_LIMIT` | caller's IP | 5 pair/unpair a minute | They write storage and push alerts |
 | `NOTIFY_LIMIT` | pairing id (+ route) | 20 `/notify` and 20 `/status` a minute | A runaway or leaked sender can't flood a phone |
 | `STATE_LIMIT` | pairing id (+ route) | 60 of each `/state/*` a minute | Uploads every 5 s at most, reads every 15 s per phone |
 
@@ -94,15 +93,16 @@ script from costing much; for hard ceilings put the relay on a custom domain and
 What it protects, and how (each is a test in `test/relay.test.mjs`):
 
 - **Only the key holder can send, read the phone count, unpair or join.** The key is `<id>.<secret>`, 96 + 128
-  random bits made by MapleLens (`newKey` in `docs/app/phone/relay.js`). KV keeps the secret's SHA-256 only, so a
-  KV dump cannot send. A wrong secret is answered exactly like a pairing that does not exist (no "exists" oracle).
+  random bits made by MapleLens (`newKey` in `docs/app/phone/relay.js`). Storage keeps the secret's SHA-256 only,
+  so a dump of it cannot send. A wrong secret is answered exactly like a pairing that does not exist (no "exists" oracle).
 - **The relay cannot read the store.** The state (players' names, chat) is sealed in the browser with AES-GCM under
   a key derived from the pairing secret (HKDF), which the relay never has; it stores and serves ciphertext.
 - **Remove means removed.** A removed key is refused on every route at once (410), even by a phone still holding it
-  that re-pairs on start, and even where a stale KV copy is read in the minute after (the tombstone is kept for
-  good); its phones are told, and their apps clear themselves. A phone that leaves on its own is seen by MapleLens's next check-in.
+  that re-pairs on start (the tombstone is kept for good); its phones are told, and their apps clear themselves.
+  Removing must be asked for (`remove: true`): a phone leaving without naming itself is refused, so it cannot cut
+  off the other phones by accident. MapleLens forgets its key only once the relay has answered. A phone that leaves on its own is seen by MapleLens's next check-in.
 - **Nobody else reads the messages.** Each push is encrypted for the phone's own keys (aes128gcm); the push service
-  (Apple, Google, Mozilla, Microsoft) sees ciphertext. The relay keeps no message: nothing is written to KV or logged.
+  (Apple, Google, Mozilla, Microsoft) sees ciphertext. The relay keeps no message: nothing of it is stored or logged.
 - **A leaked QR code is noticed and can be revoked.** The code is the key. MapleLens shows it for 2 minutes at most
   and hides it as soon as a phone pairs (a streamed screen is public). Every phone that joins a pairing triggers an
   alert on the phones already in it, and **Remove** in MapleLens deletes the pairing, so a new QR code is a new key.
@@ -114,18 +114,19 @@ What it protects, and how (each is a test in `test/relay.test.mjs`):
   and a request with any other `Origin` is refused. Non-browser callers still need a key; the key is the credential.
 - **Only the relay speaks for the relay.** The tags it sends itself (`unpaired`, which makes a phone forget its key,
   and `new-phone`) are stripped from anyone else's message, so a leaked key cannot fake a removal.
-- **A stale copy can't hijack.** Once the pairing's Durable Object knows the secret's hash, a different secret is
-  refused even where KV has not caught up yet.
+- **An id is its first secret's.** Once a secret has paired with an id, a different secret is refused, even after
+  the last phone left.
 - **The phone page keeps its key to itself.** It sends no referrer, and its Content Security Policy only lets it
   run scripts from itself (the QR decoder is vendored: `scripts/vendor.mjs`), load images from maplestory.io and
   talk to the relay. The web app and the website follow the same rule (see AGENTS.md, "The site's origin holds
   secrets").
 - **Accepted:** a request for an id that has never been used takes longer (its Durable Object is created) than one
   for an existing id. It tells nothing useful: ids are 96 random bits and only ever appear next to their secret.
-  Two phones pairing in the same second can race on KV, and one may need to open the app again to re-pair.
 - **Abuse stays bounded.** Bodies over 8 KB (150 KB for a store state) are refused, read in chunks and cut off at the limit, text fields are cut (title 120, body 600 characters),
   and a pairing holds 5 phones at most. The rate limits are above.
 
 What it does not protect: anyone holding a key (a QR code photographed from a stream, a shared screenshot) can send
-messages to those phones and pair their own until the player presses Remove. That is why the code hides itself and
+messages to those phones, pair their own, upload a store state of their making (the phones and MapleLens hold the
+same key, so a sealed state proves it came from a key holder, not from MapleLens) and remove the pairing, until the
+player presses Remove. That is why the code hides itself and
 every new phone is announced.

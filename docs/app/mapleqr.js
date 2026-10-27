@@ -17,6 +17,8 @@ const LOGO_SHARE = 0.2;
 const SCALE = 10;
 /** A dot's radius in modules: touching neighbours, so a blurred camera image still sees solid runs. */
 const DOT = 0.5;
+/** How long the code waits for the coin picture before showing without it. */
+const COIN_WAIT_MS = 2000;
 
 /** The coin's tile, in modules: odd, so it sits on the centre module. */
 export function logoSpan(width) {
@@ -121,7 +123,8 @@ export async function drawMapleQr(canvas, modules, coinUrl) {
   g.stroke();
   const coin = new Image();
   coin.src = coinUrl;
-  await coin.decode().catch(() => null);
+  // A hidden tab may never finish decoding: the code reads without its coin, so it is not held up for it.
+  await Promise.race([coin.decode().catch(() => null), new Promise(done => setTimeout(done, COIN_WAIT_MS))]);
   if (coin.naturalWidth) {
     const inner = tileSize - 2.4 * SCALE;
     const k = Math.floor((inner / Math.max(coin.naturalWidth, coin.naturalHeight)) * 2) / 2;

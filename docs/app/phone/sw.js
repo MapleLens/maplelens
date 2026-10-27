@@ -54,15 +54,22 @@ self.addEventListener("pushsubscriptionchange", event => {
       const stored = await (await caches.open(PAIR_CACHE)).match(PAIR_REQUEST);
       if (!stored) return;
       const key = await stored.text();
-      const applicationServerKey = event.oldSubscription?.options?.applicationServerKey;
+      // Firefox gives no old subscription: the relay's key is asked again.
+      const applicationServerKey = event.oldSubscription?.options?.applicationServerKey || (await vapidKey());
       const subscription =
         event.newSubscription ||
         (await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey }));
+      // `replaces`: the same phone renewing, so the others get no "new phone" alert and the old one frees its place.
       await fetch(`${RELAY_URL}/pair`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key, subscription }),
+        body: JSON.stringify({ key, subscription, replaces: event.oldSubscription?.endpoint }),
       });
     })(),
   );
 });
+
+async function vapidKey() {
+  const { key: raw } = await (await fetch(`${RELAY_URL}/key`)).json();
+  return Uint8Array.from(atob(raw.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
+}

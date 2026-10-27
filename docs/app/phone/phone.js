@@ -5,7 +5,7 @@
 // Fastest path per phone: Android receives push in the browser tab itself (scan, tap, done; installing is optional).
 // iPhone only lets home-screen apps receive push, so the page is installed once, and the app can pair by scanning.
 
-import { KEY_SHAPE, PAIR_CACHE, PAIR_REQUEST, relay, RELAY_URL, unseal } from "./relay.js";
+import { KEY_SHAPE, PAIR_CACHE, PAIR_REQUEST, relay, RELAY_URL, unseal } from "./relay.js?v=414d23baa951";
 
 const $ = id => document.getElementById(id);
 const STORED_KEY = "maplelens.phone.key";
@@ -156,7 +156,8 @@ async function unpair() {
   if (!confirm("Disconnect this phone? It stops getting your store's notifications.")) return;
   const sw = await navigator.serviceWorker.getRegistration("./");
   const subscription = await sw?.pushManager.getSubscription();
-  await relay("unpair", { key, endpoint: subscription?.endpoint });
+  // Without a subscription the relay has nothing of this phone's to drop (and the other phones stay paired).
+  if (subscription) await relay("unpair", { key, endpoint: subscription.endpoint });
   await subscription?.unsubscribe();
   await caches.delete(PAIR_CACHE);
   store(STORED_KEY, "");

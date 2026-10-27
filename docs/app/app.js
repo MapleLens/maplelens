@@ -1,12 +1,12 @@
 // MapleLens Web: capture the game window (the page offers nothing else; the sample, video and frame-folder sources are
 // test hooks started by a URL parameter), feed frames to the engine, show the cards in the page and, on request, in a picture-in-picture window that floats over the game.
 
-import { Lens } from "./lens.js?v=e9e6e648a0ae";
-import { CardView, floatingSize, openFloating } from "./cards.js?v=e9e6e648a0ae";
-import { Prices } from "./prices.js?v=e9e6e648a0ae";
-import { drawMapleQr } from "./mapleqr.js?v=e9e6e648a0ae";
-import { StoreBook } from "./storebook.js?v=e9e6e648a0ae";
-import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=e9e6e648a0ae";
+import { Lens } from "./lens.js?v=414d23baa951";
+import { CardView, floatingSize, openFloating } from "./cards.js?v=414d23baa951";
+import { Prices } from "./prices.js?v=414d23baa951";
+import { drawMapleQr } from "./mapleqr.js?v=414d23baa951";
+import { StoreBook } from "./storebook.js?v=414d23baa951";
+import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=414d23baa951";
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -164,12 +164,30 @@ function setPhones(count) {
   showPhone();
 }
 
+/** Forgets the pairing key here: a new Connect makes a new key and QR code. */
+function forgetPhoneKey(note) {
+  hidePairing();
+  shopSettings.phone = "";
+  phones = null;
+  saveShopSettings();
+  showPhone();
+  applyShopSettings();
+  $("phone-note").textContent = note;
+}
+
+/** The relay's answer to an upload or a check-in: the phone count, or the key was removed (from another tab, or by a
+ *  key holder) and is dead, so a QR code of it would only send phones to "Disconnected". */
+function phoneAnswer(answer) {
+  if (answer.status === 410) forgetPhoneKey("This pairing was removed. Press Connect to pair a phone again.");
+  else if (answer.ok || answer.status === 404) setPhones(answer.ok ? answer.json.phones || 0 : 0);
+}
+
 /** MapleLens checking in: how many phones are paired (none once the pairing is gone). */
 async function phoneStatus() {
   if (!shopSettings.phone) return;
   const answer = await relay("state/ping", { key: shopSettings.phone });
   lastCheckIn = Date.now();
-  if (answer.ok || answer.status === 404 || answer.status === 410) setPhones(answer.ok ? answer.json.phones || 0 : 0);
+  phoneAnswer(answer);
 }
 
 /** Every few seconds: the sealed store book to the phones when it changed, else a check-in each minute. */
@@ -187,7 +205,7 @@ async function syncPhones() {
       lastUpload = lastCheckIn = now;
       if (answer.ok) lastFollowing = watching;
       else book.changed = true;
-      if (answer.ok || answer.status === 404 || answer.status === 410) setPhones(answer.ok ? answer.json.phones || 0 : 0);
+      phoneAnswer(answer);
     } else if (now - lastCheckIn >= CHECK_IN_MS) {
       await phoneStatus();
     }
@@ -754,14 +772,15 @@ async function main() {
   });
   $("phone-clear").addEventListener("click", async () => {
     hidePairing();
+    phoneNote("Removing…");
     // Forgets the pairing at the relay too: the phones are told and disconnect, and the old QR code is worthless.
-    await relay("unpair", { key: shopSettings.phone });
-    shopSettings.phone = "";
-    phones = null;
-    saveShopSettings();
-    showPhone();
-    applyShopSettings();
-    phoneNote("Removed: your phones were told and disconnected");
+    // The key is kept until the relay has done it: forgotten here only, it would still work for whoever holds it.
+    const answer = await relay("unpair", { key: shopSettings.phone, remove: true });
+    if (answer.ok || answer.status === 404 || answer.status === 410) {
+      forgetPhoneKey("Removed: your phones were told and disconnected");
+    } else {
+      phoneNote(answer.status === 429 ? "Too many tries: wait a minute and press Remove again" : "Couldn't reach the relay: press Remove again");
+    }
   });
   try {
     lens = await Lens.create({

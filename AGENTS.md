@@ -226,8 +226,8 @@ same frames through the Rust watcher (373 real captures, 22 ms a frame against P
 - Phone notifications (`notify::phone`, setting `phone_key`): Web Push through MapleLens's relay, `relay/push` (a
   Cloudflare Worker in this repo: `npx wrangler deploy` from that folder, `npm test` there for its crypto; VAPID and
   aes128gcm are hand-written on WebCrypto, no dependency). A pairing key is `<id>.<secret>` (made by the page,
-  `phone/relay.js` `newKey`); the relay stores only the secret's SHA-256 and the phones' subscriptions (KV), never a
-  message, and accepts push endpoints on the browsers' own push hosts only. The web app shows the key as a QR code of
+  `phone/relay.js` `newKey`); the relay stores only the secret's SHA-256 and the phones' subscriptions (a Durable Object
+  per pairing, the pairing's only record: KV cached a missing pairing for a minute per location), never a message, and accepts push endpoints on the browsers' own push hosts only. The web app shows the key as a QR code of
   `docs/app/phone/?pair=<key>` (hidden after two minutes or once `/status` sees a phone: a streamed screen is public);
   the phone page subscribes and pairs. A batch of sales is one notification, with the item's picture (`Sale.picture`, found by name) when it is one
   sale; store changes share a tag. iPhone pushes

@@ -3,25 +3,25 @@
 // title and a line of text with the same key and the Worker pushes it, encrypted, to the phone's push service.
 //
 //   GET  /key                          the VAPID public key (base64url), for PushManager.subscribe
-//   POST /pair     {key, subscription} a phone joins a pairing (at most MAX_PHONES); the others are told
-//   POST /unpair   {key, endpoint?}    a phone leaves it; without an endpoint the pairing is forgotten
+//   POST /pair     {key, subscription, replaces?}  a phone joins a pairing (at most 5); the others are told, unless
+//                                      it renews its own subscription (`replaces`: the endpoint it had)
+//   POST /unpair   {key, endpoint}     a phone leaves it
+//   POST /unpair   {key, remove: true} MapleLens removes the pairing: every phone is told, the key never works again
 //   POST /notify   {key, title, body, icon?, tag?}
 //   POST /status   {key}               how many phones are paired (MapleLens hides its QR code once one is)
 //   POST /state/put  {key, blob}       MapleLens uploads the store's state, sealed for the phones (store.js)
 //   POST /state/ping {key}             MapleLens is still watching; answers how many phones are paired
 //   POST /state/get  {key}             the phone app reads the sealed state, and when MapleLens last checked in
 //
-// The key is the only credential: "<id>.<secret>", 96 + 128 random bits made by MapleLens. The id names the pairing
-// in KV, only the secret's SHA-256 is stored, so neither KV nor a leaked backup can send. A wrong secret looks exactly
-// like no pairing at all. Nothing about a message is stored or logged. See README.md for deploying and the threat model.
+// The key is the only credential: "<id>.<secret>", 96 + 128 random bits made by MapleLens. The id names the pairing's
+// Durable Object (store.js), which keeps only the secret's SHA-256, so a leaked backup cannot send. A wrong secret
+// looks exactly like no pairing at all. Nothing about a message is stored or logged. See README.md for deploying and the threat model.
 
 import { StoreState } from "./store.js";
 import { encryptPayload, vapidHeader } from "./webpush.js";
 
 export { StoreState };
 
-/** Phones one pairing can hold (a player's phone and tablet; more is someone sharing a QR). */
-const MAX_PHONES = 5;
 /** What a notification may carry: the push services take ~4 KB encrypted. */
 const TITLE_CHARS = 120;
 const BODY_CHARS = 600;
@@ -66,7 +66,7 @@ export default {
     if (request.method === "GET" && path === "/key") return reply(200, { key: env.VAPID_PUBLIC });
     if (request.method !== "POST" || !ROUTES.includes(path)) return reply(404, { error: "route" });
 
-    // Every address first, before anything is read or looked up: random keys must not buy KV reads.
+    // Every address first, before anything is read or looked up: random keys must not buy storage reads.
     const client = request.headers.get("CF-Connecting-IP") || "unknown";
     if (!(await allowed(env.CLIENT_LIMIT, client))) return slowDown(reply);
     const body = await readJson(request, path === "/state/put" ? MAX_STATE_CHARS + 1024 : MAX_BODY_BYTES);
@@ -74,60 +74,41 @@ export default {
     const key = KEY.exec(typeof body.key === "string" ? body.key : "");
     if (!key) return reply(400, { error: "key" });
     const [, id, secret] = key;
-    // Pairing is per address (it writes KV); sending and polling are per pairing (a runaway sender).
+    // Pairing is per address (it writes storage); sending and polling are per pairing (a runaway sender).
     const limiter = path === "/pair" || path === "/unpair" ? env.PAIR_LIMIT : path.startsWith("/state/") ? env.STATE_LIMIT : env.NOTIFY_LIMIT;
     if (!(await allowed(limiter, path === "/pair" || path === "/unpair" ? client : `${path}:${id}`))) return slowDown(reply);
 
     const hash = await sha256(secret);
     if (path.startsWith("/state/")) return state(env, id, hash, path.slice("/state/".length), body, reply);
-    const found = await env.PAIRS.get(id, "json");
-    const stored = found && found.hash === hash ? found : null;
-    // A key removed in MapleLens stays removed: for a phone that still holds it and re-pairs on start, and against a
-    // stale KV copy read elsewhere in the minute after. Asked for every key, right or wrong, so the time an answer
-    // takes doesn't tell whether an id exists.
-    const check = await storeOf(env, id).fetch(op("check", { hash }));
-    // Someone else's pairing looks exactly like none: no phones, nothing to send to, nothing to join.
-    if (!stored && path === "/status") return reply(200, { phones: 0 });
-    if (found && !stored) return reply(404, { error: "not paired" });
-    if (!check.ok) return reply(check.status, await check.json());
-    if (path === "/pair") return pair(env, id, hash, stored, body.subscription, reply);
-    if (path === "/status") return reply(200, { phones: stored.phones.length });
-    if (!stored) return reply(404, { error: "not paired" });
-    if (path === "/unpair") {
-      const leaving = typeof body.endpoint === "string";
-      const left = leaving ? stored.phones.filter(p => p.endpoint !== body.endpoint) : [];
-      // MapleLens removed the pairing: every phone hears it, and its app clears itself (sw.js, tag "unpaired").
-      if (!leaving) await Promise.all(stored.phones.map(p => push(env, p, encode(REMOVED))));
-      await savePhones(env, id, stored, left, !leaving);
-      return reply(200, { phones: left.length });
+    if (path === "/pair") return pair(env, id, hash, body, reply);
+    if (path === "/unpair") return unpair(env, id, hash, body, reply);
+    // Every key, right or wrong, asks its object once, so the time an answer takes doesn't tell whether an id exists.
+    const found = await ask(env, id, "phones", { hash });
+    // Someone else's pairing looks exactly like none: no phones, nothing to send to.
+    if (path === "/status") {
+      if (found.status === 404) return reply(200, { phones: 0 });
+      return found.ok ? reply(200, { phones: found.json.phones.length }) : reply(found.status, found.json);
     }
-    return notify(env, id, stored, message(body), reply);
+    if (!found.ok) return reply(found.status, found.json);
+    return notify(env, id, hash, found.json.phones, message(body), reply);
   },
 };
 
-async function pair(env, id, hash, stored, subscription, reply) {
-  const phone = validSubscription(subscription);
+async function pair(env, id, hash, body, reply) {
+  const phone = validSubscription(body.subscription);
   if (!phone) return reply(400, { error: "subscription" });
-  const before = stored?.phones || [];
-  const known = before.find(p => p.endpoint === phone.endpoint);
-  // The phone page re-pairs on every start: an unchanged phone writes nothing (KV writes are the scarce resource).
-  if (known && known.keys.p256dh === phone.keys.p256dh && known.keys.auth === phone.keys.auth) {
-    return reply(200, { phones: before.length });
-  }
-  const others = before.filter(p => p.endpoint !== phone.endpoint);
-  // The oldest phone goes first: one that reinstalled the app leaves a dead subscription behind.
-  const kept = [...others, phone].slice(-MAX_PHONES);
-  await savePhones(env, id, { hash }, kept);
-  // A QR code seen on a stream pairs a stranger's phone too: the phones already paired hear about every new one.
-  if (!known && others.length) {
+  const replaces = typeof body.replaces === "string" ? body.replaces : undefined;
+  const answer = await ask(env, id, "pair", { hash, phone, replaces });
+  if (!answer.ok) return reply(answer.status, answer.json);
+  if (answer.json.alert.length) {
     const alert = {
       title: "A new phone was connected",
       body: "It gets your store notifications too. Not yours? Press Remove next to Phone in MapleLens, then connect again.",
       tag: "new-phone",
     };
-    await Promise.all(others.map(p => push(env, p, encode(alert))));
+    await Promise.all(answer.json.alert.map(p => push(env, p, encode(alert))));
   }
-  return reply(200, { phones: kept.length });
+  return reply(200, { phones: answer.json.phones });
 }
 
 const REMOVED = {
@@ -136,40 +117,33 @@ const REMOVED = {
   tag: "unpaired",
 };
 
-/** The pairing's phones in KV (deleted with the last one) and the store state's copy of the count and hash.
- *  `removed`: MapleLens removed the pairing, and the key must never work again (store.js keeps a tombstone). */
-async function savePhones(env, id, stored, phones, removed = false) {
-  const store = storeOf(env, id);
-  if (phones.length) {
-    await env.PAIRS.put(id, JSON.stringify({ ...stored, phones }));
-    await store.fetch(op("sync", { hash: stored.hash, phones: phones.length }));
-  } else {
-    await env.PAIRS.delete(id);
-    await store.fetch(op(removed ? "remove" : "empty", { hash: stored.hash }));
+async function unpair(env, id, hash, body, reply) {
+  if (body.remove === true) {
+    // MapleLens removed the pairing: every phone hears it, and its app clears itself (sw.js, tag "unpaired").
+    const answer = await ask(env, id, "remove", { hash });
+    if (!answer.ok) return reply(answer.status, answer.json);
+    await Promise.all(answer.json.phones.map(p => push(env, p, encode(REMOVED))));
+    return reply(200, { phones: 0 });
   }
+  // A phone leaving names itself; a request naming nothing is refused rather than read as a removal.
+  if (typeof body.endpoint !== "string") return reply(400, { error: "endpoint" });
+  const answer = await ask(env, id, "leave", { hash, endpoint: body.endpoint });
+  return reply(answer.status, answer.json);
 }
 
-/** The store-state routes, served by the pairing's Durable Object without a KV read once it knows the pairing. */
+/** The store-state routes, served by the pairing's Durable Object. */
 async function state(env, id, hash, action, body, reply) {
   if (action === "put" && (typeof body.blob !== "string" || body.blob.length > MAX_STATE_CHARS || !/^[A-Za-z0-9_-]+$/.test(body.blob))) {
     return reply(400, { error: "blob" });
   }
-  const store = storeOf(env, id);
-  const ask = () => store.fetch(op(action, { hash, blob: body.blob }));
-  let answer = await ask();
-  if (answer.status === 409) {
-    // The object has not met this pairing yet (made before it existed, or forgotten): KV is the truth.
-    const found = await env.PAIRS.get(id, "json");
-    if (!found || found.hash !== hash) return reply(404, { error: "not paired" });
-    const adopted = await store.fetch(op("adopt", { hash, phones: found.phones.length }));
-    if (!adopted.ok) return reply(adopted.status, await adopted.json());
-    answer = await ask();
-  }
-  return reply(answer.status, await answer.json());
+  const answer = await ask(env, id, action, { hash, blob: body.blob });
+  return reply(answer.status, answer.json);
 }
 
-function storeOf(env, id) {
-  return env.STORES.get(env.STORES.idFromName(id));
+/** One request to the pairing's object: `{ok, status, json}`. */
+async function ask(env, id, name, fields) {
+  const response = await env.STORES.get(env.STORES.idFromName(id)).fetch(op(name, fields));
+  return { ok: response.ok, status: response.status, json: await response.json() };
 }
 
 function op(name, fields) {
@@ -185,15 +159,17 @@ function message(body) {
   return out;
 }
 
-async function notify(env, id, stored, content, reply) {
+async function notify(env, id, hash, phones, content, reply) {
   if (!content.title) return reply(400, { error: "title" });
   const payload = encode(content);
-  const results = await Promise.all(stored.phones.map(phone => push(env, phone, payload)));
-  const left = stored.phones.filter((_, i) => results[i] !== "gone");
-  if (left.length < stored.phones.length) await savePhones(env, id, stored, left);
+  const results = await Promise.all(phones.map(phone => push(env, phone, payload)));
+  const gone = phones.filter((_, i) => results[i] === "gone").map(p => p.endpoint);
+  // Only the dead are dropped, by name: a phone that paired while this was sending stays.
+  const left = gone.length ? (await ask(env, id, "drop", { hash, endpoints: gone })).json.phones : phones.length;
   const sent = results.filter(r => r === "sent").length;
-  if (!sent) return reply(left.length ? 502 : 410, { sent, phones: left.length });
-  return reply(200, { sent, phones: left.length });
+  // No phone left is "not paired" (410 is kept for a removed key, which the page acts on).
+  if (!sent) return reply(left ? 502 : 404, { sent, phones: left });
+  return reply(200, { sent, phones: left });
 }
 
 /** One push; "sent", "gone" (the phone unsubscribed or uninstalled: forget it) or "failed". */

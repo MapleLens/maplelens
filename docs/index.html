@@ -21,11 +21,11 @@
 <link rel="icon" href="assets/favicon.ico">
 <!-- Scripts only from this site: the web app on this origin keeps the player's Discord webhook, Telegram token and
      phone key. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://maplestory.io https://maplelens.goatcounter.com; connect-src 'self' https://api.github.com https://maplelens.goatcounter.com https://maplelens-prices.prices-proxy.workers.dev https://classicrank.com https://maplestory.io; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://maplestory.io https://maplelens.goatcounter.com; connect-src 'self' https://api.github.com https://maplelens.goatcounter.com https://maplelens-prices.prices-proxy.workers.dev https://classicrank.com https://maplestory.io; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lilita+One&display=swap">
-<link rel="stylesheet" href="assets/maple.css?v=e9e6e648a0ae">
+<link rel="stylesheet" href="assets/maple.css?v=414d23baa951">
 <style>
 /* ---------- hero: a field map ---------- */
 .hero{position:relative;padding:56px 0 150px;overflow:hidden}
@@ -303,79 +303,7 @@ p.sub{margin:0 0 22px;font-weight:bold;color:#0e2a55;max-width:46em}
   </div>
 </footer>
 
-<script>
-// GoatCounter: set your site code (the "xxx" in xxx.goatcounter.com). Empty means no analytics are loaded.
-const GOATCOUNTER_CODE = "maplelens";
-if (GOATCOUNTER_CODE) {
-  const s = document.createElement("script");
-  s.async = true;
-  // GoatCounter's count.v4.js, kept on this site: this origin is the web app's, whose localStorage holds the player's
-  // Discord webhook, Telegram token and phone key, so no script from another server runs here.
-  s.src = "assets/goatcounter-count.v4.js";
-  s.dataset.goatcounter = `https://${GOATCOUNTER_CODE}.goatcounter.com/count`;
-  document.head.appendChild(s);
-  // Download clicks show up as their own events next to page views.
-  document.querySelectorAll(".js-dl").forEach(a => a.addEventListener("click", () =>
-    window.goatcounter?.count?.({path: "download", title: a.textContent.trim(), event: true})));
-}
-
-// Point every download button at the newest Windows zip; the releases page stays as the fallback.
-fetch("https://api.github.com/repos/MapleLens/maplelens/releases/latest")
-  .then(r => r.ok ? r.json() : Promise.reject(r.status))
-  .then(rel => {
-    const zip = rel.assets.find(a => /windows\.zip$/i.test(a.name));
-    if (!zip) return;
-    document.querySelectorAll(".js-dl").forEach(a => a.href = zip.browser_download_url);
-    document.querySelectorAll(".js-dl-label").forEach(s => s.textContent = `Download ${rel.tag_name}`);
-    const size = zip.size < 10485760 ? `${(zip.size / 1048576).toFixed(1)} MB` : `${Math.round(zip.size / 1048576)} MB`;
-    document.querySelectorAll(".js-dl-meta").forEach(s => s.textContent = `${zip.name} · ${size} · Windows 10/11`);
-  })
-  .catch(() => {});
-</script>
-<script type="module">
-// The live demo: the web app's engine, run on the sample screenshot. Loaded only on request (about 2 MB).
-const run = document.getElementById("demo-run");
-const status = document.getElementById("demo-status");
-run.addEventListener("click", async () => {
-  run.disabled = true;
-  status.textContent = "loading the engine…";
-  const { Lens, paint } = await import("./app/lens.js?v=e9e6e648a0ae");
-  const img = document.querySelector("#demo .frame img");
-  // The screenshot is lazy-loaded: a click before it scrolled into view would find no pixels yet.
-  img.loading = "eager";
-  if (!img.complete) await new Promise((loaded) => img.addEventListener("load", loaded, { once: true }));
-  const started = performance.now();
-  const lens = await Lens.create({
-    onState(state) {
-      const k = img.clientWidth / img.naturalWidth;
-      const boxes = [];
-      if (state.hover?.at) boxes.push({ r: [...state.hover.at, ...state.hover.size], c: "" });
-      if (state.info) boxes.push({ r: state.info.rect, c: "info" });
-      document.getElementById("demo-boxes").replaceChildren(...boxes.map(({ r: [x, y, w, h], c }) => {
-        const el = document.createElement("div");
-        el.className = `box ${c}`;
-        Object.assign(el.style, { left: `${x * k}px`, top: `${y * k}px`, width: `${w * k}px`, height: `${h * k}px` });
-        return el;
-      }));
-      status.textContent = [state.hover && `read "${state.hover.title}"`, state.info?.name && `read "${state.info.name}"`].filter(Boolean).join(" · ") || "looking…";
-    },
-    onCard(which, image) {
-      const canvas = document.getElementById(`demo-${which}`);
-      paint(canvas, image);
-      canvas.hidden = false;
-      document.querySelector("#demo-out p").hidden = true;
-      run.hidden = true;
-    },
-  });
-  // Replay the screenshot for a few seconds: long enough for the glance card to grow and the rank to arrive.
-  const bitmap = await createImageBitmap(img);
-  const tick = async () => {
-    lens.frame(await createImageBitmap(bitmap), { scale: 1 });
-    if (performance.now() - started < 6000) setTimeout(tick, 150);
-    else { lens.close(); status.textContent = "done: the cards above came from the engine"; }
-  };
-  tick();
-});
-</script>
+<script src="assets/site.js?v=414d23baa951"></script>
+<script type="module" src="assets/demo.js?v=414d23baa951"></script>
 </body>
 </html>
