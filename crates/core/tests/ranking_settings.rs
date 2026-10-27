@@ -7,7 +7,8 @@ use serde_json::json;
 
 fn raw() -> serde_json::Value {
     json!({"name": "masterball", "level": 27, "job": "Thief", "fame": 3, "overall_rank": 29516, "job_rank": 824,
-           "fame_rank": 21312, "botting": false, "last_checked": "2026-10-22T10:16:24Z", "future_field": 1})
+           "fame_rank": 21312, "botting": false, "last_checked": "2026-10-22T10:16:24Z", "future_field": 1,
+           "photo": "https://classicrank.com/api/avatar/masterball?v=1"})
 }
 
 #[test]
@@ -17,6 +18,7 @@ fn rank_parses_the_api_and_ignores_unknown_fields() {
         (rank.overall_rank, rank.job_rank, rank.fame_rank, rank.botting),
         (Some(29516), Some(824), Some(21312), false)
     );
+    assert_eq!(rank.photo.as_deref(), Some("https://classicrank.com/api/avatar/masterball?v=1"));
 }
 
 #[test]

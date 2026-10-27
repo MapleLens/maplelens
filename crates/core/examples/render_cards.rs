@@ -66,6 +66,7 @@ fn main() {
         botting: false,
         last_checked: Some("2026-10-21T22:16:24Z".into()),
         profile_url: None,
+        photo: None,
     };
     let found = RankResult { status: Status::Found, rank: Some(rank), expires_at: 0.0 };
     save(&render_rank_card(&fonts, &found, now, 1.0), &out.join("rank_found.png"));

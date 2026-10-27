@@ -6,13 +6,14 @@
 //               {type: "notify-test", service, webhook, telegramWebhook, phone} · {type: "phone-qr", url} ·
 //               {type: "catalog", id, json}
 // Messages out: {type: "ready", version, items} · {type: "state", state, fps, ms} · {type: "card", which, version,
-//               width, height, pixels} · {type: "ocr-job", id, font, width, height, pixels} · {type: "glyphs", font,
+//               width, height, pixels, about (the item card's {name, price, trend}; the rank panel's {read, status,
+//               rank})} · {type: "ocr-job", id, font, width, height, pixels} · {type: "glyphs", font,
 //               json} · {type: "idle"} (ready for the next frame) · {type: "notify-status", text} ·
 //               {type: "notify-test-result", ok, text, telegramWebhook?} · {type: "phone-qr", modules} ·
 //               {type: "picture", name, url} (a sold item's picture, once found) · {type: "catalog-loaded", id, items | error} ·
 //               {type: "error", message}
 
-import init, { Engine } from "./pkg/maplelens_web.js?v=1f61e1c1afcc";
+import init, { Engine } from "./pkg/maplelens_web.js?v=fd8a520ab499";
 
 /** One rank lookup every two seconds stays under classicrank.com's 30 requests a minute. */
 const RANK_GAP_MS = 2000;
@@ -37,7 +38,7 @@ const post = (message, transfer = []) => self.postMessage(message, transfer);
 
 async function start({ fonts, glyphs, cardScale, ocr }) {
   // Named explicitly so scripts/stamp-web.ps1 can version it together with the glue.
-  await init({ module_or_path: new URL("./pkg/maplelens_web_bg.wasm?v=1f61e1c1afcc", import.meta.url) });
+  await init({ module_or_path: new URL("./pkg/maplelens_web_bg.wasm?v=fd8a520ab499", import.meta.url) });
   const [regular, bold] = await Promise.all(fonts.map(url => fetch(url).then(r => r.arrayBuffer())));
   engine = new Engine(new Uint8Array(regular), new Uint8Array(bold));
   engine.card_scale = cardScale || 1;
@@ -150,7 +151,8 @@ function sendCard(which, version) {
   const [width, height, pixels] = which === "card"
     ? [engine.card_width(), engine.card_height(), engine.card_pixels()]
     : [engine.rank_width(), engine.rank_height(), engine.rank_pixels()];
-  post({ type: "card", which, version, width, height, pixels }, [pixels.buffer]);
+  const about = JSON.parse(which === "card" ? engine.card_about() : engine.rank_about());
+  post({ type: "card", which, version, width, height, pixels, about }, [pixels.buffer]);
 }
 
 async function lookUpRanks() {
@@ -182,9 +184,10 @@ function frame({ bitmap, inset, scale }) {
   frameTimes.push(performance.now());
   while (frameTimes.length > 20) frameTimes.shift();
   const fps = frameTimes.length > 1 ? (frameTimes.length - 1) * 1000 / (frameTimes.at(-1) - frameTimes[0]) : 0;
-  post({ type: "state", state, fps, ms });
+  // A new picture goes before the state that shows it, so the page never shows a state with the last item's picture.
   if (state.card && state.card !== lastCard) sendCard("card", (lastCard = state.card));
   if (state.rank && state.rank !== lastRank) sendCard("rank", (lastRank = state.rank));
+  post({ type: "state", state, fps, ms });
   if (state.ocr > 0) {
     const jobs = JSON.parse(engine.ocr_jobs()).filter(job => !askedOcr.has(job.id));
     for (const job of jobs) {

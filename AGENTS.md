@@ -273,7 +273,7 @@ same frames through the Rust watcher (373 real captures, 22 ms a frame against P
   letters needs no OCR at all: `the_shop_is_followed_in_the_browser_and_its_sales_are_read_without_ocr`).
 - The status the player sees is core's: `status_pill::text_for` / `tone_for` give the Windows pill's wording ("Press the
   SOLD ITEMS button", bold on the page and the phone) and its tone, and the browser shows exactly that on the page and in the floating window
-  (`cards.js` `setStore`). Tested live against the real game window (Chrome started with
+  (the bottom line of `cards.js`'s view). Tested live against the real game window (Chrome started with
   `--auto-select-desktop-capture-source=MapleStory --remote-debugging-port`, the share started over DevTools with a user
   gesture): "Store detected", 24 ms mean a frame at 1080p-class, and the visitors the Windows watcher reported.
 - A browser's frames are video: colour is kept at half resolution, so colour edges move by a pixel and the scale reads
@@ -436,21 +436,46 @@ general:
 
 ## The browser version
 
-`docs/app` is the page (`app.js`: sources, pacing, stats; `cards.js`: the card view shared by the page and the floating
-window; `lens.js`/`worker.js`: the engine in a worker). It measures itself: `window.maplelensStats()` gives frames,
+`docs/app` is the page (`app.js`: sources, pacing, stats; `cardfeed.js`: what the cards show and when; `cards.js`: its
+view, in the page and in the floating window; `rankpanel.js`: the web's rank panel; `lens.js`/`worker.js`: the engine in
+a worker). It measures itself: `window.maplelensStats()` gives frames,
 dropped frames, engine time (avg / p50 / p95 / max), long tasks, heap, and `?report=label` posts the same to
 `/report` of whatever served the page. Test sources, all through the code a shared window uses:
 `?demo`, `?video=/clip.mp4` (a recording played in a loop), `?capture=/clip.mp4` (the clip as a media stream: the
 track-processor path), `&scale=0.9` (the UI size by hand: the status bar's outline does not survive compression),
-`&fps=`, `?preview=pip` (the floating window's view inside the page). Chrome started with `--js-flags=--expose-gc`
-makes the reported heap live data.
+`&fps=`, `?preview=pip&size=340x560` (the floating window's view inside the page, resizable), `?demo&blink` (the sample's
+tooltip and Character Info window come and go: 5 s shown in every 16). `window.maplelensCards` is the card feed. Chrome
+started with `--js-flags=--expose-gc` makes the reported heap live data.
 
 The page is deliberately bare: Share game window, the cards (Float over the game), the store log, the Discord webhook and
 the Telegram bot (kept in localStorage, shown masked with a Change button). There is no settings panel; Tesseract (tesseract.js 7.0.0, served from `docs/app/vendor/`, loaded when
-the engine meets text the atlas cannot read) is always on, for shop text and unknown letters. The floating window opens at a fixed size from the shared game window (`cards.js` `floatingSize`: a fifth of its width, 
-300-440 px, and tall enough for the biggest card plus a rank panel); the cards scale to its width and never shrink to its 
-height (the body scrolls). The page cannot resize it afterwards (`resizeTo` needs a click in a document picture-in-picture 
-window), so there is no auto-height.
+the engine meets text the atlas cannot read) is always on, for shop text and unknown letters.
+
+The cards (`cardfeed.js`, shown by `cards.js` in the page and the floating window alike):
+- A card is live while its tooltip is read; once it is gone it stays `LINGER_MS` (6 s) under a bar that runs out, the
+  time standing still while the pointer is over the view (the player moved there to read it), then goes. Before 0.2.6
+  the canvas's `display:block` beat its `hidden` attribute, so a card never went away.
+- Every item hovered is kept (six, newest first, with its card): the idle view lists them with price and trend, and a
+  click shows that card again until the next tooltip or Back. The engine says what a card is about (`card_about`: the
+  catalog's name, the price as the card writes it, the trend) in the same message as its pixels.
+- The engine sends a card's pixels only when they change, and before the state that shows them; the page keeps the
+  last ones and takes from each state whether they are live. Dropping them when a tooltip went showed nothing for an
+  item hovered a second time.
+- The header says what is shown: the item, or "Watching the game" / "Not watching the game" (with what to do). No
+  engine numbers there: they are on the page.
+- The rank panel is the web's own, in HTML (`rankpanel.js`): classicrank.com's photo of the character (`photo`, a 96 px
+  PNG; the page's policy allows images from classicrank.com), the name, level, job and fame, the three ranks as tiles,
+  and a visible link to classicrank.com (their terms ask for one). The Windows app's panel sits beside the Character
+  Info window, which shows the name and the character; the floating window has neither, and the photo is how the player
+  sees the name was read right. The engine says what the panel is about in `rank_about` (`{read, status, rank}`), sent
+  with the canvas panel it still draws (the home page's demo shows that one). Pictures and links are used only when
+  they are classicrank.com's; nothing in the panel wraps, so its height does not depend on its width. Neither it nor
+  the store line is a `<footer>`: the site's sheet spaces those out in the page's document.
+- The floating window never scrolls: the cards are drawn at their own size or smaller to fit both its width and height
+  (never larger, which would blur them), and recent items that do not fit are left out. It opens at a size from the
+  shared game window (`floatingSize`: a fifth of its width, 300-440 px, tall enough for a card plus a rank panel), or the
+  size the player last dragged it to. While it is open the page's panel says the cards are floating, with a button that
+  closes it.
 
 What measuring taught (1080p Twitch clips, Chrome, `scripts` not needed: a local server and `?report=`):
 - OCR jobs piled up in the page while the OCR box was unticked (400 MB in a minute, 1.5 GB in six): the engine makes
