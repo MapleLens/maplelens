@@ -130,3 +130,21 @@ jobs:
           name: web-engine
           path: pkg/
           retention-days: 14
+
+  relay:
+    name: Push relay and vendored scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # The relay's routes, crypto and abuse cases (relay/push/test), against an in-memory KV and Durable Object.
+      - run: npm test
+        working-directory: relay/push
+      # The self-hosted Tesseract and jsQR are byte for byte what scripts/vendor.mjs checked against npm's integrity.
+      - run: node scripts/vendor.mjs --check
+      # No page of the site loads a script from another server (they share one origin with the player's secrets).
+      - name: No third-party scripts in the site
+        run: |
+          ! grep -rnE '<script[^>]+src="https?://|import\(\s*"https?://|\.src\s*=\s*"https?://' docs --include='*.html' --include='*.js' --exclude-dir=vendor --exclude-dir=pkg

@@ -110,8 +110,12 @@ What it protects, and how (each is a test in `test/relay.test.mjs`):
 - **A stale copy can't hijack.** Once the pairing's Durable Object knows the secret's hash, a different secret is
   refused even where KV has not caught up yet.
 - **The phone page keeps its key to itself.** It sends no referrer, and its Content Security Policy only lets it
-  run scripts from itself and jsDelivr, load images from maplestory.io and talk to the relay. The QR decoder from
-  jsDelivr is pinned by its SRI hash.
+  run scripts from itself (the QR decoder is vendored: `scripts/vendor.mjs`), load images from maplestory.io and
+  talk to the relay. The web app and the website follow the same rule (see AGENTS.md, "The site's origin holds
+  secrets").
+- **Accepted:** a request for an id that has never been used takes longer (its Durable Object is created) than one
+  for an existing id. It tells nothing useful: ids are 96 random bits and only ever appear next to their secret.
+  Two phones pairing in the same second can race on KV, and one may need to open the app again to re-pair.
 - **Abuse stays bounded.** Bodies over 8 KB (150 KB for a store state) are refused, read in chunks and cut off at the limit, text fields are cut (title 120, body 600 characters),
   and a pairing holds 5 phones at most. The rate limits are above.
 

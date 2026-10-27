@@ -10,9 +10,10 @@ import { KEY_SHAPE, PAIR_CACHE, PAIR_REQUEST, relay, RELAY_URL, unseal } from ".
 const $ = id => document.getElementById(id);
 const STORED_KEY = "maplelens.phone.key";
 const TAB_KEY = "maplelens.phone.tab";
-/** The QR decoder for phones without BarcodeDetector (iPhone), fetched only when the player scans. */
-const JSQR_URL = "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js";
-/** That exact file: the page holds the pairing key, so a changed copy on the CDN must not run. */
+/** The QR decoder for phones without BarcodeDetector (iPhone), loaded only when the player scans. Served from this
+ *  site (scripts/vendor.mjs), never a CDN: the page holds the pairing key. */
+const JSQR_URL = new URL("vendor/jsqr-1.4.0/jsQR.js", import.meta.url).href;
+/** That exact file, as vendored. */
 const JSQR_INTEGRITY = "sha384-b5Ya4Bq3qCyz39m2ISh+4DxjAIljdeFwK/BsXLuj9gugaNwAcj/ia15fxNZL9Nlx";
 const SCAN_EVERY_MS = 250;
 /** The store is asked for this often while the app is on screen (a push also asks at once). */
@@ -177,7 +178,7 @@ async function decoder() {
   }
   if (!window.jsQR) {
     await new Promise((resolve, reject) => {
-      const script = el("script", { src: JSQR_URL, integrity: JSQR_INTEGRITY, crossOrigin: "anonymous", onload: resolve, onerror: reject });
+      const script = el("script", { src: JSQR_URL, integrity: JSQR_INTEGRITY, onload: resolve, onerror: reject });
       document.head.append(script);
     });
   }

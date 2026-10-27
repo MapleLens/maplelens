@@ -3,8 +3,10 @@
 
 const base = new URL(".", import.meta.url);
 const FONTS = ["fonts/DejaVuSansCondensed.ttf", "fonts/DejaVuSansCondensed-Bold.ttf"].map(f => new URL(f, base).href);
-/** Tesseract (the browser's OCR engine), downloaded when the engine starts. */
-const TESSERACT = "https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.esm.min.js";
+/** Tesseract (the browser's OCR engine), served from this site (scripts/vendor.mjs: packages checked against
+ *  the npm registry's integrity, files against SHA256SUMS). Never from a CDN: whatever runs in this page can read the
+ *  Discord webhook and the phone key it keeps. A new version is a new folder, so no browser mixes two. */
+const TESSERACT_DIR = new URL("vendor/tesseract-7.0.0/", base).href;
 /** Jobs the page keeps waiting for the OCR engine: a title or a name goes stale in a moment, but every line of a
  *  shop's list is needed (a burst of sales is three lines each), so none of those is dropped. */
 const MAX_OCR_QUEUE = { title: 4, name: 4, shop: 48 };
@@ -46,7 +48,7 @@ export class Lens {
     this.catalogCount = 0;
     this.tesseract = null;
     this.tesseractLoading = null;
-    this.worker = new Worker(new URL("worker.js?v=3de149585681", base), { type: "module" });
+    this.worker = new Worker(new URL("worker.js?v=a0d60c76fffd", base), { type: "module" });
     this.worker.onerror = event => reject(new Error(event.message || "the engine could not start"));
     this.counts = {};
     this.bytes = 0;
@@ -125,14 +127,21 @@ export class Lens {
     } else this.ocrQueue = [];
   }
 
-  /** Download and start Tesseract (the script, its worker, the WebAssembly core and the English data: about 10 MB, then
+  /** Download and start Tesseract (the script, its worker, the WebAssembly core and the English data: about 7 MB, then
    *  cached by the browser). Started as soon as the engine is, so the first unknown text does not wait for it. */
   loadTesseract() {
     this.tesseractLoading ??= (async () => {
       // The ESM build has only a default export (the whole API); a named import finds nothing.
-      const module = await import(TESSERACT);
+      const module = await import(`${TESSERACT_DIR}tesseract.esm.min.js`);
       const { createWorker } = module.default ?? module;
-      this.tesseract = await createWorker("eng");
+      // Every path given, so nothing falls back to Tesseract's CDN defaults; the worker loads from its own file, not a
+      // blob wrapper (the page's Content Security Policy allows workers from this site only).
+      this.tesseract = await createWorker("eng", 1, {
+        workerPath: `${TESSERACT_DIR}worker.min.js`,
+        corePath: TESSERACT_DIR,
+        langPath: TESSERACT_DIR,
+        workerBlobURL: false,
+      });
       await this.tesseract.setParameters({ tessedit_pageseg_mode: "6" }); // a block of text: one or two title lines
     })();
     this.tesseractLoading.catch(error => {

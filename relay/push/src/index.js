@@ -82,12 +82,13 @@ export default {
     if (path.startsWith("/state/")) return state(env, id, hash, path.slice("/state/".length), body, reply);
     const found = await env.PAIRS.get(id, "json");
     const stored = found && found.hash === hash ? found : null;
+    // A key removed in MapleLens stays removed: for a phone that still holds it and re-pairs on start, and against a
+    // stale KV copy read elsewhere in the minute after. Asked for every key, right or wrong, so the time an answer
+    // takes doesn't tell whether an id exists.
+    const check = await storeOf(env, id).fetch(op("check", { hash }));
     // Someone else's pairing looks exactly like none: no phones, nothing to send to, nothing to join.
     if (!stored && path === "/status") return reply(200, { phones: 0 });
     if (found && !stored) return reply(404, { error: "not paired" });
-    // A key removed in MapleLens stays removed: for a phone that still holds it and re-pairs on start, and against a
-    // stale KV copy read elsewhere in the minute after.
-    const check = await storeOf(env, id).fetch(op("check", { hash }));
     if (!check.ok) return reply(check.status, await check.json());
     if (path === "/pair") return pair(env, id, hash, stored, body.subscription, reply);
     if (path === "/status") return reply(200, { phones: stored.phones.length });

@@ -221,7 +221,7 @@ same frames through the Rust watcher (373 real captures, 22 ms a frame against P
   the phone page subscribes and pairs. A batch of sales is one notification; store changes share a tag. iPhone pushes
   only to home-screen apps, so the phone manifest has no `start_url` (the installed app opens the address with its
   key; an installed app's storage is its own) and the app can also pair by scanning in-page (BarcodeDetector, else
-  jsQR from jsDelivr). Android needs no install. The website's QR (`docs/assets/phone-qr.svg`) is
+  vendored jsQR). Android needs no install. The website's QR (`docs/assets/phone-qr.svg`) is
   `cargo run -p maplelens-core --example phone_qr`. The Windows app keeps `phone_key` but has no pairing UI yet.
 - The phone app is also a dashboard of the store: the page keeps a store book (`docs/app/storebook.js`: sales with item
   pictures, chat, visits, who is inside, status, owner, mesos; kept in localStorage), seals it with AES-GCM under
@@ -311,6 +311,16 @@ read from the status bar (under the job, right of the LV box: `vision::hud::find
 levels, voted over several reads), falling back to the shop window's name plate respelled from the chat log. There is
 no typed-name setting. A store announcement waits up to `OWNER_WAIT_S` for the name.
 
+## The site's origin holds secrets
+
+`maplelens.github.io` is one origin for the website, the web app and the phone app, and its localStorage holds the
+player's Discord webhook and phone pairing key. So no page of the site runs a script from another server: Tesseract
+and jsQR are vendored (`node scripts/vendor.mjs`: pinned versions checked against the npm registry's integrity,
+files against each folder's SHA256SUMS; `--check` runs in CI), GoatCounter's script is `docs/assets/goatcounter-count.v4.js`,
+and every page has a Content Security Policy (`script-src 'self'`, connections only to the hosts it uses). CI fails on
+a `<script src="https://...">` or a dynamic import from another host. Adding a host to a page means adding it to that
+page's policy; a new GitHub Pages repository on this account would share the origin, so there must not be one.
+
 ## Reading titles: how it is measured
 
 `crates/win/src/reading_bench.rs` runs a folder of real tooltip captures (the `debug\` output of `--debug` play
@@ -378,7 +388,7 @@ track-processor path), `&scale=0.9` (the UI size by hand: the status bar's outli
 makes the reported heap live data.
 
 The page is deliberately bare: Share game window, the cards (Float over the game), the store log and the Discord webhook
-(kept in localStorage, shown masked with a Change button). There is no settings panel; Tesseract (tesseract.js 7.0.0 from jsDelivr, loaded when
+(kept in localStorage, shown masked with a Change button). There is no settings panel; Tesseract (tesseract.js 7.0.0, served from `docs/app/vendor/`, loaded when
 the engine meets text the atlas cannot read) is always on, for shop text and unknown letters. The floating window opens at a fixed size from the shared game window (`cards.js` `floatingSize`: a fifth of its width, 
 300-440 px, and tall enough for the biggest card plus a rank panel); the cards scale to its width and never shrink to its 
 height (the body scrolls). The page cannot resize it afterwards (`resizeTo` needs a click in a document picture-in-picture 
