@@ -5,6 +5,7 @@
 
 pub mod announce;
 pub mod discord;
+pub mod phone;
 
 /// What happened.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -75,6 +76,16 @@ pub trait Connector: Send {
     /// A one-off request to check the connector works, sent when the player asks for a test; it names the player's
     /// store when `owner` is known, like every message.
     fn test_request(&self, owner: Option<&str>, unix_now: f64) -> Request;
+
+    /// What the service answering 401 or 404 (or 410) means, in words for the player.
+    fn not_found(&self) -> &'static str {
+        "says that webhook does not exist (deleted?)"
+    }
+
+    /// What to tell the player when the test message went out.
+    fn sent(&self) -> &'static str {
+        "Sent: check your Discord channel"
+    }
 }
 
 /// What the player configured: one field per connector, empty or false when off.
@@ -82,6 +93,8 @@ pub trait Connector: Send {
 pub struct NotifySettings {
     /// A Discord channel's webhook URL; empty = off.
     pub discord_webhook: String,
+    /// The phone pairing key (`phone::valid_key`); empty = off.
+    pub phone_key: String,
     /// Tell about sold items.
     pub sales: bool,
     /// Tell when the store is detected open or closes.
@@ -103,6 +116,9 @@ pub fn connectors(settings: &NotifySettings) -> Vec<Box<dyn Connector>> {
     let mut found: Vec<Box<dyn Connector>> = Vec::new();
     if let Some(discord) = discord::Discord::new(&settings.discord_webhook) {
         found.push(Box::new(discord));
+    }
+    if let Some(phone) = phone::Phone::new(&settings.phone_key) {
+        found.push(Box::new(phone));
     }
     found
 }
@@ -138,9 +154,10 @@ mod tests {
         assert!(connectors(&NotifySettings::default()).is_empty());
         let on = NotifySettings {
             discord_webhook: "https://discord.com/api/webhooks/1/abc".into(),
+            phone_key: "AbCdEfGhIjKlMnOp.qRsTuVwXyZ0123456789-_ab".into(),
             sales: true,
             store: true,
         };
-        assert_eq!(connectors(&on).iter().map(|c| c.name()).collect::<Vec<_>>(), ["Discord"]);
+        assert_eq!(connectors(&on).iter().map(|c| c.name()).collect::<Vec<_>>(), ["Discord", "Phone"]);
     }
 }

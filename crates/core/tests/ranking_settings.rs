@@ -81,6 +81,7 @@ fn settings_default_roundtrip_and_validation() {
         check_updates: false,
         store_status_bar: false,
         discord_webhook: "https://discord.com/api/webhooks/12/abc_DEF-9".into(),
+        phone_key: "AbCdEfGhIjKlMnOp.qRsTuVwXyZ0123456789-_ab".into(),
         notify_sales: false,
         notify_store: false,
     };
@@ -96,6 +97,7 @@ fn settings_default_roundtrip_and_validation() {
         let json = format!("{{\"discord_webhook\": \"{bad}\"}}");
         assert_eq!(Settings::from_json(&json).discord_webhook, "", "{bad}");
     }
+    assert_eq!(Settings::from_json(r#"{"phone_key": "a.b"}"#).phone_key, "");
     assert!(
         Settings::default().notify_sales
             && Settings::default().notify_store

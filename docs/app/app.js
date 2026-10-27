@@ -1,9 +1,11 @@
 // MapleLens Web: capture the game window (the page offers nothing else; the sample, video and frame-folder sources are
 // test hooks started by a URL parameter), feed frames to the engine, show the cards in the page and, on request, in a picture-in-picture window that floats over the game.
 
-import { Lens } from "./lens.js?v=737f62b708b3";
-import { CardView, floatingSize, openFloating } from "./cards.js?v=737f62b708b3";
-import { Prices } from "./prices.js?v=737f62b708b3";
+import { Lens } from "./lens.js?v=3de149585681";
+import { CardView, floatingSize, openFloating } from "./cards.js?v=3de149585681";
+import { Prices } from "./prices.js?v=3de149585681";
+import { StoreBook } from "./storebook.js?v=3de149585681";
+import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=3de149585681";
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -53,18 +55,28 @@ function storage(action) {
   try { return action(window.localStorage); } catch { return undefined; } // private windows may refuse
 }
 
-/** What the player set for the shop and Discord, kept in this browser. */
-const shopSettings = { shop: true, sales: true, store: true, webhook: "" };
+/** What the player set for the shop, Discord and the phone, kept in this browser. */
+const shopSettings = { shop: true, sales: true, store: true, webhook: "", phone: "" };
+/** The pairing QR code stays up this long at most: a streamer's screen is public, and the code is the key. */
+const QR_SHOWN_MS = 120000;
+/** How often the page asks the relay whether a phone has paired, while the QR code is up. */
+const PAIR_POLL_MS = 4000;
+/** The store book goes to the phones at most this often, and only when it changed. */
+const UPLOAD_GAP_MS = 5000;
+/** MapleLens checks in this often: the phone app shows the computer as offline when the check-ins stop. */
+const CHECK_IN_MS = 60000;
 
 function loadShopSettings() {
   try {
     Object.assign(shopSettings, JSON.parse(storage(s => s.getItem(SHOP_KEY)) || "{}"));
   } catch { /* damaged: the defaults stay */ }
   if (typeof shopSettings.webhook !== "string" || !WEBHOOK.test(shopSettings.webhook)) shopSettings.webhook = "";
+  if (typeof shopSettings.phone !== "string" || !KEY_SHAPE.test(shopSettings.phone)) shopSettings.phone = "";
   $("shop").checked = shopSettings.shop !== false;
   $("notify-sales").checked = shopSettings.sales !== false;
   $("notify-store").checked = shopSettings.store !== false;
   showWebhook();
+  showPhone();
 }
 
 function saveShopSettings() {
@@ -85,11 +97,124 @@ function showWebhook(editing = false) {
   if (editing) $("discord").focus();
 }
 
+/** Phones paired with the key, as last asked; null before the first answer. */
+let phones = null;
+let pairing = null;
+
+function showPhone() {
+  const set = Boolean(shopSettings.phone);
+  $("phone-state").textContent = !set ? "Not connected"
+    : phones === null ? "Set up"
+    : phones ? `${phones} phone${phones > 1 ? "s" : ""} connected` : "No phone yet";
+  $("phone-connect").textContent = set && phones ? "Add a phone" : "Connect";
+  $("phone-test").hidden = !set || !phones;
+  $("phone-clear").hidden = !set;
+}
+
+/** The store as the phone app shows it. */
+const book = new StoreBook(storage);
+let lastUpload = 0;
+let lastCheckIn = 0;
+let lastFollowing = null;
+let syncing = false;
+
+/** Whether the page is watching the store right now (a shared window and the switch on). */
+function following() {
+  return Boolean(source && shopSettings.shop);
+}
+
+/** The relay's phone count; a drop means a phone disconnected itself, and the page says so. */
+function setPhones(count) {
+  if (phones > 0 && count < phones) {
+    $("phone-note").textContent = count ? "A phone disconnected" : "Your phone disconnected. Press Connect to pair one again.";
+  }
+  // A phone that just joined gets the store straight away.
+  if (count > (phones || 0)) book.changed = true;
+  phones = count;
+  showPhone();
+}
+
+/** MapleLens checking in: how many phones are paired (none once the pairing is gone). */
+async function phoneStatus() {
+  if (!shopSettings.phone) return;
+  const answer = await relay("state/ping", { key: shopSettings.phone });
+  lastCheckIn = Date.now();
+  if (answer.ok || answer.status === 404) setPhones(answer.ok ? answer.json.phones || 0 : 0);
+}
+
+/** Every few seconds: the sealed store book to the phones when it changed, else a check-in each minute. */
+async function syncPhones() {
+  const key = shopSettings.phone;
+  if (syncing || !key) return;
+  syncing = true;
+  try {
+    const now = Date.now();
+    const watching = following();
+    if (watching !== lastFollowing) book.changed = true;
+    if (phones && book.changed && now - lastUpload >= UPLOAD_GAP_MS) {
+      book.changed = false;
+      const answer = await relay("state/put", { key, blob: await seal(key, book.snapshot(watching, now)) });
+      lastUpload = lastCheckIn = now;
+      if (answer.ok) lastFollowing = watching;
+      else book.changed = true;
+      if (answer.ok || answer.status === 404) setPhones(answer.ok ? answer.json.phones || 0 : 0);
+    } else if (now - lastCheckIn >= CHECK_IN_MS) {
+      await phoneStatus();
+    }
+  } finally {
+    syncing = false;
+  }
+}
+
+function hidePairing() {
+  if (pairing) {
+    clearInterval(pairing.poll);
+    clearTimeout(pairing.timeout);
+  }
+  pairing = null;
+  $("phone-pair").hidden = true;
+}
+
+/** Shows the QR code (a new key the first time) and waits for a phone to pair with it. */
+async function showPairing() {
+  if (!shopSettings.phone) {
+    shopSettings.phone = newKey();
+    saveShopSettings();
+    applyShopSettings();
+    phoneStatus();
+    setInterval(syncPhones, UPLOAD_GAP_MS);
+  }
+  const modules = await lens.phoneQr(phoneUrl(shopSettings.phone));
+  const width = Math.sqrt(modules.length);
+  // Four modules of quiet zone around the code, as scanners expect.
+  const canvas = $("phone-qr");
+  canvas.width = canvas.height = width + 8;
+  const context = canvas.getContext("2d");
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "#000";
+  modules.forEach((dark, i) => { if (dark) context.fillRect(4 + (i % width), 4 + Math.floor(i / width), 1, 1); });
+  hidePairing();
+  $("phone-pair").hidden = false;
+  const before = phones || 0;
+  pairing = {
+    poll: setInterval(async () => {
+      await phoneStatus();
+      if (phones > before) {
+        hidePairing();
+        $("phone-note").textContent = "Phone connected";
+      }
+    }, PAIR_POLL_MS),
+    timeout: setTimeout(hidePairing, QR_SHOWN_MS),
+  };
+  showPhone();
+}
+
 /** Pass the settings to the engine. */
 function applyShopSettings() {
   if (!lens) return;
   lens.setShop(shopSettings.shop);
-  lens.setNotify(shopSettings.webhook, shopSettings.sales, shopSettings.store);
+  lens.setNotify(shopSettings.webhook, shopSettings.phone, shopSettings.sales, shopSettings.store);
 }
 
 /** Words for a shop event, for the log. */
@@ -118,7 +243,9 @@ function logShopEvents(events, owner) {
     const row = document.createElement("li");
     row.className = described[1];
     const time = Object.assign(document.createElement("span"), { className: "t", textContent: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) });
-    row.append(time, document.createTextNode(described[0]));
+    row.append(time);
+    if (event.icon) row.append(Object.assign(document.createElement("img"), { className: "icon px", src: event.icon, alt: "", width: 24, height: 24 }));
+    row.append(document.createTextNode(described[0]));
     log.prepend(row);
   }
   while (log.children.length > LOG_ROWS) log.lastChild.remove();
@@ -227,6 +354,7 @@ function handleState(state, fps, ms) {
   setPill("tooltip-pill", Boolean(state.hover), state.hover ? `tooltip: ${state.hover.title}` : "no tooltip");
   setPill("window-pill", Boolean(state.info), state.info ? `Character Info${state.info.name ? `: ${state.info.name}` : ""}` : "no Character Info");
   showShopStatus(state);
+  if (shopSettings.shop) book.update(state.shop);
   if (state.shop?.events?.length) {
     logShopEvents(state.shop.events, state.shop.owner);
     stats.shopEvents.push(...state.shop.events);
@@ -543,12 +671,30 @@ async function main() {
     note("Sending…");
     note((await lens.testNotify(shopSettings.webhook)).text);
   });
+  const phoneNote = text => { $("phone-note").textContent = text; };
+  $("phone-connect").addEventListener("click", () => { phoneNote(""); if (lens) showPairing(); });
+  $("phone-hide").addEventListener("click", hidePairing);
+  $("phone-test").addEventListener("click", async () => {
+    phoneNote("Sending…");
+    phoneNote((await lens.testNotify(shopSettings.phone)).text);
+  });
+  $("phone-clear").addEventListener("click", async () => {
+    hidePairing();
+    // Forgets the pairing at the relay too: the phones stop getting anything, and the old QR code is worthless.
+    await relay("unpair", { key: shopSettings.phone });
+    shopSettings.phone = "";
+    phones = null;
+    saveShopSettings();
+    showPhone();
+    applyShopSettings();
+    phoneNote("Removed: your phones were told and disconnected");
+  });
   try {
     lens = await Lens.create({
       onState,
       onCard: (which, image) => show(which, image),
       onError: message => { $("fps").textContent = message; },
-      onNotify: result => { if (!result.ok) $("discord-note").textContent = result.text; },
+      onNotify: result => { if (!result.ok) $(result.name === "Phone" ? "phone-note" : "discord-note").textContent = result.text; },
       ocr: true,
     });
     setPill("engine-pill", true, `engine ${lens.version}`);

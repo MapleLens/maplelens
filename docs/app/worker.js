@@ -2,14 +2,16 @@
 //
 // Messages in:  {type: "init", fonts, glyphs, cardScale} · {type: "frame", bitmap, inset, scale} ·
 //               {type: "ocr-answer", id, text} · {type: "ocr-enabled", enabled} · {type: "shop", enabled} ·
-//               {type: "notify", webhook, sales, store} · {type: "notify-test", webhook} · {type: "catalog", id, json}
+//               {type: "notify", webhook, phone, sales, store} · {type: "notify-test", target} · {type: "phone-qr", url} ·
+//               {type: "catalog", id, json}
 // Messages out: {type: "ready", version, items} · {type: "state", state, fps, ms} · {type: "card", which, version,
 //               width, height, pixels} · {type: "ocr-job", id, font, width, height, pixels} · {type: "glyphs", font,
 //               json} · {type: "idle"} (ready for the next frame) · {type: "notify-status", text} ·
-//               {type: "notify-test-result", ok, text} · {type: "catalog-loaded", id, items | error} ·
+//               {type: "notify-test-result", ok, text} · {type: "phone-qr", modules} ·
+//               {type: "catalog-loaded", id, items | error} ·
 //               {type: "error", message}
 
-import init, { Engine } from "./pkg/maplelens_web.js?v=737f62b708b3";
+import init, { Engine } from "./pkg/maplelens_web.js?v=3de149585681";
 
 /** One rank lookup every two seconds stays under classicrank.com's 30 requests a minute. */
 const RANK_GAP_MS = 2000;
@@ -33,7 +35,7 @@ const post = (message, transfer = []) => self.postMessage(message, transfer);
 
 async function start({ fonts, glyphs, cardScale, ocr }) {
   // Named explicitly so scripts/stamp-web.ps1 can version it together with the glue.
-  await init({ module_or_path: new URL("./pkg/maplelens_web_bg.wasm?v=737f62b708b3", import.meta.url) });
+  await init({ module_or_path: new URL("./pkg/maplelens_web_bg.wasm?v=3de149585681", import.meta.url) });
   const [regular, bold] = await Promise.all(fonts.map(url => fetch(url).then(r => r.arrayBuffer())));
   engine = new Engine(new Uint8Array(regular), new Uint8Array(bold));
   engine.card_scale = cardScale || 1;
@@ -44,15 +46,16 @@ async function start({ fonts, glyphs, cardScale, ocr }) {
   post({ type: "ready", version: Engine.version(), items: engine.item_count() });
 }
 
-/** POST one request to a webhook; resolves to {ok, text}: in words for the player, never with the URL (its token
- *  is a secret). A refusal for going too fast is retried after the wait the service asks for. */
-async function deliver({ url, body }) {
+/** POST one request (the engine's `{name, url, body, missing}`); resolves to {ok, text}: in words for the player,
+ *  never with the URL or body (a webhook's token and a phone key are secrets). A refusal for going too fast is
+ *  retried after the wait the service asks for. */
+async function deliver({ name, url, body, missing }) {
   for (let attempt = 0; attempt <= SEND_RETRIES; attempt++) {
     let response;
     try {
       response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body });
     } catch {
-      return { ok: false, text: "Discord could not be reached" };
+      return { ok: false, text: `${name} could not be reached` };
     }
     if (response.ok) return { ok: true, text: "Sent" };
     if (response.status === 429 && attempt < SEND_RETRIES) {
@@ -61,10 +64,10 @@ async function deliver({ url, body }) {
       await new Promise(resolve => setTimeout(resolve, wait));
       continue;
     }
-    if (response.status === 401 || response.status === 404) return { ok: false, text: "Discord says that webhook does not exist (deleted?)" };
-    return { ok: false, text: `Discord answered HTTP ${response.status}` };
+    if ([401, 404, 410].includes(response.status)) return { ok: false, text: `${name} ${missing}` };
+    return { ok: false, text: `${name} answered HTTP ${response.status}` };
   }
-  return { ok: false, text: "Discord keeps refusing for going too fast" };
+  return { ok: false, text: `${name} keeps refusing for going too fast` };
 }
 
 async function drainOutbox() {
@@ -72,8 +75,9 @@ async function drainOutbox() {
   sending = true;
   try {
     while (outbox.length) {
-      const result = await deliver(outbox.shift());
-      post({ type: "notify-status", ok: result.ok, text: result.ok ? "Last message sent to Discord" : result.text });
+      const request = outbox.shift();
+      const result = await deliver(request);
+      post({ type: "notify-status", ok: result.ok, name: request.name, text: result.ok ? `Last message sent to ${request.name}` : result.text });
       await new Promise(resolve => setTimeout(resolve, SEND_GAP_MS));
     }
   } finally {
@@ -157,12 +161,16 @@ self.onmessage = async ({ data }) => {
       }
     }
     else if (data.type === "shop" && engine) engine.set_shop(data.enabled);
-    else if (data.type === "notify" && engine) engine.set_notify(data.webhook, data.sales, data.store);
+    else if (data.type === "notify" && engine) engine.set_notify(data.webhook, data.phone || "", data.sales, data.store);
     else if (data.type === "notify-test" && engine) {
-      const request = engine.notify_test_request(data.webhook, Date.now() / 1000);
-      if (!request) post({ type: "notify-test-result", ok: false, text: "Paste a Discord webhook URL first" });
-      else deliver(JSON.parse(request)).then(r => post({ type: "notify-test-result", ok: r.ok, text: r.ok ? "Sent: check your Discord channel" : `Not sent: ${r.text}` }));
+      const request = engine.notify_test_request(data.target, Date.now() / 1000);
+      if (!request) post({ type: "notify-test-result", ok: false, text: "Nothing to test yet" });
+      else {
+        const parsed = JSON.parse(request);
+        deliver(parsed).then(r => post({ type: "notify-test-result", ok: r.ok, text: r.ok ? parsed.sent : `Not sent: ${r.text}` }));
+      }
     }
+    else if (data.type === "phone-qr") post({ type: "phone-qr", modules: Engine.phone_qr(data.url) });
   } catch (error) {
     post({ type: "error", message: String(error?.message || error) });
   } finally {

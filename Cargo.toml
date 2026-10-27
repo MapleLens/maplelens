@@ -14,6 +14,7 @@ repository = "https://github.com/maplelens/maplelens"
 maplelens-core = { path = "crates/core" }
 ab_glyph = "0.2.32"
 png = "0.18.1"
+qrcode = { version = "0.14.1", default-features = false }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 tiny-skia = { version = "0.11.4", default-features = false, features = ["std", "simd"] }

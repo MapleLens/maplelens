@@ -117,13 +117,14 @@ fn whose(notification: &Notification) -> Option<String> {
 }
 
 fn test_message(settings: &NotifySettings, owner: Option<&str>) -> String {
-    match connectors(settings).first() {
-        Some(connector) => match deliver(connector.as_ref(), &connector.test_request(owner, paths::now_unix())) {
-            Ok(()) => format!("Sent: check your {} channel", connector.name()),
+    let answers: Vec<String> = connectors(settings)
+        .iter()
+        .map(|connector| match deliver(connector.as_ref(), &connector.test_request(owner, paths::now_unix())) {
+            Ok(()) => connector.sent().to_string(),
             Err(error) => format!("Not sent: {error}"),
-        },
-        None => "Paste a Discord webhook URL first".to_string(),
-    }
+        })
+        .collect();
+    if answers.is_empty() { "Paste a Discord webhook URL first".to_string() } else { answers.join(" · ") }
 }
 
 /// POST `request`, waiting out the service's rate limit; the error is in words for the player (never the URL: its
@@ -149,7 +150,7 @@ fn deliver(connector: &dyn Connector, request: &Request) -> Result<(), String> {
                     .clamp(0.1, MAX_WAIT_S);
                 std::thread::sleep(Duration::from_secs_f64(wait));
             }
-            401 | 404 => return Err(format!("{} says that webhook does not exist (deleted?)", connector.name())),
+            401 | 404 | 410 => return Err(format!("{} {}", connector.name(), connector.not_found())),
             status => return Err(format!("{} answered HTTP {status}", connector.name())),
         }
     }
@@ -172,7 +173,7 @@ mod tests {
     #[ignore = "sends real messages to the webhook in MAPLELENS_DISCORD_WEBHOOK (only the test one with MAPLELENS_DISCORD_TEST_ONLY)"]
     fn live_discord() {
         let Ok(url) = std::env::var("MAPLELENS_DISCORD_WEBHOOK") else { return };
-        let settings = NotifySettings { discord_webhook: url, sales: true, store: true };
+        let settings = NotifySettings { discord_webhook: url, sales: true, store: true, ..Default::default() };
         let notifier = Notifier::spawn(settings.clone());
         let answer = notifier.test(settings).recv_timeout(Duration::from_secs(30)).expect("an answer");
         println!("test message: {answer}");
@@ -203,8 +204,12 @@ mod tests {
     #[test]
     fn a_bad_webhook_is_not_sent_anywhere() {
         let notifier = Notifier::spawn(NotifySettings::default());
-        let settings =
-            NotifySettings { discord_webhook: "https://example.com/api/webhooks/1/x".into(), sales: true, store: true };
+        let settings = NotifySettings {
+            discord_webhook: "https://example.com/api/webhooks/1/x".into(),
+            sales: true,
+            store: true,
+            ..Default::default()
+        };
         let answer = notifier.test(settings).recv_timeout(Duration::from_secs(5)).expect("an answer");
         assert_eq!(answer, "Paste a Discord webhook URL first");
     }

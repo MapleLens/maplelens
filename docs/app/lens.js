@@ -41,11 +41,12 @@ export class Lens {
     this.ocrEnabled = Boolean(options.ocr);
     this.ocrQueue = [];
     this.testResolvers = [];
+    this.qrResolvers = [];
     this.catalogWaiters = new Map();
     this.catalogCount = 0;
     this.tesseract = null;
     this.tesseractLoading = null;
-    this.worker = new Worker(new URL("worker.js?v=737f62b708b3", base), { type: "module" });
+    this.worker = new Worker(new URL("worker.js?v=3de149585681", base), { type: "module" });
     this.worker.onerror = event => reject(new Error(event.message || "the engine could not start"));
     this.counts = {};
     this.bytes = 0;
@@ -62,6 +63,7 @@ export class Lens {
         case "notify-status": options.onNotify?.(data); break;
         case "catalog-loaded": this.catalogWaiters.get(data.id)?.(data); this.catalogWaiters.delete(data.id); break;
         case "notify-test-result": this.testResolvers.shift()?.(data); break;
+        case "phone-qr": this.qrResolvers.shift()?.(data.modules); break;
         case "error": (options.onError || console.error)(data.message); break;
       }
     };
@@ -92,16 +94,25 @@ export class Lens {
     this.worker.postMessage({ type: "shop", enabled });
   }
 
-  /** Report sold items to this Discord webhook (the engine ignores anything that is not one). */
-  setNotify(webhook, sales, store) {
-    this.worker.postMessage({ type: "notify", webhook, sales, store });
+  /** Report sold items to this Discord webhook and the phones paired with this key (the engine ignores anything
+   *  that is not one). */
+  setNotify(webhook, phone, sales, store) {
+    this.worker.postMessage({ type: "notify", webhook, phone, sales, store });
   }
 
-  /** Send a test message to `webhook`; resolves to {ok, text}. */
-  testNotify(webhook) {
+  /** Send a test message to a Discord webhook or a phone key; resolves to {ok, text}. */
+  testNotify(target) {
     return new Promise(resolve => {
       this.testResolvers.push(resolve);
-      this.worker.postMessage({ type: "notify-test", webhook });
+      this.worker.postMessage({ type: "notify-test", target });
+    });
+  }
+
+  /** The QR code of a phone pairing address: resolves to width² bytes, 1 = dark. */
+  phoneQr(url) {
+    return new Promise(resolve => {
+      this.qrResolvers.push(resolve);
+      this.worker.postMessage({ type: "phone-qr", url });
     });
   }
 

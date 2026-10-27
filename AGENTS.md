@@ -212,6 +212,24 @@ same frames through the Rust watcher (373 real captures, 22 ms a frame against P
   `discord.com/api/webhooks/<id>/<token>` URLs, sends embeds with `allowed_mentions` empty and names escaped, and its
   token is never logged or shown whole. Settings: `discord_webhook`, `notify_sales`. A new connector is a type and a
   settings field. `cargo test -p maplelens live_discord -- --ignored` sends to `MAPLELENS_DISCORD_WEBHOOK`.
+- Phone notifications (`notify::phone`, setting `phone_key`): Web Push through MapleLens's relay, `relay/push` (a
+  Cloudflare Worker in this repo: `npx wrangler deploy` from that folder, `npm test` there for its crypto; VAPID and
+  aes128gcm are hand-written on WebCrypto, no dependency). A pairing key is `<id>.<secret>` (made by the page,
+  `phone/relay.js` `newKey`); the relay stores only the secret's SHA-256 and the phones' subscriptions (KV), never a
+  message, and accepts push endpoints on the browsers' own push hosts only. The web app shows the key as a QR code of
+  `docs/app/phone/?pair=<key>` (hidden after two minutes or once `/status` sees a phone: a streamed screen is public);
+  the phone page subscribes and pairs. A batch of sales is one notification; store changes share a tag. iPhone pushes
+  only to home-screen apps, so the phone manifest has no `start_url` (the installed app opens the address with its
+  key; an installed app's storage is its own) and the app can also pair by scanning in-page (BarcodeDetector, else
+  jsQR from jsDelivr). Android needs no install. The website's QR (`docs/assets/phone-qr.svg`) is
+  `cargo run -p maplelens-core --example phone_qr`. The Windows app keeps `phone_key` but has no pairing UI yet.
+- The phone app is also a dashboard of the store: the page keeps a store book (`docs/app/storebook.js`: sales with item
+  pictures, chat, visits, who is inside, status, owner, mesos; kept in localStorage), seals it with AES-GCM under
+  HKDF(pairing secret) (`phone/relay.js` `seal`) and uploads it when it changed (every 5 s at most; a check-in each
+  minute otherwise). The relay keeps it in a Durable Object per pairing and never has the key. `?demo` on the phone
+  page shows the dashboard with made-up data. Remove on the computer tombstones the key (410 everywhere) and pushes a
+  "disconnected" notification; the phone app clears itself. A phone leaving is seen by the page's next check-in.
+  `relay/push/README.md` has the routes, limits, deploy steps and the security model; `npm test` there.
 - The browser runs the same watcher (`web/src/shopwatch.rs`). Its OCR is asynchronous: the reader answers None while
   text is being read. Only a sale or a visitor whose text is not in (`ShopWatcher::missing_text`) undoes the frame (the
   watcher is cloned first) to try again when the answers are in; text the watcher reads for itself (the owner's name,

@@ -9,7 +9,7 @@ $ErrorActionPreference = 'Stop'
 $app = Join-Path $PSScriptRoot '..\docs\app'
 $stamp = '\?v=[0-9a-f]{12}'
 # What the stamp is a hash of; the site's home page only carries it (its copy changes should not need a re-stamp).
-$hashed = 'index.html', 'app.js', 'cards.js', 'prices.js', 'lens.js', 'worker.js', 'pkg/maplelens_web.js', '../assets/maple.css'
+$hashed = 'index.html', 'app.js', 'cards.js', 'prices.js', 'phone/relay.js', 'storebook.js', 'lens.js', 'worker.js', 'pkg/maplelens_web.js', '../assets/maple.css'
 $files = $hashed + '../index.html'
 $text = @{}
 foreach ($file in $files) { $text[$file] = [IO.File]::ReadAllText((Join-Path $app $file)) -replace "`r`n", "`n" }
@@ -22,7 +22,7 @@ $hash = (-join ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($joined)) | ForE
 $links = @{
     '../index.html' = @('\./app/lens\.js', 'maple\.css')
     'index.html' = @('app\.js', 'lens\.js', 'maple\.css')
-    'app.js'     = @('\./lens\.js', '\./cards\.js', '\./prices\.js')
+    'app.js'     = @('\./lens\.js', '\./cards\.js', '\./prices\.js', '\./phone/relay\.js', '\./storebook\.js')
     'cards.js'   = @('\./lens\.js')
     'lens.js'    = @('"worker\.js')
     'worker.js'  = @('\./pkg/maplelens_web\.js', '\./pkg/maplelens_web_bg\.wasm')

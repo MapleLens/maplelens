@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use maplelens_core::image::RgbImage;
 use maplelens_core::market::catalog::Catalog;
 use maplelens_core::notify::announce::Announcer;
-use maplelens_core::notify::{Notification, NotifySettings, Request, connectors};
+use maplelens_core::notify::{Connector, Notification, NotifySettings, Request, connectors, item_icon_url};
 use maplelens_core::render::status_pill::{text_for, tone_for};
 use maplelens_core::shop::watcher::{ReadText, ShopWatcher};
 use maplelens_core::shop::{ShopEvent, ShopStatus};
@@ -43,7 +43,8 @@ pub struct ShopRunner {
     notify: NotifySettings,
     pending: Vec<Notification>,
     pending_since: f64,
-    outbox: Vec<Request>,
+    /// Requests as the page sends them (`request_json`).
+    outbox: Vec<Value>,
     announcer: Announcer,
     /// How many looks were made, and how many of them were undone for want of text (for diagnosing a page).
     pub looks: u32,
@@ -191,33 +192,48 @@ impl ShopRunner {
             return;
         }
         for connector in connectors(&self.notify) {
-            self.outbox.extend(connector.requests(&batch, unix_now));
+            self.outbox
+                .extend(connector.requests(&batch, unix_now).iter().map(|r| request_json(connector.as_ref(), r)));
         }
     }
 
-    /// The requests the page should send, as `[{"url", "body"}]` JSON.
+    /// The requests the page should send, as a JSON array of `request_json`.
     pub fn take_requests(&mut self) -> String {
-        let requests: Vec<Value> =
-            std::mem::take(&mut self.outbox).into_iter().map(|r| json!({"url": r.url, "body": r.body})).collect();
-        Value::Array(requests).to_string()
+        Value::Array(std::mem::take(&mut self.outbox)).to_string()
     }
 
-    /// The test message of the first connector, as `{"url", "body"}` JSON, for settings not yet in use.
+    /// The test message of the first connector, as `request_json`, for settings not yet in use.
     pub fn test_request(&self, settings: &NotifySettings, unix_now: f64) -> Option<String> {
         let owner = self.owner();
-        let owner = owner.as_deref();
         let connector = connectors(settings).into_iter().next()?;
-        let request = connector.test_request(owner, unix_now);
-        Some(json!({"url": request.url, "body": request.body}).to_string())
+        Some(request_json(connector.as_ref(), &connector.test_request(owner.as_deref(), unix_now)).to_string())
     }
+}
+
+/// A request with what the page says about it: `{"name", "url", "body", "sent", "missing"}` (the connector's name,
+/// its words for a sent test and for a 404).
+fn request_json(connector: &dyn Connector, request: &Request) -> Value {
+    json!({
+        "name": connector.name(),
+        "url": request.url,
+        "body": request.body,
+        "sent": connector.sent(),
+        "missing": connector.not_found(),
+    })
 }
 
 /// An event as the page gets it.
 pub fn event_json(event: &ShopEvent) -> Value {
     match event {
-        ShopEvent::Sale { item, buyer, quantity, mesos, .. } => {
-            json!({"kind": "sale", "item": item, "buyer": buyer, "quantity": quantity, "mesos": mesos})
-        }
+        ShopEvent::Sale { item, buyer, quantity, mesos, item_id } => json!({
+            "kind": "sale",
+            "item": item,
+            "buyer": buyer,
+            "quantity": quantity,
+            "mesos": mesos,
+            "item_id": item_id,
+            "icon": item_id.map(item_icon_url),
+        }),
         ShopEvent::SaleUnseen { mesos } => json!({"kind": "sale-unseen", "mesos": mesos}),
         ShopEvent::AmbiguousSale => json!({"kind": "sale-ambiguous"}),
         ShopEvent::PlayerEntered(name) => json!({"kind": "entered", "name": name}),

@@ -166,15 +166,16 @@ export class Engine {
         }
     }
     /**
-     * The test message for `webhook` as `{"url", "body"}` JSON, or undefined when it is not a Discord webhook.
-     * @param {string} webhook
+     * The test message for a Discord webhook or a phone pairing key, as `{"name", "url", "body", "sent", "missing"}`
+     * JSON, or undefined when `target` is neither.
+     * @param {string} target
      * @param {number} unix_now
      * @returns {string | undefined}
      */
-    notify_test_request(webhook, unix_now) {
+    notify_test_request(target, unix_now) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passStringToWasm0(webhook, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+            const ptr0 = passStringToWasm0(target, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
             const len0 = WASM_VECTOR_LEN;
             wasm.engine_notify_test_request(retptr, this.__wbg_ptr, ptr0, len0, unix_now);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
@@ -235,6 +236,28 @@ export class Engine {
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
             wasm.__wbindgen_export(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * The QR code of a phone pairing address (the page builds it, so a copy of the site pairs with itself):
+     * `width * width` bytes, 1 = dark, row by row, without the quiet zone; empty for anything but an https address
+     * carrying a pairing key.
+     * @param {string} url
+     * @returns {Uint8Array}
+     */
+    static phone_qr(url) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passStringToWasm0(url, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.engine_phone_qr(retptr, ptr0, len0);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v2 = getArrayU8FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export(r0, r1 * 1, 1);
+            return v2;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
         }
     }
     /**
@@ -314,16 +337,19 @@ export class Engine {
         return ret >>> 0;
     }
     /**
-     * Where sold items and the store opening or closing are reported: a Discord webhook URL (anything else is ignored),
-     * and whether to report sales and store changes.
+     * Where sold items and the store opening or closing are reported: a Discord webhook URL and a phone pairing key
+     * (either "" or anything malformed is off), and whether to report sales and store changes.
      * @param {string} webhook
+     * @param {string} phone_key
      * @param {boolean} sales
      * @param {boolean} store
      */
-    set_notify(webhook, sales, store) {
+    set_notify(webhook, phone_key, sales, store) {
         const ptr0 = passStringToWasm0(webhook, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
         const len0 = WASM_VECTOR_LEN;
-        wasm.engine_set_notify(this.__wbg_ptr, ptr0, len0, sales, store);
+        const ptr1 = passStringToWasm0(phone_key, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+        const len1 = WASM_VECTOR_LEN;
+        wasm.engine_set_notify(this.__wbg_ptr, ptr0, len0, ptr1, len1, sales, store);
     }
     /**
      * Whether the page can recognise images the atlas cannot read (the OCR fallback): without it no jobs are made.

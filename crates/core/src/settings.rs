@@ -22,6 +22,8 @@ pub struct Settings {
     pub store_status_bar: bool,
     /// A Discord channel's webhook URL, where sold items are reported; empty = off.
     pub discord_webhook: String,
+    /// The phone pairing key (`notify::phone`), from the QR code the player scanned; empty = off.
+    pub phone_key: String,
     /// Tell Discord about sold items (when there is a webhook).
     pub notify_sales: bool,
     /// Tell Discord when the store is detected open or closes.
@@ -38,6 +40,7 @@ impl Default for Settings {
             check_updates: true,
             store_status_bar: true,
             discord_webhook: String::new(),
+            phone_key: String::new(),
             notify_sales: true,
             notify_store: true,
         }
@@ -73,6 +76,11 @@ impl Settings {
         {
             settings.discord_webhook = valid.to_string();
         }
+        if let Some(key) = raw.get("phone_key").and_then(Value::as_str)
+            && let Some(valid) = crate::notify::phone::valid_key(key)
+        {
+            settings.phone_key = valid.to_string();
+        }
         if let Some(v) = raw.get("toggle_hotkey").and_then(Value::as_u64).filter(|&v| v <= 0xFFFF) {
             settings.toggle_hotkey = v as u32;
         }
@@ -95,6 +103,7 @@ impl Settings {
         map.insert("notify_sales".into(), json!(self.notify_sales));
         map.insert("notify_store".into(), json!(self.notify_store));
         map.insert("discord_webhook".into(), json!(self.discord_webhook));
+        map.insert("phone_key".into(), json!(self.phone_key));
         serde_json::to_string_pretty(&Value::Object(map)).unwrap_or_default()
     }
 }
@@ -104,6 +113,7 @@ impl Settings {
     pub fn notify(&self) -> crate::notify::NotifySettings {
         crate::notify::NotifySettings {
             discord_webhook: self.discord_webhook.clone(),
+            phone_key: self.phone_key.clone(),
             sales: self.notify_sales,
             store: self.notify_store,
         }
