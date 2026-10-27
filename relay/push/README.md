@@ -98,12 +98,14 @@ WAF → Rate limiting rules, or by the Rulesets API's `http_ratelimit` phase:
 
 | Field | Value |
 | --- | --- |
-| Match | `http.host eq "push.maple.observer"` |
+| Match | URI path wildcard `/*` (the free plan matches on the path only; the relay is all the zone serves) |
 | Counted by | IP address (and data centre) |
 | Limit | 30 requests per 10 seconds |
 | Action | Block, for 10 seconds |
 
 A store's page sends at most one request every 4 s, a phone app one every 15 s, so 30 in 10 s is only ever a flood.
+Tested: 60 requests in a row from one address, the first 30 answered and the rest blocked (429, by Cloudflare,
+before the Worker), and answers again 25 s later. A page on the zone other than the relay would share this limit.
 `workers_dev = false` in `wrangler.toml` keeps the Worker off its `workers.dev` address, which no firewall rule
 covers. This is this Worker only: the price relay (`maplelens-prices.prices-proxy.workers.dev`, outside
 this repo) keeps its `workers.dev` address, which the web app and the Windows app read prices from.
