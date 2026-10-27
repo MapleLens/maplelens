@@ -1,8 +1,10 @@
-//! The item's picture in a sale message. The price list's ids are MapleStory Classic's, and maplestory.io (the public
-//! picture service, GMS data) numbers most items differently: Garnet is 4020100 in Classic and 4021000 there, and of
-//! 30 random items of the list only 2 ids named the same item (an unknown id shows no picture, a reused one the wrong
-//! one). Names mostly agree (23 of the 30), so the picture is found by searching the item's name, once per name; the
-//! platform asks (`search_url`) and hands the answer back (`Pictures::learn`).
+//! The item's picture in a sale message, from maplestory.io's MapleStory Classic World data (`config::ITEM_API`), which
+//! numbers items as the game does: a sale whose item snapped to the price list shows the picture of its own id, with
+//! no request (1,866 of the list's 1,867 items are there; 200 of 200 sampled icons loaded). A sale without an id (its
+//! name matched no item, or two) is searched by name, once per name; the platform asks (`search_url`) and hands the
+//! answer back (`Pictures::learn`). The GMS data used before numbered most items differently (Garnet is 4020100 in
+//! Classic, 4021000 there) and named a quarter of them otherwise (Classic's Iron Ingot is its Steel Plate), so a
+//! quarter of the sales showed no picture.
 
 use std::collections::HashMap;
 
@@ -13,7 +15,7 @@ use super::Notification;
 /// The search matches parts of names: "Sapphire" also finds 45 hair colours and earrings before the stone.
 const SEARCH_COUNT: usize = 1000;
 
-/// What each item name's picture is, once asked (None: maplestory.io has no item of that name).
+/// What each id-less item name's picture is, once asked (None: maplestory.io has no item of that name).
 #[derive(Clone, Debug, Default)]
 pub struct Pictures {
     known: HashMap<String, Option<u64>>,
@@ -21,13 +23,13 @@ pub struct Pictures {
 
 /// The maplestory.io search for items named like `name`.
 pub fn search_url(name: &str) -> String {
-    format!("{}/item?count={SEARCH_COUNT}&searchFor={}", crate::config::MAP_API, encoded(name.trim()))
+    format!("{}/item?count={SEARCH_COUNT}&searchFor={}", crate::config::ITEM_API, encoded(name.trim()))
 }
 
-/// The picture's id in a search answer: the item of exactly that name, the one with the game's own id if several
-/// are (gendered copies), else one of the same kind (the id's first digit: equip, use, etc). An item of another kind
-/// is another thing that shares the name ("Poisonous Mushroom" is a monster drop and a potion), so none.
-pub fn pick(answer: &str, name: &str, game_id: Option<u64>) -> Option<u64> {
+/// The picture's id in a search answer: the item of exactly that name (the first of gendered copies). Items of
+/// several kinds (the id's first digit: equip, use, etc) are different things that share the name ("Poisonous
+/// Mushroom" was a monster drop and a potion), and without the sale's id which one was sold is not known: none.
+pub fn pick(answer: &str, name: &str) -> Option<u64> {
     let answer: Value = serde_json::from_str(answer).ok()?;
     let name = folded(name);
     let named: Vec<u64> = answer
@@ -36,17 +38,18 @@ pub fn pick(answer: &str, name: &str, game_id: Option<u64>) -> Option<u64> {
         .filter(|item| item["name"].as_str().is_some_and(|n| folded(n) == name))
         .filter_map(|item| item["id"].as_u64())
         .collect();
-    let Some(game_id) = game_id else { return named.first().copied() };
     let kind = |id: u64| id / 1_000_000;
-    named.iter().copied().find(|&id| id == game_id).or_else(|| named.into_iter().find(|&id| kind(id) == kind(game_id)))
+    let first = *named.first()?;
+    named.iter().all(|&id| kind(id) == kind(first)).then_some(first)
 }
 
 impl Pictures {
-    /// The sold items' names whose picture is not known yet, each once.
+    /// The sold items' names to search for, each once: those without the game's id whose picture is not known yet.
     pub fn wanted(&self, batch: &[Notification]) -> Vec<String> {
         let mut names: Vec<String> = Vec::new();
         for notification in batch {
             if let Notification::Sale(sale) = notification
+                && sale.item_id.is_none()
                 && !self.known.contains_key(&folded(&sale.item))
                 && !names.iter().any(|n| folded(n) == folded(&sale.item))
             {
@@ -57,15 +60,15 @@ impl Pictures {
     }
 
     /// maplestory.io's answer to `search_url(name)`. A failed request is not an answer: the name stays wanted.
-    pub fn learn(&mut self, name: &str, answer: &str, game_id: Option<u64>) {
-        self.known.insert(folded(name), pick(answer, name, game_id));
+    pub fn learn(&mut self, name: &str, answer: &str) {
+        self.known.insert(folded(name), pick(answer, name));
     }
 
-    /// Gives every sale in `batch` its picture, where known.
+    /// Gives every sale in `batch` its picture: its own id, else the one found by its name.
     pub fn fill(&self, batch: &mut [Notification]) {
         for notification in batch {
             if let Notification::Sale(sale) = notification {
-                sale.picture = self.known.get(&folded(&sale.item)).copied().flatten();
+                sale.picture = sale.item_id.or_else(|| self.known.get(&folded(&sale.item)).copied().flatten());
             }
         }
     }
@@ -73,14 +76,6 @@ impl Pictures {
     /// The picture's address for an item of this name, once found (for showing it beside the sale, not only in it).
     pub fn url(&self, name: &str) -> Option<String> {
         self.known.get(&folded(name)).copied().flatten().map(super::item_icon_url)
-    }
-
-    /// The game's id of the sale of `name` in `batch`, for `learn`.
-    pub fn game_id(batch: &[Notification], name: &str) -> Option<u64> {
-        batch.iter().find_map(|n| match n {
-            Notification::Sale(sale) if folded(&sale.item) == folded(name) => sale.item_id,
-            _ => None,
-        })
     }
 }
 
@@ -107,53 +102,52 @@ mod tests {
     use crate::notify::Sale;
 
     /// maplestory.io's answer for "Garnet" (shortened to the fields read).
-    const GARNET: &str = r#"[{"name":"Garnet Ore","id":4020000},{"name":"Garnet","id":4021000}]"#;
+    const GARNET: &str = r#"[{"name":"Garnet Ore","id":4010100},{"name":"Garnet","id":4020100}]"#;
 
     fn sale(item: &str, item_id: Option<u64>) -> Notification {
         Notification::Sale(Sale { item: item.into(), item_id, ..Sale::default() })
     }
 
     #[test]
-    fn the_search_is_for_the_name() {
-        assert!(
-            search_url(" Mrs. Ming Ming's Stew ").ends_with("/item?count=1000&searchFor=Mrs.%20Ming%20Ming%27s%20Stew")
-        );
+    fn pictures_are_of_the_games_own_data() {
+        let search = search_url(" Mrs. Ming Ming's Stew ");
+        assert!(search.ends_with("/api/MCW/1/item?count=1000&searchFor=Mrs.%20Ming%20Ming%27s%20Stew"), "{search}");
+        assert_eq!(crate::notify::item_icon_url(4_010_101), "https://maplestory.io/api/MCW/1/item/4010101/icon");
     }
 
     #[test]
-    fn the_picture_is_the_item_of_that_name_not_of_that_id() {
-        // Classic's Garnet is 4020100, which maplestory.io does not have.
-        assert_eq!(pick(GARNET, "Garnet", Some(4_020_100)), Some(4_021_000));
-        assert_eq!(pick(GARNET, "garnet ", None), Some(4_021_000));
-        assert_eq!(pick(GARNET, "Garnet Earrings", Some(4_020_100)), None);
-        assert_eq!(pick("not json", "Garnet", None), None);
+    fn the_picture_is_the_item_of_exactly_that_name() {
+        assert_eq!(pick(GARNET, "Garnet"), Some(4_020_100));
+        assert_eq!(pick(GARNET, "garnet "), Some(4_020_100));
+        assert_eq!(pick(GARNET, "Garnet Earrings"), None);
+        assert_eq!(pick("not json", "Garnet"), None);
     }
 
     #[test]
-    fn of_several_items_of_one_name_the_same_kind_wins() {
+    fn items_of_one_name_but_several_kinds_name_none() {
         let answer = r#"[{"name":"Poisonous Mushroom","id":2011000},{"name":"Poisonous Mushroom","id":4000176}]"#;
-        assert_eq!(pick(answer, "Poisonous Mushroom", Some(4_000_064)), Some(4_000_176));
-        assert_eq!(pick(answer, "Poisonous Mushroom", Some(2_011_000)), Some(2_011_000));
-        assert_eq!(pick(answer, "Poisonous Mushroom", Some(1_000_000)), None, "no equip of that name");
+        assert_eq!(pick(answer, "Poisonous Mushroom"), None);
+        let gendered = r#"[{"name":"Red Cloth Pants","id":1062001},{"name":"Red Cloth Pants","id":1061002}]"#;
+        assert_eq!(pick(gendered, "Red Cloth Pants"), Some(1_062_001));
     }
 
     #[test]
-    fn each_name_is_asked_once_and_filled_in() {
+    fn a_sale_with_the_games_id_needs_no_search() {
         let mut pictures = Pictures::default();
         let mut batch = vec![
-            sale("Garnet", Some(4_020_100)),
-            sale("Garnet", Some(4_020_100)),
+            sale("Iron Ingot", Some(4_010_101)),
+            sale("Garnet", None),
+            sale("Garnet", None),
             sale("Unknown Thing", None),
             Notification::Store(Default::default()),
         ];
         assert_eq!(pictures.wanted(&batch), ["Garnet", "Unknown Thing"]);
-        assert_eq!(Pictures::game_id(&batch, "Garnet"), Some(4_020_100));
-        pictures.learn("Garnet", GARNET, Some(4_020_100));
-        pictures.learn("Unknown Thing", "[]", None);
+        pictures.learn("Garnet", GARNET);
+        pictures.learn("Unknown Thing", "[]");
         assert!(pictures.wanted(&batch).is_empty());
         pictures.fill(&mut batch);
         let found: Vec<Option<u64>> =
             batch.iter().filter_map(|n| if let Notification::Sale(s) = n { Some(s.picture) } else { None }).collect();
-        assert_eq!(found, [Some(4_021_000), Some(4_021_000), None]);
+        assert_eq!(found, [Some(4_010_101), Some(4_020_100), Some(4_020_100), None]);
     }
 }

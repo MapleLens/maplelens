@@ -53,6 +53,8 @@ export class StoreBook {
     const book = this.book;
     switch (event.kind) {
       case "sale":
+        // A sale of an item with the game's id comes with its picture; others get one once found by name.
+        if (event.picture) this.pictures.set(event.item, event.picture);
         book.sales.unshift({ t, item: event.item, qty: event.quantity || 1, buyer: event.buyer, mesos: event.mesos ?? null, icon: this.pictures.get(event.item) || null });
         break;
       case "sale-unseen":

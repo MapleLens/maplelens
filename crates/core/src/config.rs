@@ -120,6 +120,10 @@ pub const RANK_REQUEST_GAP_S: f64 = 2.0;
 pub const MAP_API: &str = "https://maplestory.io/api/GMS/40";
 /// maplestory.io is sometimes slow (a request took >8 s).
 pub const MAP_REQUEST_TIMEOUT_S: u64 = 10;
+/// Sold items' pictures: maplestory.io's MapleStory Classic World data (region MCW), which numbers and names items as
+/// the game does. Of the price list's 1,867 items 1,866 are there by their own id (GMS v40, the map helper's data,
+/// names 465 of them otherwise: Classic's Iron Ingot is its Steel Plate).
+pub const ITEM_API: &str = "https://maplestory.io/api/MCW/1";
 /// After a failed lookup.
 pub const MAP_RETRY_S: f64 = 30.0;
 /// World-map tooltips are not at a fixed offset from the cursor (two samples differ by ~20 px vertically), so the

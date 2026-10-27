@@ -3,8 +3,8 @@
 //! Text is read by the page's OCR, which is asynchronous, while the watcher asks for it synchronously. So a frame
 //! whose text is not read yet is undone (the watcher is restored from a copy made before it) and tried again once
 //! the answers are in: the sold list still shows the new rows then. Sales go to the notification connectors; the page
-//! sends the requests this produces (the engine never touches the network), after asking maplestory.io for the sold
-//! items' pictures (`take_picture_lookups` / `picture_found`).
+//! sends the requests this produces (the engine never touches the network). A sold item's picture is that of its own
+//! id; one without an id is searched by name first (`take_picture_lookups` / `picture_found`).
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -13,7 +13,7 @@ use maplelens_core::image::RgbImage;
 use maplelens_core::market::catalog::Catalog;
 use maplelens_core::notify::announce::Announcer;
 use maplelens_core::notify::picture::{Pictures, search_url};
-use maplelens_core::notify::{Notification, NotifySettings, Request, connectors};
+use maplelens_core::notify::{Notification, NotifySettings, Request, connectors, item_icon_url};
 use maplelens_core::render::status_pill::{text_for, tone_for, word_for};
 use maplelens_core::shop::watcher::{ReadText, ShopWatcher};
 use maplelens_core::shop::{ShopEvent, ShopStatus};
@@ -33,8 +33,8 @@ const RETRY_S: f64 = 0.3;
 const MAX_WAITING_JOBS: usize = 48;
 /// Sales that come together are one message.
 const BATCH_S: f64 = 1.5;
-/// A batch waits this long at most for its items' pictures (maplestory.io is sometimes slow); without them it goes
-/// anyway.
+/// A batch waits this long at most for the pictures searched by name (maplestory.io is sometimes slow); without them
+/// it goes anyway.
 const PICTURE_WAIT_S: f64 = 8.0;
 
 pub struct ShopRunner {
@@ -246,7 +246,7 @@ impl ShopRunner {
 
     /// maplestory.io's answer to a picture lookup (a failed one is simply not handed in: the batch goes without it).
     pub fn picture_found(&mut self, name: &str, answer: &str) {
-        self.pictures.learn(name, answer, Pictures::game_id(&self.pending, name));
+        self.pictures.learn(name, answer);
     }
 
     pub fn picture_url(&self, name: &str) -> Option<String> {
@@ -272,12 +272,13 @@ fn request_json(service: &str, request: Request) -> Value {
     json
 }
 
-/// An event as the page gets it.
+/// An event as the page gets it; a sale of an item with the game's id carries its picture for the log and the phones.
 pub fn event_json(event: &ShopEvent) -> Value {
     match event {
-        ShopEvent::Sale { item, buyer, quantity, mesos, .. } => {
-            json!({"kind": "sale", "item": item, "buyer": buyer, "quantity": quantity, "mesos": mesos})
-        }
+        ShopEvent::Sale { item, buyer, quantity, mesos, item_id } => json!({
+            "kind": "sale", "item": item, "buyer": buyer, "quantity": quantity, "mesos": mesos,
+            "picture": item_id.map(item_icon_url),
+        }),
         ShopEvent::SaleUnseen { mesos } => json!({"kind": "sale-unseen", "mesos": mesos}),
         ShopEvent::AmbiguousSale => json!({"kind": "sale-ambiguous"}),
         ShopEvent::PlayerEntered(name) => json!({"kind": "entered", "name": name}),
@@ -306,9 +307,15 @@ mod tests {
 
     const WEBHOOK: &str = "https://discord.com/api/webhooks/12/abc_DEF";
 
-    fn sold(runner: &mut ShopRunner, item: &str, item_id: u64, now: f64) {
-        runner.pending.push(Notification::Sale(Sale { item: item.into(), item_id: Some(item_id), ..Sale::default() }));
+    fn sold(runner: &mut ShopRunner, item: &str, item_id: Option<u64>, now: f64) {
+        runner.pending.push(Notification::Sale(Sale { item: item.into(), item_id, ..Sale::default() }));
         runner.pending_since = now;
+    }
+
+    fn runner() -> ShopRunner {
+        let mut runner = ShopRunner::new();
+        runner.set_notify(NotifySettings { discord_webhook: WEBHOOK.into(), sales: true, ..NotifySettings::default() });
+        runner
     }
 
     fn thumbnail(runner: &mut ShopRunner) -> Option<String> {
@@ -319,10 +326,26 @@ mod tests {
     }
 
     #[test]
-    fn a_sale_waits_for_its_picture_found_by_name() {
-        let mut runner = ShopRunner::new();
-        runner.set_notify(NotifySettings { discord_webhook: WEBHOOK.into(), sales: true, ..NotifySettings::default() });
-        sold(&mut runner, "Garnet", 4_020_100, 0.0);
+    fn a_sale_with_the_games_id_goes_at_once_with_its_picture() {
+        let mut runner = runner();
+        sold(&mut runner, "Iron Ingot", Some(4_010_101), 0.0);
+        runner.flush(BATCH_S, 0.0);
+        assert_eq!(runner.take_picture_lookups(), "[]", "nothing to search for");
+        assert_eq!(thumbnail(&mut runner).as_deref(), Some("https://maplestory.io/api/MCW/1/item/4010101/icon"));
+        let event = ShopEvent::Sale {
+            item: "Iron Ingot".into(),
+            buyer: "Buyer".into(),
+            quantity: 2,
+            mesos: None,
+            item_id: Some(4_010_101),
+        };
+        assert_eq!(event_json(&event)["picture"], "https://maplestory.io/api/MCW/1/item/4010101/icon");
+    }
+
+    #[test]
+    fn a_sale_without_an_id_waits_for_its_picture_found_by_name() {
+        let mut runner = runner();
+        sold(&mut runner, "Garnet", None, 0.0);
         runner.flush(BATCH_S, 0.0);
         let lookups: Value = serde_json::from_str(&runner.take_picture_lookups()).unwrap();
         assert_eq!(lookups[0]["name"], "Garnet");
@@ -330,20 +353,20 @@ mod tests {
         runner.flush(BATCH_S + 1.0, 0.0);
         assert_eq!(runner.take_requests(), "[]", "waiting for the picture");
         assert_eq!(runner.take_picture_lookups(), "[]", "asked once");
-        runner.picture_found("Garnet", r#"[{"name":"Garnet Ore","id":4020000},{"name":"Garnet","id":4021000}]"#);
+        runner.picture_found("Garnet", r#"[{"name":"Garnet Ore","id":4010100},{"name":"Garnet","id":4020100}]"#);
         runner.flush(BATCH_S + 2.0, 0.0);
-        assert!(thumbnail(&mut runner).unwrap().ends_with("/item/4021000/icon"));
+        assert!(thumbnail(&mut runner).unwrap().ends_with("/item/4020100/icon"));
+        assert_eq!(runner.picture_url("Garnet").as_deref(), Some("https://maplestory.io/api/MCW/1/item/4020100/icon"));
         // Known now: the next sale of it does not wait.
-        sold(&mut runner, "Garnet", 4_020_100, 10.0);
+        sold(&mut runner, "Garnet", None, 10.0);
         runner.flush(10.0 + BATCH_S, 0.0);
         assert!(thumbnail(&mut runner).is_some());
     }
 
     #[test]
     fn a_picture_that_does_not_come_does_not_hold_the_sale() {
-        let mut runner = ShopRunner::new();
-        runner.set_notify(NotifySettings { discord_webhook: WEBHOOK.into(), sales: true, ..NotifySettings::default() });
-        sold(&mut runner, "Garnet", 4_020_100, 0.0);
+        let mut runner = runner();
+        sold(&mut runner, "Garnet", None, 0.0);
         runner.flush(BATCH_S, 0.0);
         runner.flush(BATCH_S + PICTURE_WAIT_S, 0.0);
         assert_eq!(thumbnail(&mut runner), None);
@@ -352,7 +375,7 @@ mod tests {
     #[test]
     fn without_a_connector_no_picture_is_looked_up() {
         let mut runner = ShopRunner::new();
-        sold(&mut runner, "Garnet", 4_020_100, 0.0);
+        sold(&mut runner, "Garnet", None, 0.0);
         runner.flush(BATCH_S, 0.0);
         assert_eq!(runner.take_picture_lookups(), "[]");
     }

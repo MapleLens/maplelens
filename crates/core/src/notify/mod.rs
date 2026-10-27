@@ -40,7 +40,7 @@ pub struct Sale {
     pub mesos: Option<i64>,
     /// The game's (MapleStory Classic's) item id.
     pub item_id: Option<u64>,
-    /// The item's picture on maplestory.io, whose ids are not the game's: found by name (`picture::Pictures`).
+    /// The item's picture on maplestory.io: its own id, or found by name when it has none (`picture::Pictures`).
     pub picture: Option<u64>,
     /// The player whose store it is.
     pub store: Option<String>,
@@ -48,13 +48,12 @@ pub struct Sale {
     pub balance: Option<i64>,
 }
 
-/// A picture of an item (maplestory.io, the same public service the map helper uses; no key).
+/// A picture of an item (maplestory.io's Classic data, the public service the map helper uses too; no key).
 pub fn item_icon_url(item_id: u64) -> String {
-    format!("{}/item/{item_id}/icon", crate::config::MAP_API)
+    format!("{}/item/{item_id}/icon", crate::config::ITEM_API)
 }
 
-/// The item the test messages' example sale shows (Pet Food, sold by NPCs: in every version's data, with the same
-/// id in the game and on maplestory.io).
+/// The item the test messages' example sale shows (Pet Food, sold by NPCs: the same id in every version's data).
 pub const EXAMPLE_ITEM: (&str, u64) = ("Pet Food", 2_120_000);
 
 /// 1234567 -> "1,234,567".

@@ -226,9 +226,13 @@ same frames through the Rust watcher (373 real captures, 22 ms a frame against P
   messages are HTML with names escaped and '@' kept from mentioning. Telegram's Bot API allows any origin, so the
   browser sends straight to it too. Settings: `discord_webhook`, `telegram_webhook`, `notify_sales`, `notify_store`. Refusals are worded by `notify::refusal`, waits read by `notify::retry_after`, for both platforms.
   A new connector is a type and a settings field. The item's picture (a Discord thumbnail, a Telegram `sendPhoto`
-  whose caption is the message, sent again as text if refused) is maplestory.io's, found by the item's name
-  (`notify::picture`): the price list's ids are Classic's, and only 2 of 30 named the same item there (Garnet showed
-  none). Each name is searched once; the browser holds a batch up to 8 s for the answers. `cargo test -p maplelens live_discord -- --ignored` sends to
+  whose caption is the message, sent again as text if refused) is maplestory.io's MapleStory Classic World data
+  (`config::ITEM_API`, region MCW), which numbers and names items as the game does: the picture of the sold item's own
+  id, with no request (1,866 of the price list's 1,867 items are there; 200 of 200 sampled icons loaded; meso.watch's
+  icons are copies of the same data). Only a sale without an id is searched by name (`notify::picture`), each name
+  once, and the browser holds a batch up to 8 s for those answers. The GMS v40 data used before (still the map
+  helper's) numbers items differently and names 465 of the 1,867 otherwise (Classic's Iron Ingot is its Steel Plate),
+  so a quarter of the sales had no picture. `cargo test -p maplelens live_discord -- --ignored` sends to
   `MAPLELENS_DISCORD_WEBHOOK`; `live_telegram` links and writes through the bot in `MAPLELENS_TELEGRAM_BOT`.
 - Phone notifications (`notify::phone`, setting `phone_key`): Web Push through MapleLens's relay, `relay/push` (a
   Cloudflare Worker in this repo at `https://push.maple.observer`, behind that zone's firewall rate limit: `npx wrangler deploy` from that folder, `npm test` there for its crypto; VAPID and
@@ -236,7 +240,7 @@ same frames through the Rust watcher (373 real captures, 22 ms a frame against P
   `phone/relay.js` `newKey`); the relay stores only the secret's SHA-256 and the phones' subscriptions (a Durable Object
   per pairing, the pairing's only record: KV cached a missing pairing for a minute per location), never a message, and accepts push endpoints on the browsers' own push hosts only. The web app shows the key as a QR code of
   `docs/app/phone/?pair=<key>` (hidden after two minutes or once `/status` sees a phone: a streamed screen is public);
-  the phone page subscribes and pairs. A batch of sales is one notification, with the item's picture (`Sale.picture`, found by name) when it is one
+  the phone page subscribes and pairs. A batch of sales is one notification, with the item's picture (`Sale.picture`) when it is one
   sale; store changes share a tag. iPhone pushes
   only to home-screen apps, so the phone manifest has no `start_url` (the installed app opens the address with its
   key; an installed app's storage is its own) and the app can also pair by scanning in-page (BarcodeDetector, else
@@ -257,7 +261,7 @@ same frames through the Rust watcher (373 real captures, 22 ms a frame against P
   `relay.js` `seal` (HKDF-SHA256 + AES-256-GCM on Windows' CNG; tested on RFC 5869 / NIST vectors, and the phone's
   `unseal` opens it). `cargo test -p maplelens live_phone_relay -- --ignored` walks a fresh key through the real relay.
 - The phone app is also a dashboard of the store: the page keeps a store book (`docs/app/storebook.js`: sales with item
-  pictures (the worker posts each one the engine finds: `Engine::picture_url`), chat, visits, who is inside, status, owner, mesos; kept in localStorage), seals it with AES-GCM under
+  pictures (a sale event carries its item's; one found by name the worker posts: `Engine::picture_url`), chat, visits, who is inside, status, owner, mesos; kept in localStorage), seals it with AES-GCM under
   HKDF(pairing secret) (`phone/relay.js` `seal`) and uploads it when it changed (every 5 s at most; a check-in each
   minute otherwise). The relay keeps it in a Durable Object per pairing and never has the key. `?demo` on the phone
   page shows the dashboard with made-up data. Remove on the computer tombstones the key (410 everywhere) and pushes a
