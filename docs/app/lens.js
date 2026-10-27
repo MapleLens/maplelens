@@ -50,7 +50,7 @@ export class Lens {
     this.catalogCount = 0;
     this.tesseract = null;
     this.tesseractLoading = null;
-    this.worker = new Worker(new URL("worker.js?v=1efd48b5be8f", base), { type: "module" });
+    this.worker = new Worker(new URL("worker.js?v=347aacee3ee9", base), { type: "module" });
     this.worker.onerror = event => reject(new Error(event.message || "the engine could not start"));
     this.counts = {};
     this.bytes = 0;
@@ -85,12 +85,13 @@ export class Lens {
     return true;
   }
 
-  /** Hand the engine a MesoWatch price list; resolves to the number of items, rejects when it is not one. */
-  loadCatalog(json) {
+  /** Hand the engine a MesoWatch price list; resolves to the number of items, rejects when it is not one. The items
+   *  named in `unpictured` that the list knows come back as pictures (`onPicture`). */
+  loadCatalog(json, unpictured = []) {
     const id = ++this.catalogCount;
     return new Promise((resolve, reject) => {
       this.catalogWaiters.set(id, ({ items, error }) => (error ? reject(new Error(error)) : resolve(items)));
-      this.worker.postMessage({ type: "catalog", id, json });
+      this.worker.postMessage({ type: "catalog", id, json, unpictured });
     });
   }
 
