@@ -158,6 +158,7 @@ fn ranked_card_shows_more_than_a_notice() {
         botting: false,
         last_checked: Some("2026-10-22T10:16:24Z".into()),
         profile_url: None,
+        photo: None,
     };
     let botter = Rank { name: "b".into(), botting: true, last_checked: None, ..rank.clone() };
     let found = |r: Rank| {

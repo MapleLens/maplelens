@@ -1,12 +1,13 @@
 // MapleLens Web: capture the game window (the page offers nothing else; the sample, video and frame-folder sources are
 // test hooks started by a URL parameter), feed frames to the engine, show the cards in the page and, on request, in a picture-in-picture window that floats over the game.
 
-import { Lens } from "./lens.js?v=f995eb18b58a";
-import { CardView, floatingSize, openFloating } from "./cards.js?v=f995eb18b58a";
-import { Prices } from "./prices.js?v=f995eb18b58a";
-import { drawMapleQr } from "./mapleqr.js?v=f995eb18b58a";
-import { StoreBook } from "./storebook.js?v=f995eb18b58a";
-import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=f995eb18b58a";
+import { Lens } from "./lens.js?v=fd8a520ab499";
+import { CardView, floatingSize, openFloating } from "./cards.js?v=fd8a520ab499";
+import { CardFeed } from "./cardfeed.js?v=fd8a520ab499";
+import { Prices } from "./prices.js?v=fd8a520ab499";
+import { drawMapleQr } from "./mapleqr.js?v=fd8a520ab499";
+import { StoreBook } from "./storebook.js?v=fd8a520ab499";
+import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=fd8a520ab499";
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -56,11 +57,18 @@ let triedAt = 0;
 let lastSize = [0, 0];
 let floating = null; // {window, view}
 let pageView = null;
+/** What the page's card panel and the floating window show (the item card lingers, then joins the recent items). */
+const feed = new CardFeed();
 let lastMs = 0;
 let lastState = null;
 let lastSeen = 0; // when a tooltip or Character Info window was last in the state
-let latest = { card: null, rank: null, title: "", note: "" };
-const images = { card: null, rank: null };
+let latest = { title: "", store: null, sharing: false };
+/** The last item card the engine sent and what it is about, and the last rank panel's subject (the page draws that
+ *  panel itself, with the character's photo). The engine sends one only when it changes, so an item hovered again shows
+ *  the one kept. */
+const images = { card: null, about: null, rank: null };
+/** Which of them the last state showed. */
+let live = { card: false, rank: false };
 const stats = { shopEvents: [], frames: 0, dropped: 0, ms: [], longTasks: 0, started: 0, cards: 0, hovers: 0, titles: {}, mainMs: 0, pumpMs: 0 };
 window.maplelensStats = () => summary();
 
@@ -422,18 +430,14 @@ try {
   new PerformanceObserver(list => { stats.longTasks += list.getEntries().length; }).observe({ entryTypes: ["longtask"] });
 } catch { /* not every browser reports long tasks */ }
 
-/** The views that show the cards: the page's panel and, while it is open, the floating window's. */
-function views() {
-  return [pageView, floating?.view].filter(Boolean);
-}
-
 function refreshViews() {
-  for (const view of views()) view.update(images, latest);
+  feed.update({ card: live.card ? images.card : null, rank: live.rank ? images.rank : null, about: images.about }, latest);
 }
 
-function show(which, image) {
+function show(which, image, about) {
   stats.cards += 1;
-  images[which] = image;
+  if (which === "card") Object.assign(images, { card: image, about });
+  else images.rank = about;
   refreshViews();
 }
 
@@ -496,11 +500,10 @@ function handleState(state, fps, ms) {
   $("fps").textContent = note;
   latest = {
     title: state.hover?.title || (state.info?.name ? `${state.info.name}'s ranks` : ""),
-    note,
     store: shopStatus(state),
+    sharing: Boolean(source),
   };
-  if (!state.card) images.card = null;
-  if (!state.rank) images.rank = null;
+  live = { card: Boolean(state.card), rank: Boolean(state.rank) };
   refreshViews();
   drawBoxes(state, ...lastSize);
   // Auto mode: a detection proves the title bar guess right; keep it.
@@ -581,9 +584,10 @@ function stop() {
   setPill("tooltip-pill", false, "no tooltip");
   setPill("window-pill", false, "no Character Info");
   $("fps").textContent = "";
-  latest = { title: "", note: "", store: null };
-  images.card = images.rank = null;
-  for (const view of views()) view.clear();
+  latest = { title: "", store: null, sharing: false };
+  images.card = images.rank = images.about = null;
+  live = { card: false, rank: false };
+  feed.clear();
   refreshViews();
 }
 
@@ -673,13 +677,32 @@ async function framesSource(base) {
   return { label: `${names.length} frames`, scale: 0, fullFrame: true, next, stop: () => { running = false; } };
 }
 
+/** `?demo&blink`: the tooltip shows this long in every cycle. */
+const BLINK_MS = 16000;
+const BLINK_SHOWN_MS = 5000;
+
+/** The sample screenshot with its tooltip and Character Info window painted over. */
+function hiddenDemo(image) {
+  const canvas = new OffscreenCanvas(image.width, image.height);
+  const context = canvas.getContext("2d");
+  context.drawImage(image, 0, 0);
+  context.fillStyle = "#7d9b52";
+  context.fillRect(470, 362, 470, 200);
+  context.fillRect(32, 60, 512, 296);
+  return canvas;
+}
+
 /** The sample screenshot, replayed: a Character Info window and an Emerald Ore tooltip, drawn at 1x. */
 async function demoSource() {
   const image = await createImageBitmap(await (await fetch(new URL("demo-frame.png", import.meta.url))).blob());
+  // `&blink`: the tooltip and the Character Info window come and go, as the pointer and the player would make them.
+  const hidden = params.has("blink") ? hiddenDemo(image) : null;
+  const started = performance.now();
   let running = true;
   const next = async () => {
     await new Promise(r => setTimeout(r, 1000 / FPS));
-    return running ? createImageBitmap(image) : null;
+    const away = hidden && (performance.now() - started) % BLINK_MS > BLINK_SHOWN_MS;
+    return running ? createImageBitmap(away ? hidden : image) : null;
   };
   return { label: "sample screenshot", scale: 1, fullFrame: true, next, stop: () => { running = false; } };
 }
@@ -699,15 +722,19 @@ async function share() {
   }
 }
 
-/** Open the floating window: a narrow, fixed-width strip whose height follows what it shows. */
+/** Open the floating window: a narrow strip beside the game (or the size the player last gave it). The page's own
+ *  panel then says where the cards went, with a button that brings them back. */
 async function popOut() {
   if (floating) return floating.window.focus();
-  const size = lastSize[0] ? floatingSize(lastSize[0], lastSize[1]) : undefined;
-  const opened = await openFloating(() => { floating = null; $("popout").textContent = "Float over the game"; }, size);
+  const opened = await openFloating(feed, () => {
+    floating = null;
+    pageView.setAway(null);
+    $("popout").textContent = "Float over the game";
+  }, floatingSize(...lastSize));
   if (!opened) return;
   floating = opened;
+  pageView.setAway(() => floating?.window.close());
   $("popout").textContent = "Show the floating window";
-  refreshViews();
 }
 
 function checkSupport() {
@@ -721,18 +748,15 @@ function checkSupport() {
   $("support").textContent = notes.join(" ") || "Nothing leaves your computer.";
 }
 
-/** `?preview=pip`: the floating window's view in a fixed-size box on the page, to look at it without a second window. */
+/** `?preview=pip`: the floating window's view in a box on the page (`&size=340x560`, resizable by its corner), to look
+ *  at it without a second window. */
 function previewFloating() {
   const box = Object.assign(document.createElement("div"), { id: "pip-preview" });
-  Object.assign(box.style, { position: "fixed", right: "16px", bottom: "16px", width: "300px", height: "420px", zIndex: 9, background: "#16203d", display: "flex", boxShadow: "0 8px 30px #000a", borderRadius: "8px", overflow: "hidden" });
+  const [width, height] = (params.get("size") || "320x480").split("x").map(Number);
+  Object.assign(box.style, { position: "fixed", right: "16px", bottom: "16px", width: `${width}px`, height: `${height}px`, zIndex: 9, background: "#16203d", display: "flex", boxShadow: "0 8px 30px #000a", borderRadius: "8px", overflow: "hidden", resize: "both" });
   document.body.append(box);
-  const view = new CardView(document, box, {
-    emptyTitle: "Hover an item in the game",
-    emptyText: "Its card shows up here.",
-    icon: new URL("../assets/meso.png", location.href).href,
-  });
+  const view = new CardView(document, box, feed, { compact: true });
   view.root.style.flex = "1";
-  floating = { window: { focus() {}, close() {} }, view };
 }
 
 let prices = null;
@@ -756,11 +780,7 @@ async function main() {
     // A click on the dimmed backdrop (the dialog itself, outside its window) closes it too.
     guide.addEventListener("click", e => { if (e.target === guide) guide.close(); });
   }
-  pageView = new CardView(document, $("cards"), {
-    emptyTitle: "Hover an item in the game",
-    emptyText: "Its card appears here.",
-    icon: new URL("../assets/meso.png", location.href).href,
-  });
+  pageView = new CardView(document, $("cards"), feed, { page: true });
   $("share").addEventListener("click", share);
   $("stop").addEventListener("click", stop);
   $("popout").addEventListener("click", popOut);
@@ -884,7 +904,7 @@ async function main() {
   try {
     lens = await Lens.create({
       onState,
-      onCard: (which, image) => show(which, image),
+      onCard: (which, image, about) => show(which, image, about),
       onError: message => { $("fps").textContent = message; },
       onNotify: result => {
         const note = { Telegram: "telegram-note", Phone: "phone-note" }[result.service] || "discord-note";
@@ -895,6 +915,7 @@ async function main() {
     });
     setPill("engine-pill", true, `engine ${lens.version}`);
     window.maplelensLens = lens; // for measuring and debugging from the console
+    window.maplelensCards = feed;
     prices = new Prices(json => lens.loadCatalog(json));
     updatePrices();
     // A page left open asks again as soon as the 30 minutes are up (and no sooner).

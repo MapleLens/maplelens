@@ -1,212 +1,356 @@
-// Cards: how the item card and the rank panel are shown, in the page and in the floating (picture-in-picture)
-// window. One view per document; both get the same pictures and the same states:
-//   live      a tooltip is being read: the card is bright and follows it;
-//   lingering the tooltip is gone: the last card stays, dimmed, for a few seconds (or until the next one if the
-//             player "holds" it), so the numbers can still be read after the mouse moves on;
-//   empty     nothing to show: a short hint.
+// Cards: the item card and the rank panel, in the page and in the floating (picture-in-picture) window. Each document
+// has a `CardView` of the one `CardFeed` (cardfeed.js): the card while it is live or leaving (with a bar running out),
+// or what to do next and the recent items, newest first. The floating window never scrolls: the cards shrink to fit it,
+// and recent items that do not fit are left out.
 
-import { paint } from "./lens.js?v=f995eb18b58a";
-
-const FIT_KEY = "maplelens.cards.fit";
+import { paint } from "./lens.js?v=fd8a520ab499";
+import { LINGER_MS } from "./cardfeed.js?v=fd8a520ab499";
+import { RANK_CSS, rankPanel } from "./rankpanel.js?v=fd8a520ab499";
 
 function storage(action) {
   try { return action(window.localStorage); } catch { return undefined; } // private windows may refuse
 }
 
-/** How long the last card stays after its tooltip is gone. */
-const LINGER_MS = 3000;
-/** No news from the engine for this long (the page was throttled, the share paused) means the tooltip is gone: a frozen
- *  "live" state must not keep a card up. The linger counts from the last news. */
-const STALE_MS = 1000;
+/** The floating window's size, once the player has resized it. */
+const SIZE_KEY = "maplelens.cards.floating";
+const COIN = new URL("../assets/meso.png", import.meta.url).href;
+/** Under half a percent reads as noise, as on the card. */
+const FLAT_TREND = 0.005;
+/** Between the item card and the rank panel (px), as the stylesheet has it. */
+const STACK_GAP = 8;
+/** The rank panel's width (px) when no item card sets it, and the least it is given beside a shrunken card. */
+const RANK_WIDTH = 330;
+const MIN_RANK_WIDTH = 270;
 
-/** Look shared by the page's panel and the floating window (the page's own sheet styles the rest). */
+/** The look shared by the page's panel and the floating window (the page's own sheet styles the rest). */
 const CSS = `
-.cv{display:flex;flex-direction:column;min-height:0;font:bold 13px Tahoma,Verdana,sans-serif;color:#dbe4ff}
-.cv-head{display:flex;align-items:center;gap:8px;padding:7px 10px;background:#101a36;border-bottom:1px solid #2a3a6a;min-height:20px}
-.cv-dot{flex:none;width:10px;height:10px;border-radius:50%;background:#59648a;box-shadow:0 0 0 2px #0006;transition:background .2s}
-.cv[data-state=live] .cv-dot{background:#4ee08a;box-shadow:0 0 8px #4ee08a99}
-.cv[data-state=lingering] .cv-dot{background:#ffb938}
-.cv-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.cv-hold,.cv-fit{flex:none;font:inherit;font-size:11px;padding:2px 8px;border-radius:10px;border:1px solid #3b4f8c;background:#1a2750;color:#b8c6f5;cursor:pointer}
-.cv-hold[aria-pressed=true],.cv-fit[aria-pressed=true]{background:#ffcc33;border-color:#ffcc33;color:#3a2600}
-.cv-hold:focus-visible,.cv-fit:focus-visible{outline:2px solid #fff;outline-offset:1px}
-.cv-store{display:flex;align-items:center;gap:8px;padding:5px 10px;font-size:12px;background:#0f1833;border-bottom:1px solid #1d2a52;color:#b8c6f5}
-.cv-store[hidden]{display:none}
-.cv-store i{flex:none;width:9px;height:9px;border-radius:50%;background:#8a94b8}
-.cv-store[data-tone=ok] i{background:#4ee08a}.cv-store[data-tone=ok]{color:#bff0d2}
-.cv-store[data-tone=warn] i{background:#ffb938}.cv-store[data-tone=warn]{color:#ffd98a;font-weight:bold}
-.cv-body{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;padding:10px;overflow:hidden auto;scrollbar-width:thin;scrollbar-color:#3b4f8c #101a36}
-.cv-stack{margin:auto 0;display:flex;flex-direction:column;align-items:center;gap:10px;max-width:100%}
-.cv-body canvas{display:block;flex:none;max-width:100%;height:auto;filter:drop-shadow(0 6px 12px #0007);transition:opacity .25s,filter .25s}
-.cv[data-fit=true] .cv-body{overflow:hidden}
-.cv[data-fit=true] .cv-stack{height:100%;margin:0;justify-content:center}
-.cv[data-fit=true] .cv-body canvas{flex:0 1 auto;min-height:0;object-fit:contain}
-.cv[data-state=lingering] .cv-body canvas{opacity:.55;filter:grayscale(.5) drop-shadow(0 6px 12px #0007)}
-.cv-empty{margin:0;text-align:center;line-height:1.5;color:#9fb0d8;max-width:24em}
-.cv-icon{display:block;margin:0 auto 8px;image-rendering:pixelated;opacity:.9}
-.cv-empty b{display:block;font-size:15px;color:#eef3ff;margin-bottom:2px}
-.cv-foot{padding:4px 10px;font-size:11px;font-weight:normal;color:#8394c4;background:#0e1730;border-top:1px solid #1d2a52;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:15px}
-.cv[data-compact=true] .cv-head{padding:4px 7px;gap:6px;min-height:16px}
-.cv-fit,.cv-hold{display:none}
-.cv[data-compact=true] .cv-store{padding:3px 7px;font-size:11px}
-.cv[data-compact=true] .cv-body{padding:6px;overflow:hidden auto}
-.cv[data-compact=true] .cv-stack{margin:0;gap:6px;width:100%;justify-content:flex-start}
-.cv[data-compact=true] .cv-empty{font-size:11px;line-height:1.35}
-.cv[data-compact=true] .cv-empty b{font-size:12px}
-.cv[data-compact=true] .cv-icon{display:none}
-.cv[data-compact=true] .cv-foot{padding:2px 7px;font-size:10px}
-@media (prefers-reduced-motion:reduce){.cv-body canvas,.cv-dot{transition:none}}
+.cv{--ink:#eef3ff;--dim:#9fb0d8;--faint:#7183b6;--line:#2a3a6a;--gold:#ffd34d;--up:#8ae68a;--down:#ff8c8c;--live:#4ee08a;--wait:#ffb938;
+  display:flex;flex-direction:column;min-height:0;min-width:0;font:bold 13px Tahoma,Verdana,sans-serif;color:var(--ink);background:#16203d}
+.cv [hidden]{display:none!important}
+.cv button{font:inherit;color:inherit;cursor:pointer}
+.cv button:focus-visible{outline:2px solid #fff;outline-offset:1px}
+.cv-head{flex:none;display:flex;align-items:center;gap:8px;height:34px;padding:0 10px;background:#101a36;border-bottom:1px solid var(--line);box-sizing:border-box}
+.cv-dot{flex:none;width:9px;height:9px;border-radius:50%;background:#59648a;transition:background .2s,box-shadow .2s}
+.cv[data-sharing=true] .cv-dot{background:#3c9b6a}
+.cv[data-mode=live] .cv-dot{background:var(--live);box-shadow:0 0 0 3px #4ee08a33,0 0 8px #4ee08a99}
+.cv[data-mode=leaving] .cv-dot{background:var(--wait);box-shadow:0 0 0 3px #ffb93833}
+.cv[data-mode=recalled] .cv-dot{background:#6ec1ff}
+.cv-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
+.cv[data-mode=idle] .cv-title{font-size:13px;color:var(--dim)}
+.cv-brand{flex:none;display:flex;align-items:center;gap:5px;font-size:11px;color:var(--faint);letter-spacing:.02em}
+.cv-brand img{width:14px;height:14px;image-rendering:pixelated}
+.cv-back{flex:none;display:flex;align-items:center;gap:4px;padding:3px 9px 3px 7px;border-radius:12px;border:1px solid #3b4f8c;background:#1a2750;font-size:11px;color:#c9d5fb}
+.cv-back:hover{border-color:var(--gold);color:#fff}
+.cv-timer{flex:none;height:3px;background:#0c1430;overflow:hidden}
+.cv-timer i{display:block;height:100%;background:var(--wait);transform-origin:left;animation:cv-run var(--linger) linear forwards}
+.cv[data-held=true] .cv-timer i{animation-play-state:paused;background:#ffd98a}
+@keyframes cv-run{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+.cv-body{flex:1;min-height:0;display:flex;flex-direction:column;padding:10px;overflow:hidden;box-sizing:border-box}
+.cv-stack{flex:none;display:flex;flex-direction:column;align-items:center;gap:${STACK_GAP}px}
+.cv-stack > *{flex:none;transition:opacity .25s}
+.cv-stack canvas{display:block;filter:drop-shadow(0 6px 12px #0007)}
+.cv[data-mode=leaving] .cv-stack > *{opacity:.8}
+.cv[data-mode=leaving][data-held=true] .cv-stack > *{opacity:1}
+.cv-idle{flex:1;min-height:0;display:flex;flex-direction:column;gap:14px}
+.cv-hint{flex:none;display:flex;align-items:center;gap:12px;padding:12px;border-radius:10px;background:#1a2550;border:1px solid var(--line)}
+.cv-hint svg{flex:none}
+.cv-hint b{display:block;font-size:14px;color:#fff;margin-bottom:2px}
+.cv-hint span{display:block;font-size:12px;font-weight:normal;color:var(--dim);line-height:1.35}
+.cv-recent{flex:1;min-height:0;display:flex;flex-direction:column;gap:6px}
+.cv-recent h3{margin:0;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+.cv-recent ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px;overflow:hidden;min-height:0}
+.cv-row{width:100%;display:flex;align-items:center;gap:8px;height:34px;padding:0 10px;border-radius:7px;border:1px solid var(--line);
+  background:#1b2652;text-align:left;box-sizing:border-box;transition:border-color .15s,background .15s}
+.cv-row:hover{border-color:#ffcc33aa;background:#22306a}
+.cv-row .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px}
+.cv-row .p{flex:none;display:flex;align-items:center;gap:4px;color:var(--gold);font-size:13px}
+.cv-row .p img{width:12px;height:12px;image-rendering:pixelated}
+.cv-row .p.none{color:var(--faint);font-size:11px;font-weight:normal}
+.cv-row .t{flex:none;min-width:46px;text-align:right;font-size:11px;color:var(--faint)}
+.cv-row .t.up{color:var(--up)}.cv-row .t.down{color:var(--down)}
+.cv[data-has-recent=false] .cv-hint{margin:auto 0;flex-direction:column;text-align:center;background:none;border:0;padding:8px}
+.cv-away{margin:auto;text-align:center;display:grid;gap:10px;justify-items:center;color:var(--dim);font-size:12px;font-weight:normal}
+.cv-away b{font-size:14px;color:#fff}
+.cv-away button{padding:5px 12px;border-radius:14px;border:1px solid #3b4f8c;background:#1a2750;color:#dbe4ff;font-size:12px;font-weight:bold}
+.cv-away button:hover{border-color:var(--gold)}
+.cv-store{flex:none;display:flex;align-items:center;gap:8px;padding:6px 10px;font-size:12px;background:#0f1833;border-top:1px solid #1d2a52;color:#b8c6f5}
+.cv-store i{flex:none;width:8px;height:8px;border-radius:50%;background:#8a94b8}
+.cv-store span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cv-store[data-tone=ok] i{background:var(--live)}.cv-store[data-tone=ok]{color:#bff0d2}
+.cv-store[data-tone=warn] i{background:var(--wait)}.cv-store[data-tone=warn]{color:#ffd98a}
+.cv[data-compact=true] .cv-body{padding:8px}
+.cv[data-compact=false] .cv-brand{display:none}
+@media (prefers-reduced-motion:reduce){.cv *{transition:none!important}.cv-timer i{animation:none}}
 `;
+
+/** A tooltip with the pointer on it: what "hover an item" means, drawn. */
+const HOVER_PICTURE = `<svg width="58" height="44" viewBox="0 0 58 44" aria-hidden="true">
+<rect x="10" y="9" width="46" height="33" rx="4" fill="#232a5c" stroke="#8a8fb8" stroke-width="1.5"/>
+<circle cx="17" cy="17" r="2.3" fill="#6ec1ff"/><rect x="22" y="15" width="26" height="4" rx="2" fill="#eef3ff"/>
+<rect x="16" y="25" width="12" height="11" rx="2" fill="#3a4378"/><rect x="31" y="26" width="19" height="3" rx="1.5" fill="#9fb0d8"/>
+<rect x="31" y="32" width="13" height="3" rx="1.5" fill="#9fb0d8"/>
+<path d="M3 2 L3 20 L7.5 15.5 L10.5 22 L13.5 20.6 L10.6 14.2 L16.5 14.2 Z" fill="#fff" stroke="#16203d" stroke-width="1.5" stroke-linejoin="round"/>
+</svg>`;
 
 export class CardView {
   /** @param {Document} doc  the page's or the floating window's document
    *  @param {HTMLElement} parent  where the view goes
-   *  @param {{emptyTitle: string, emptyText: string}} text */
-  constructor(doc, parent, { emptyTitle, emptyText, icon = "" }) {
+   *  @param {CardFeed} feed  (cardfeed.js)
+   *  @param {{compact?: boolean, page?: boolean}} options  compact: the floating window (fits its cards, shows the
+   *    brand); page: the hints speak of the page's own Share button */
+  constructor(doc, parent, feed, { compact = false, page = false } = {}) {
     this.doc = doc;
-    this.held = false;
-    this.shown = { card: null, rank: null, title: "" };
-    this.timer = 0;
-    this.live = false;
+    this.feed = feed;
+    this.compact = compact;
+    this.page = page;
+    this.away = null;
+    this.painted = { card: null, rank: null };
+    /** Pictures painted so far, and the layout last fitted: refitting reads the layout, so only when it changed. */
+    this.paints = 0;
+    this.fitted = "";
+    this.drawnRecent = -1;
+    this.lastName = "";
     if (!doc.getElementById("cv-style")) {
-      doc.head.append(Object.assign(doc.createElement("style"), { id: "cv-style", textContent: CSS }));
+      doc.head.append(Object.assign(doc.createElement("style"), { id: "cv-style", textContent: CSS + RANK_CSS }));
     }
-    const el = (tag, className, props = {}) => Object.assign(doc.createElement(tag), { className, ...props });
+    const el = (tag, className = "", props = {}) => Object.assign(doc.createElement(tag), { className, ...props });
+    this.el = el;
     this.root = el("section", "cv");
-    this.root.dataset.state = "empty";
-    this.dot = el("span", "cv-dot");
-    this.title = el("span", "cv-title", { textContent: "Waiting for a tooltip" });
-    this.hold = el("button", "cv-hold", { type: "button", textContent: "Hold", title: "Keep the last card on screen until the next one" });
-    this.hold.setAttribute("aria-pressed", "false");
-    this.fit = el("button", "cv-fit", { type: "button", textContent: "Fit", title: "Shrink the cards to fit the window instead of scrolling" });
-    this.fit.addEventListener("click", () => this.setFit(this.root.dataset.fit !== "true"));
-    this.setFit(storage(s => s.getItem(FIT_KEY)) === "1", false);
-    this.hold.addEventListener("click", () => this.setHeld(!this.held));
+    this.root.dataset.compact = String(compact);
+    this.root.style.setProperty("--linger", `${LINGER_MS}ms`);
+
+    this.title = el("span", "cv-title");
+    this.back = el("button", "cv-back", { type: "button", textContent: "✕ Back", title: "Back to the recent items" });
+    this.back.addEventListener("click", () => feed.go("idle"));
+    const brand = el("span", "cv-brand");
+    brand.append(el("img", "", { src: COIN, alt: "" }), "MapleLens");
+    this.brand = brand;
     const head = el("header", "cv-head");
-    head.append(this.dot, this.title, this.fit, this.hold);
-    this.empty = el("p", "cv-empty");
-    if (icon) this.empty.append(el("img", "cv-icon", { src: icon, alt: "", width: 32, height: 32 }));
-    this.empty.append(el("b", "", { textContent: emptyTitle }), emptyText);
-    this.onChange = null;
-    this.canvases = { card: el("canvas", "cv-card", { hidden: true }), rank: el("canvas", "cv-rank", { hidden: true }) };
+    head.append(el("span", "cv-dot"), this.title, this.back, brand);
+    this.timerBar = el("div", "cv-timer");
+
+    this.canvas = el("canvas", "cv-card");
+    this.rankSlot = el("div", "cv-rank");
+    this.stack = el("div", "cv-stack");
+    this.stack.append(this.canvas, this.rankSlot);
+
+    this.hintTitle = el("b");
+    this.hintText = el("span");
+    const words = el("div");
+    words.append(this.hintTitle, this.hintText);
+    const hint = el("div", "cv-hint");
+    hint.innerHTML = HOVER_PICTURE;
+    hint.append(words);
+    this.list = el("ol");
+    this.recentBox = el("section", "cv-recent");
+    this.recentBox.append(el("h3", "", { textContent: "Recent · click to see again" }), this.list);
+    this.idle = el("div", "cv-idle");
+    this.idle.append(hint, this.recentBox);
+
+    this.awayBox = el("div", "cv-away");
+    this.awayBack = el("button", "", { type: "button", textContent: "Bring the cards back here" });
+    this.awayBack.addEventListener("click", () => this.away?.());
+    this.awayBox.append(el("b", "", { textContent: "The cards are floating over the game" }),
+      "Close the floating window to see them here again.", this.awayBack);
+
     this.body = el("div", "cv-body");
-    // The cards keep their own size (a card squeezed into a small window is a card nobody can read) and the body
-    // scrolls; `margin: auto` on the stack centres what is short and still lets what is tall scroll from its top.
-    const stack = el("div", "cv-stack");
-    stack.append(this.empty, this.canvases.card, this.canvases.rank);
-    this.body.append(stack);
-    this.foot = el("footer", "cv-foot");
-    // The Store Permit's status, worded as the Windows app's pill words it ("Press the SOLD ITEMS button").
-    this.store = el("div", "cv-store", { hidden: true });
-    this.store.append(el("i"), el("span", "cv-store-text"));
-    this.root.append(head, this.store, this.body, this.foot);
+    this.body.append(this.stack, this.idle, this.awayBox);
+    // Not a <footer>: the site's sheet spaces those out (the page's view is in its document).
+    this.store = el("div", "cv-store");
+    this.storeText = el("span");
+    this.store.append(el("i"), this.storeText);
+    this.root.append(head, this.timerBar, this.body, this.store);
+    this.root.addEventListener("pointerenter", () => feed.hold(this, true));
+    this.root.addEventListener("pointerleave", () => feed.hold(this, false));
     parent.append(this.root);
+
+    const Observer = doc.defaultView?.ResizeObserver || ResizeObserver;
+    new Observer(() => this.fit()).observe(this.body);
+    feed.views.add(this);
+    this.render();
   }
 
-  /** `store` {text, tone} or null (nothing to say). */
-  setStore(store) {
+  /** The page's view while the cards float: `back` brings them back; null shows the cards again. */
+  setAway(back) {
+    this.away = back;
+    this.render();
+  }
+
+  detach() {
+    this.feed.views.delete(this);
+    this.feed.hold(this, false);
+  }
+
+  render() {
+    const feed = this.feed;
+    const { mode, shown } = feed;
+    const away = Boolean(this.away);
+    const showing = !away && mode !== "idle";
+    const set = (key, value) => { if (this.root.dataset[key] !== value) this.root.dataset[key] = value; };
+    set("mode", mode);
+    set("sharing", String(feed.sharing));
+    set("held", String(feed.held));
+    set("hasRecent", String(feed.recent.length > 0));
+
+    const title = showing ? shown.title || (shown.rank ? "Character Info" : "Item")
+      : feed.sharing ? "Watching the game" : "Not watching the game";
+    if (this.title.textContent !== title) this.title.textContent = title;
+    this.back.hidden = mode !== "recalled" || away;
+    this.brand.hidden = !this.compact || showing;
+
+    // The bar starts over for every card that starts leaving.
+    const leaving = !away && mode === "leaving";
+    if (leaving && this.leaving !== feed.leaves) {
+      this.leaving = feed.leaves;
+      this.timerBar.replaceChildren(this.el("i"));
+    }
+    if (!leaving) this.leaving = 0;
+    this.timerBar.hidden = !leaving;
+
+    this.stack.hidden = !showing;
+    this.idle.hidden = away || showing;
+    this.awayBox.hidden = !away;
+    if (showing) this.paint(shown);
+    else this.lastName = "";
+    if (!away && !showing) this.renderIdle();
+
+    const store = feed.store;
     this.store.hidden = !store?.text;
     if (store?.text) {
-      this.store.dataset.tone = store.tone || "idle";
-      this.store.querySelector(".cv-store-text").textContent = store.text;
+      if (this.store.dataset.tone !== (store.tone || "idle")) this.store.dataset.tone = store.tone || "idle";
+      if (this.storeText.textContent !== store.text) this.storeText.textContent = store.text;
     }
+    if (this.layoutKey() !== this.fitted) this.fit();
   }
 
-  setFit(fit, remember = true) {
-    this.root.dataset.fit = String(fit);
-    this.fit.setAttribute("aria-pressed", String(fit));
-    if (remember) storage(s => s.setItem(FIT_KEY, fit ? "1" : "0"));
-  }
-
-  setHeld(held) {
-    this.held = held;
-    this.hold.setAttribute("aria-pressed", String(held));
-    this.hold.textContent = held ? "Held" : "Hold";
-    clearTimeout(this.timer);
-    this.timer = 0;
-    // Letting go starts the countdown for a card that is no longer live.
-    if (!held && !this.live && (this.shown.card || this.shown.rank)) this.timer = setTimeout(() => this.clear(), LINGER_MS);
-    this.render(this.live);
-  }
-
-  /** `images` {card, rank}: ImageData or null, what the engine shows now; `title` the item or player being read;
-   *  `note` the small line at the bottom. */
-  update({ card, rank }, { title = "", note = "", store = null } = {}) {
-    this.setStore(store);
-    const live = Boolean(card || rank);
-    this.live = live;
-    clearTimeout(this.stale);
-    if (live) {
-      clearTimeout(this.timer);
-      this.shown = { card, rank, title };
-      this.stale = setTimeout(() => this.goneQuiet(), STALE_MS);
-    } else if ((this.shown.card || this.shown.rank) && !this.held) {
-      if (!this.timer) this.timer = setTimeout(() => this.clear(), LINGER_MS);
+  paint(shown) {
+    if (this.painted.card !== shown.card) {
+      if (shown.card) paint(this.canvas, shown.card);
+      this.painted.card = shown.card;
+      this.paints += 1;
     }
-    if (live) this.timer = 0;
-    this.foot.textContent = note;
-    this.render(live);
-  }
-
-  /** The engine stopped reporting while a tooltip was live: treat it as gone since its last report. */
-  goneQuiet() {
-    this.live = false;
-    if (!this.held) this.timer = setTimeout(() => this.clear(), Math.max(0, LINGER_MS - STALE_MS));
-    this.render(false);
-  }
-
-  clear() {
-    this.timer = 0;
-    this.shown = { card: null, rank: null, title: "" };
-    this.render(false);
-  }
-
-  render(live) {
-    const { card, rank, title } = this.shown;
-    const any = Boolean(card || rank);
-    this.root.dataset.state = live ? "live" : any ? "lingering" : "empty";
-    for (const which of ["card", "rank"]) {
-      const canvas = this.canvases[which];
-      const image = this.shown[which];
-      if (image && canvas.image !== image) {
-        paint(canvas, image);
-        canvas.image = image;
+    if (this.painted.rank !== shown.rank) {
+      this.rankSlot.replaceChildren(...(shown.rank ? [rankPanel(this.doc, shown.rank)] : []));
+      this.painted.rank = shown.rank;
+      this.paints += 1;
+    }
+    this.canvas.hidden = !shown.card;
+    this.rankSlot.hidden = !shown.rank;
+    const name = shown.title;
+    if (name !== this.lastName) {
+      // A new item comes in with a short rise, so the eye catches that the card changed.
+      if (this.lastName && !this.doc.defaultView?.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+        this.stack.animate?.([{ opacity: 0.2, transform: "translateY(6px)" }, { opacity: 1, transform: "none" }], { duration: 180, easing: "ease-out" });
       }
-      canvas.hidden = !image;
+      this.lastName = name;
     }
-    this.empty.hidden = any;
-    this.onChange?.();
-    this.title.textContent = live ? title : any ? `${title || "Last card"} · last seen` : "Waiting for a tooltip";
+  }
+
+  renderIdle() {
+    const { sharing, recent, recentVersion } = this.feed;
+    const [title, text] = sharing
+      ? ["Hover an item in the game", "Its price shows up here."]
+      : this.page
+        ? ["Share your game window", "Press Share game window, then hover an item in the game."]
+        : ["Share your game window", "On the MapleLens page, press Share game window."];
+    if (this.hintTitle.textContent !== title) this.hintTitle.textContent = title;
+    if (this.hintText.textContent !== text) this.hintText.textContent = text;
+    this.recentBox.hidden = !recent.length;
+    if (this.drawnRecent === recentVersion) return;
+    this.drawnRecent = recentVersion;
+    const el = this.el;
+    this.list.replaceChildren(...recent.map(({ about }, index) => {
+      const row = el("button", "cv-row", { type: "button", title: `Show the ${about.name} card again` });
+      row.addEventListener("click", () => this.feed.recall(index));
+      const price = el("span", about.price ? "p" : "p none");
+      if (about.price) price.append(about.price, el("img", "", { src: COIN, alt: "mesos" }));
+      else price.textContent = "no price data";
+      const trend = el("span", "t");
+      const t = about.trend;
+      if (about.price && typeof t === "number") {
+        const flat = Math.abs(t) < FLAT_TREND;
+        trend.className = `t ${flat ? "" : t > 0 ? "up" : "down"}`;
+        trend.textContent = flat ? "steady" : `${t > 0 ? "▲" : "▼"} ${(Math.abs(t) * 100).toFixed(1)}%`;
+      }
+      row.append(el("span", "n", { textContent: about.name }), price, trend);
+      const item = el("li");
+      item.append(row);
+      return item;
+    }));
+  }
+
+  /** What the last fit depends on besides the view's size (the observer refits on that). */
+  layoutKey() {
+    return `${this.feed.mode}|${Boolean(this.away)}|${this.paints}|${this.feed.recentVersion}|${this.store.hidden}`;
+  }
+
+  /** The item card at its own size, or smaller to fit (the floating window: its whole height too; the page: its
+   *  width), never larger, which would blur it; the rank panel as wide as the card and its own height (its text does
+   *  not wrap). Recent items that do not fit are left out rather than scrolled to. */
+  fit() {
+    this.fitted = this.layoutKey();
+    const body = this.body;
+    const style = this.doc.defaultView.getComputedStyle(body);
+    const width = body.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    const height = body.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+    if (width <= 0 || (this.compact && height <= 0)) return; // not laid out yet: the observer calls again
+    if (!this.stack.hidden) {
+      const card = !this.canvas.hidden && this.canvas.width ? this.canvas : null;
+      const rank = this.rankSlot.hidden ? null : this.rankSlot;
+      const dpr = window.devicePixelRatio || 1;
+      const [w, h] = card ? [card.width / dpr, card.height / dpr] : [0, 0];
+      let shownWidth = Math.min(width, RANK_WIDTH);
+      if (rank) rank.style.width = `${Math.min(width, w || RANK_WIDTH)}px`;
+      if (card) {
+        const below = rank ? rank.offsetHeight + STACK_GAP : 0;
+        const k = Math.max(0, Math.min(1, width / w, this.compact ? (height - below) / h : 1));
+        shownWidth = Math.floor(w * k);
+        card.style.width = `${shownWidth}px`;
+        card.style.height = `${Math.floor(h * k)}px`;
+      }
+      if (rank) rank.style.width = `${Math.max(Math.min(width, MIN_RANK_WIDTH), shownWidth)}px`;
+    }
+    if (this.compact && !this.idle.hidden) {
+      for (const item of this.list.children) item.hidden = false;
+      const bottom = this.list.getBoundingClientRect().bottom;
+      const cut = [...this.list.children].filter(item => item.getBoundingClientRect().bottom > bottom + 0.5);
+      for (const item of cut) item.hidden = true;
+    }
   }
 }
 
 /** The floating window's size (CSS px) for a game window of `gameWidth` x `gameHeight`: a narrow strip, a fifth of the
  *  game's width (so it fits the dead space beside the game's HUD at any size), and tall enough for the biggest thing it
- *  shows, an item card with a player's rank panel under it, so it never needs resizing: the page cannot resize it
- *  after opening without a click inside it. */
+ *  shows at its own size, an item card with a player's rank panel under it (anything bigger shrinks to fit). A size
+ *  the player gave it by dragging its edges wins. */
 export function floatingSize(gameWidth, gameHeight, dpr = window.devicePixelRatio || 1) {
+  const saved = storage(s => JSON.parse(s.getItem(SIZE_KEY) || "null"));
+  if (Array.isArray(saved) && saved.every(n => Number.isFinite(n) && n >= 200)) {
+    return { width: Math.min(saved[0], screen.availWidth), height: Math.min(saved[1], screen.availHeight) };
+  }
+  if (!gameWidth) return { width: MIN_WIDTH, height: 520 };
   const width = Math.round(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, gameWidth * WIDTH_SHARE)));
   const cardWidth = Math.min(width - 2 * PAD, CARD_PX / dpr);
-  const height = cardWidth * CARD_ASPECT + GAP + RANK_PX / dpr + 2 * PAD + CHROME;
+  const height = cardWidth * CARD_ASPECT + GAP + RANK_H + 2 * PAD + CHROME;
   return { width, height: Math.round(Math.min(height, gameHeight * MAX_HEIGHT_SHARE)) };
 }
 const WIDTH_SHARE = 0.2;
 const MIN_WIDTH = 300;
 const MAX_WIDTH = 440;
-/** An item card is 450 px wide at the game's own size and up to this much taller than wide; a rank panel is about 158 px. */
+/** An item card is 450 px wide at the game's own size and up to this much taller than wide; the rank panel
+ *  (rankpanel.js) is about this tall. */
 const CARD_PX = 450;
 const CARD_ASPECT = 1.4;
-const RANK_PX = 158;
-const PAD = 6;
-const GAP = 6;
-/** The header and footer. */
-const CHROME = 48;
+const RANK_H = 176;
+const PAD = 8;
+const GAP = 8;
+/** The header, the countdown bar and the store's line. */
+const CHROME = 66;
 const MAX_HEIGHT_SHARE = 0.9;
 
 /** The floating window: Chrome's document picture-in-picture, kept above the game. Resolves to null when the browser
  *  has none (or the player refuses). */
-export async function openFloating(onClose, { width = MIN_WIDTH, height = 480 } = {}) {
+export async function openFloating(feed, onClose, { width, height }) {
   if (!("documentPictureInPicture" in window)) return null;
   const pip = await documentPictureInPicture.requestWindow({ width: Math.round(width), height: Math.round(height) });
   const doc = pip.document;
@@ -214,14 +358,22 @@ export async function openFloating(onClose, { width = MIN_WIDTH, height = 480 } 
   doc.head.append(Object.assign(doc.createElement("style"), {
     textContent: `html,body{margin:0;height:100%;background:#16203d;overflow:hidden}body{display:flex}.cv{flex:1}`,
   }));
-  const view = new CardView(doc, doc.body, {
-    emptyTitle: "Hover an item in the game",
-    emptyText: "Its card shows up here for a few seconds after you move on.",
-  });
-  view.root.dataset.compact = "true";
+  const view = new CardView(doc, doc.body, feed, { compact: true });
   doc.addEventListener("keydown", event => {
     if (event.key === "Escape") pip.close();
   });
-  pip.addEventListener("pagehide", onClose);
+  // Only a size the player dragged it to: the window reports its first size as a resize too.
+  let saving = 0;
+  pip.addEventListener("resize", () => {
+    clearTimeout(saving);
+    saving = setTimeout(() => {
+      const size = [pip.innerWidth, pip.innerHeight];
+      if (Math.abs(size[0] - width) > 2 || Math.abs(size[1] - height) > 2) storage(s => s.setItem(SIZE_KEY, JSON.stringify(size)));
+    }, 500);
+  });
+  pip.addEventListener("pagehide", () => {
+    view.detach();
+    onClose();
+  });
   return { window: pip, view };
 }
