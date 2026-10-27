@@ -8,10 +8,10 @@
 $ErrorActionPreference = 'Stop'
 $app = Join-Path $PSScriptRoot '..\docs\app'
 $stamp = '\?v=[0-9a-f]{12}'
-# What the stamp is a hash of; the site's home page only carries it (its copy changes should not need a re-stamp).
+# What the stamp is a hash of; the site's home page and privacy page only carry it (their copy changes should not need a re-stamp).
 $hashed = 'index.html', 'app.js', 'cards.js', 'cardfeed.js', 'rankpanel.js', 'prices.js', 'phone/index.html', 'phone/phone.js', 'phone/relay.js', 'phone/pull.js', 'storebook.js',
     'mapleqr.js', 'lens.js', 'worker.js', 'pkg/maplelens_web.js', '../assets/maple.css', '../assets/site.js', '../assets/demo.js'
-$files = $hashed + '../index.html'
+$files = $hashed + '../index.html', '../privacy/index.html'
 $text = @{}
 foreach ($file in $files) { $text[$file] = [IO.File]::ReadAllText((Join-Path $app $file)) -replace "`r`n", "`n" }
 
@@ -23,6 +23,7 @@ $hash = (-join ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($joined)) | ForE
 # and the phone app's page -> phone.js -> relay.js (the service worker is not stamped: its address is its identity).
 $links = @{
     '../index.html' = @('assets/site\.js', 'assets/demo\.js', 'maple\.css')
+    '../privacy/index.html' = @('maple\.css')
     '../assets/demo.js' = @('\.\./app/lens\.js')
     'phone/index.html' = @('"phone\.js')
     'phone/phone.js' = @('\./relay\.js', '\./pull\.js')
