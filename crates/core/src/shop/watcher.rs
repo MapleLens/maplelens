@@ -12,6 +12,7 @@ use super::scrollbar::{Thumb, thumb_position};
 use super::soldlist::{self, Row};
 use super::text::{self, bitmap_block};
 use super::{ListKind, ShopContext, ShopEvent, ShopStatus, chatlog};
+use crate::geometry::scaled;
 use crate::image::RgbImage;
 use crate::market::catalog::Catalog;
 use crate::scale_vote::ScaleVote;
@@ -39,8 +40,11 @@ const MIN_OWNER_LETTERS: usize = 3;
 const OWNER_INK_LEVELS: [u8; 3] = [100, 120, 145];
 const HUD_INK_LEVELS: [u8; 3] = [90, 110, 125];
 const OWNER_VOTES: usize = 3;
-/// The status bar's name, relative to its outline's top-left: (dx, dy, width, height). The job stands above it.
-const HUD_NAME: (i32, i32, i32, i32) = (128, 78, 110, 20);
+/// The status bar's name, relative to its outline's top-left: (dx, dy, width, height). The job stands above it. The
+/// name's panel is blank up to a divider 330 px from the outline at every scale, and the box reaches most of the way
+/// there: the pixel font draws names wide ("Goodsdealer" is 111 px at 1366x768, and as wide in a capture of that
+/// client resized to UI scale 0.9), and a box 110 px wide cut their last letters.
+const HUD_NAME: (i32, i32, i32, i32) = (128, 78, 190, 20);
 /// Its letters are crisp light grey on dark: these ink levels all keep them whole.
 /// Looks at the chat log's first lines, and how many looks, for the owner's name in a larger font.
 const OWNER_SPELLING_LINES: usize = 12;
@@ -669,13 +673,16 @@ impl ShopWatcher {
 }
 
 /// Where the character's name is in the status bar: under their job, right of the level box, offsets measured on a
-/// real 1920x1200 capture from the bar's outline (reference pixels).
-fn hud_name_area(view: &View<'_>) -> Option<layout::Area> {
-    let (width, height) = view.size();
-    let strip = crate::config::STATUS_BAR_STRIP_HEIGHT;
-    let top = height.checked_sub(strip)?;
-    let bar = find_bar(&view.crop((0, top, width, strip)))?;
-    let (x, y) = (bar.x as i32, top + bar.top as i32);
+/// real 1920x1200 capture from the bar's outline (reference pixels). The outline is found on the frame as captured, as
+/// the hover thread finds it: resampled to reference pixels first, its 1 px line came out too light to count as the
+/// outline (a 1366x768 client, a browser's capture of a Retina window scaled down), and the name was never read.
+pub(super) fn hud_name_area(view: &View<'_>) -> Option<layout::Area> {
+    let frame = view.frame;
+    let strip = frame.height.min(scaled(crate::config::STATUS_BAR_STRIP_HEIGHT, view.scale).max(0) as usize);
+    let top = frame.height - strip;
+    let bar = find_bar(&frame.crop(0, top, frame.width, frame.height))?;
+    let reference = |v: usize| (v as f32 / view.scale).round() as i32;
+    let (x, y) = (reference(bar.x), reference(top + bar.top));
     Some((x + HUD_NAME.0, y + HUD_NAME.1, HUD_NAME.2, HUD_NAME.3))
 }
 
