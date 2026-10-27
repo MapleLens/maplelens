@@ -2,7 +2,7 @@
 
 use serde_json::{Value, json};
 
-use super::{Connector, Notification, Request, Sale, StoreChange, grouped, iso_utc, item_icon_url};
+use super::{Connector, EXAMPLE_ITEM, Notification, Request, Sale, StoreChange, grouped, iso_utc, item_icon_url};
 
 /// Discord's colour for an embed's side bar: MapleLens orange.
 const COLOUR: u32 = 0xFFAD1F;
@@ -90,7 +90,7 @@ impl Discord {
     }
 
     fn sale_embed(sale: &Sale, unix_now: f64) -> Value {
-        let Sale { item, buyer, quantity, mesos, item_id, store, balance } = sale;
+        let Sale { item, buyer, quantity, mesos, picture, store, balance, .. } = sale;
         let what = if *quantity > 1 { format!("{item} ×{quantity}") } else { item.clone() };
         let mut fields = vec![json!({"name": "Buyer", "value": format!("**{}**", escape(buyer)), "inline": true})];
         if let Some(mesos) = mesos {
@@ -113,7 +113,7 @@ impl Discord {
             None => "Sold in your store".to_string(),
         };
         embed["author"] = json!({ "name": truncate(&author, AUTHOR_CHARS) });
-        if let Some(id) = item_id {
+        if let Some(id) = picture {
             embed["thumbnail"] = json!({ "url": item_icon_url(*id) });
         }
         embed
@@ -122,12 +122,9 @@ impl Discord {
     fn message(&self, embeds: Vec<Value>) -> Request {
         // `allowed_mentions` empty: a name or item OCR'd as "@everyone" must not ping anyone.
         let body = json!({ "username": USERNAME, "allowed_mentions": { "parse": [] }, "embeds": embeds });
-        Request { url: self.url.clone(), body: body.to_string() }
+        Request { url: self.url.clone(), body: body.to_string(), fallback: None }
     }
 }
-
-/// The item the test message's example sale shows (Pet Food, sold by NPCs: in every version's data).
-const EXAMPLE_ITEM: (&str, u64) = ("Pet Food", 2_120_000);
 
 /// Markdown in a name would restyle the message (and `[x](url)` makes a link).
 fn escape(text: &str) -> String {
@@ -171,6 +168,7 @@ impl Connector for Discord {
             quantity: 8,
             mesos: Some(388),
             item_id: Some(EXAMPLE_ITEM.1),
+            picture: Some(EXAMPLE_ITEM.1),
             store: owner.map(str::to_string),
             balance: None,
         };
@@ -282,6 +280,7 @@ mod tests {
             quantity: 20,
             mesos: Some(12_400),
             item_id: Some(2_120_000),
+            picture: Some(2_120_000),
             store: Some("ShopOwner".into()),
             balance: Some(39_311),
         });
@@ -296,6 +295,15 @@ mod tests {
             .map(|f| (f["name"].as_str().unwrap(), f["value"].as_str().unwrap()))
             .collect();
         assert_eq!(fields, [("Buyer", "**Tikko**"), ("Received", "🪙 **12,400**"), ("Store balance", "39,311 mesos")]);
+    }
+
+    #[test]
+    fn the_games_own_id_is_not_taken_for_the_picture() {
+        // Classic's Garnet (4020100) is nothing on maplestory.io: a thumbnail of it showed no picture.
+        let discord = Discord::new(URL).unwrap();
+        let garnet = Notification::Sale(Sale { item: "Garnet".into(), item_id: Some(4_020_100), ..Sale::default() });
+        let body: Value = serde_json::from_str(&discord.requests(&[garnet], 0.0)[0].body).unwrap();
+        assert!(body["embeds"][0].get("thumbnail").is_none());
     }
 
     #[test]

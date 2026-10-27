@@ -166,9 +166,20 @@ impl Engine {
         discord::masked(webhook)
     }
 
-    /// HTTP requests to send now, `[{"url", "body"}]` JSON (POST, JSON): sales that came in since the last call.
+    /// HTTP requests to send now, `[{"service", "url", "body", "fallback"?}]` JSON (POST, JSON): sales that came in
+    /// since the last call; `fallback` (`{"url", "body"}`) goes instead if the service refuses the request.
     pub fn take_requests(&mut self) -> String {
         self.shop.take_requests()
+    }
+
+    /// Sold items whose picture to look up first, `[{"name", "url"}]` JSON (GET maplestory.io); each answer's text
+    /// goes to `picture_found`. The sales wait a few seconds for them.
+    pub fn take_picture_lookups(&mut self) -> String {
+        self.shop.take_picture_lookups()
+    }
+
+    pub fn picture_found(&mut self, name: &str, answer: &str) {
+        self.shop.picture_found(name, answer);
     }
 
     /// The test message for `webhook` as `{"service", "url", "body"}` JSON, or undefined when it is not a Discord

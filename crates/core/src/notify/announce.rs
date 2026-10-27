@@ -76,7 +76,7 @@ pub fn sales(events: &[ShopEvent], context: &ShopContext) -> Vec<Notification> {
                 mesos: *mesos,
                 item_id: *item_id,
                 store: context.owner.clone(),
-                balance: None,
+                ..Sale::default()
             }),
             _ => None,
         })

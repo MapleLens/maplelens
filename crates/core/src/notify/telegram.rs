@@ -1,11 +1,12 @@
-//! Telegram bots: one POST of JSON to the Bot API (`sendMessage`), no account of ours and no server. Like a Discord
+//! Telegram bots: one POST of JSON to the Bot API (`sendMessage`, or `sendPhoto` for a sale with the item's picture),
+//! no account of ours and no server. Like a Discord
 //! webhook, the player pastes one URL, `https://api.telegram.org/bot<token>/sendMessage?chat_id=<chat>`. A URL without
 //! the chat, or just the token from @BotFather, works too: the chat is then found by asking the bot who wrote to it
 //! last (`getUpdates`), so the player only has to send it /start, and the whole URL is built for them.
 
 use serde_json::{Value, json};
 
-use super::{Connector, Notification, Request, Sale, StoreChange, grouped};
+use super::{Connector, EXAMPLE_ITEM, Notification, Request, Sale, StoreChange, grouped, item_icon_url};
 
 const API: &str = "https://api.telegram.org/bot";
 /// Notifications in one message: a burst of sales is one message, well under Telegram's 4096 characters.
@@ -76,7 +77,11 @@ pub fn parse_webhook(text: &str) -> Option<(&str, i64)> {
 
 /// The request that asks the bot for the messages people sent it lately (`getUpdates`; Telegram keeps them a day).
 pub fn link_request(token: &str) -> Option<Request> {
-    valid_token(token).map(|token| Request { url: format!("{API}{token}/getUpdates"), body: "{}".into() })
+    valid_token(token).map(|token| Request {
+        url: format!("{API}{token}/getUpdates"),
+        body: "{}".into(),
+        fallback: None,
+    })
 }
 
 /// The chat that wrote to the bot last, from a `getUpdates` answer: a private chat after /start, or a group or
@@ -113,7 +118,19 @@ impl Telegram {
             "parse_mode": "HTML",
             "link_preview_options": { "is_disabled": true },
         });
-        Request { url: format!("{API}{}/sendMessage", self.token), body: body.to_string() }
+        Request { url: format!("{API}{}/sendMessage", self.token), body: body.to_string(), fallback: None }
+    }
+
+    /// `text` as the caption of the item's picture (Telegram fetches it); the same text alone if it cannot.
+    fn photo(&self, picture: u64, text: String) -> Request {
+        let body = json!({
+            "chat_id": self.chat,
+            "photo": item_icon_url(picture),
+            "caption": text,
+            "parse_mode": "HTML",
+        });
+        let fallback = Some(Box::new(self.message(text)));
+        Request { url: format!("{API}{}/sendPhoto", self.token), body: body.to_string(), fallback }
     }
 }
 
@@ -177,35 +194,57 @@ fn truncate(text: &str, chars: usize) -> String {
     if text.chars().count() <= chars { text.to_string() } else { text.chars().take(chars - 1).chain(['…']).collect() }
 }
 
-/// The item the test message's example sale shows.
-const EXAMPLE_ITEM: &str = "Pet Food";
-
 impl Connector for Telegram {
     fn name(&self) -> &'static str {
         "Telegram"
     }
 
     fn requests(&self, batch: &[Notification], _unix_now: f64) -> Vec<Request> {
-        batch
-            .chunks(PER_MESSAGE)
-            .map(|chunk| self.message(chunk.iter().map(Self::text).collect::<Vec<_>>().join("\n\n")))
-            .collect()
+        // A sale with a picture is a photo of its own (a caption belongs to one photo); the rest between them are
+        // batched as text, in order.
+        let mut requests = Vec::new();
+        let mut texts: Vec<String> = Vec::new();
+        for notification in batch {
+            let picture = match notification {
+                Notification::Sale(sale) => sale.picture,
+                Notification::Store(_) => None,
+            };
+            if let Some(picture) = picture {
+                if !texts.is_empty() {
+                    requests.push(self.message(std::mem::take(&mut texts).join("\n\n")));
+                }
+                requests.push(self.photo(picture, Self::text(notification)));
+                continue;
+            }
+            texts.push(Self::text(notification));
+            if texts.len() == PER_MESSAGE {
+                requests.push(self.message(std::mem::take(&mut texts).join("\n\n")));
+            }
+        }
+        if !texts.is_empty() {
+            requests.push(self.message(texts.join("\n\n")));
+        }
+        requests
     }
 
     fn test_request(&self, owner: Option<&str>, _unix_now: f64) -> Request {
         let example = Sale {
-            item: EXAMPLE_ITEM.to_string(),
+            item: EXAMPLE_ITEM.0.to_string(),
             buyer: "Buyer".to_string(),
             quantity: 8,
             mesos: Some(388),
             store: owner.map(str::to_string),
             ..Sale::default()
         };
-        self.message(format!(
-            "✅ <b>MapleLens is connected</b>\nSold items and openings of {} will show up here, like this:\n\n{}",
-            whose(owner),
-            sale_text(&example)
-        ))
+        // With the example's picture: what a sale will look like.
+        self.photo(
+            EXAMPLE_ITEM.1,
+            format!(
+                "✅ <b>MapleLens is connected</b>\nSold items and openings of {} will show up here, like this:\n\n{}",
+                whose(owner),
+                sale_text(&example)
+            ),
+        )
     }
 }
 
@@ -305,6 +344,7 @@ mod tests {
             item_id: Some(2_120_000),
             store: Some("ShopOwner".into()),
             balance: Some(39_311),
+            ..Sale::default()
         });
         let requests = telegram.requests(&[full], 0.0);
         assert_eq!(requests.len(), 1);
@@ -317,6 +357,23 @@ mod tests {
             "💰 <b>Pet Food ×20</b> sold\nBuyer: <b>Tikko</b>\nReceived: 🪙 <b>12,400</b> mesos\n\
              Store balance: 39,311 mesos\n<i>In ShopOwner's store</i>"
         );
+    }
+
+    #[test]
+    fn a_sale_with_a_picture_is_a_photo_with_the_text_as_its_caption() {
+        let telegram = Telegram::new(TOKEN, 111).unwrap();
+        let with = |item: &str, picture| Notification::Sale(Sale { item: item.into(), picture, ..Sale::default() });
+        let batch = [with("A", None), with("B", None), with("Garnet", Some(4_021_000)), with("C", None)];
+        let requests = telegram.requests(&batch, 0.0);
+        let methods: Vec<&str> = requests.iter().map(|r| r.url.rsplit('/').next().unwrap()).collect();
+        assert_eq!(methods, ["sendMessage", "sendPhoto", "sendMessage"], "in order");
+        let photo = body(&requests[1]);
+        assert!(photo["photo"].as_str().unwrap().ends_with("/item/4021000/icon"));
+        assert!(photo["caption"].as_str().unwrap().starts_with("💰 <b>Garnet</b> sold"));
+        assert_eq!(photo["parse_mode"], "HTML");
+        let fallback = requests[1].fallback.as_deref().expect("text if the picture cannot be fetched");
+        assert!(fallback.url.ends_with("/sendMessage") && body(fallback)["text"] == photo["caption"]);
+        assert!(requests[0].fallback.is_none());
     }
 
     #[test]
@@ -358,7 +415,9 @@ mod tests {
     #[test]
     fn the_test_message_shows_an_example_sale() {
         let telegram = Telegram::new(TOKEN, 111).unwrap();
-        let text = body(&telegram.test_request(Some("ShopOwner"), 0.0))["text"].as_str().unwrap().to_string();
+        let request = telegram.test_request(Some("ShopOwner"), 0.0);
+        assert!(body(&request)["photo"].as_str().unwrap().ends_with("/item/2120000/icon"));
+        let text = body(&request)["caption"].as_str().unwrap().to_string();
         assert!(text.starts_with("✅ <b>MapleLens is connected</b>") && text.contains("ShopOwner's store"), "{text}");
         assert!(text.contains("💰 <b>Pet Food ×8</b> sold"), "{text}");
     }

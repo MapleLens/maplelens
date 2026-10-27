@@ -3,7 +3,8 @@
 //! Text is read by the page's OCR, which is asynchronous, while the watcher asks for it synchronously. So a frame
 //! whose text is not read yet is undone (the watcher is restored from a copy made before it) and tried again once
 //! the answers are in: the sold list still shows the new rows then. Sales go to the notification connectors; the page
-//! sends the requests this produces (the engine never touches the network).
+//! sends the requests this produces (the engine never touches the network), after asking maplestory.io for the sold
+//! items' pictures (`take_picture_lookups` / `picture_found`).
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -11,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use maplelens_core::image::RgbImage;
 use maplelens_core::market::catalog::Catalog;
 use maplelens_core::notify::announce::Announcer;
+use maplelens_core::notify::picture::{Pictures, search_url};
 use maplelens_core::notify::{Notification, NotifySettings, Request, connectors};
 use maplelens_core::render::status_pill::{text_for, tone_for};
 use maplelens_core::shop::watcher::{ReadText, ShopWatcher};
@@ -31,6 +33,9 @@ const RETRY_S: f64 = 0.3;
 const MAX_WAITING_JOBS: usize = 48;
 /// Sales that come together are one message.
 const BATCH_S: f64 = 1.5;
+/// A batch waits this long at most for its items' pictures (maplestory.io is sometimes slow); without them it goes
+/// anyway.
+const PICTURE_WAIT_S: f64 = 8.0;
 
 pub struct ShopRunner {
     watcher: ShopWatcher,
@@ -44,6 +49,12 @@ pub struct ShopRunner {
     pending: Vec<Notification>,
     pending_since: f64,
     outbox: Vec<(&'static str, Request)>,
+    pictures: Pictures,
+    /// Item names whose picture the page should look up, and those asked for the waiting batch.
+    lookups: Vec<String>,
+    asked: Vec<String>,
+    /// Until when the waiting batch waits for its pictures.
+    pictures_due: Option<f64>,
     announcer: Announcer,
     /// How many looks were made, and how many of them were undone for want of text (for diagnosing a page).
     pub looks: u32,
@@ -76,6 +87,10 @@ impl ShopRunner {
             pending: Vec::new(),
             pending_since: 0.0,
             outbox: Vec::new(),
+            pictures: Pictures::default(),
+            lookups: Vec::new(),
+            asked: Vec::new(),
+            pictures_due: None,
             announcer: Announcer::default(),
             looks: 0,
             undone: 0,
@@ -106,6 +121,8 @@ impl ShopRunner {
     pub fn set_notify(&mut self, settings: NotifySettings) {
         self.notify = settings;
         self.pending.clear();
+        self.asked.clear();
+        self.pictures_due = None;
     }
 
     pub fn status(&self) -> ShopStatus {
@@ -185,23 +202,51 @@ impl ShopRunner {
         if self.pending.is_empty() || now - self.pending_since < BATCH_S {
             return;
         }
-        let mut batch = std::mem::take(&mut self.pending);
-        batch.retain(|n| self.notify.allows(n));
-        if batch.is_empty() {
+        let connectors = connectors(&self.notify);
+        // Nowhere to send to: nothing to look pictures up for either.
+        self.pending.retain(|n| !connectors.is_empty() && self.notify.allows(n));
+        if self.pending.is_empty() {
             return;
         }
-        for connector in connectors(&self.notify) {
+        let wanted = self.pictures.wanted(&self.pending);
+        let unasked: Vec<String> = wanted.iter().filter(|name| !self.asked.contains(name)).cloned().collect();
+        if !unasked.is_empty() {
+            self.pictures_due.get_or_insert(now + PICTURE_WAIT_S);
+            self.lookups.extend(unasked.iter().cloned());
+            self.asked.extend(unasked);
+        }
+        if !wanted.is_empty() && self.pictures_due.is_some_and(|due| now < due) {
+            return;
+        }
+        let mut batch = std::mem::take(&mut self.pending);
+        self.asked.clear();
+        self.pictures_due = None;
+        self.pictures.fill(&mut batch);
+        for connector in connectors {
             self.outbox.extend(connector.requests(&batch, unix_now).into_iter().map(|r| (connector.name(), r)));
         }
     }
 
-    /// The requests the page should send, as `[{"service", "url", "body"}]` JSON.
+    /// The requests the page should send, as `[{"service", "url", "body", "fallback"?}]` JSON (`fallback`: the same
+    /// `{"url", "body"}` to send instead if the service refuses).
     pub fn take_requests(&mut self) -> String {
-        let requests: Vec<Value> = std::mem::take(&mut self.outbox)
-            .into_iter()
-            .map(|(service, r)| json!({"service": service, "url": r.url, "body": r.body}))
-            .collect();
+        let requests: Vec<Value> =
+            std::mem::take(&mut self.outbox).into_iter().map(|(service, r)| request_json(service, r)).collect();
         Value::Array(requests).to_string()
+    }
+
+    /// The pictures the page should look up (GET), as `[{"name", "url"}]` JSON; each answer goes to `picture_found`.
+    pub fn take_picture_lookups(&mut self) -> String {
+        let lookups: Vec<Value> = std::mem::take(&mut self.lookups)
+            .into_iter()
+            .map(|name| json!({"url": search_url(&name), "name": name}))
+            .collect();
+        Value::Array(lookups).to_string()
+    }
+
+    /// maplestory.io's answer to a picture lookup (a failed one is simply not handed in: the batch goes without it).
+    pub fn picture_found(&mut self, name: &str, answer: &str) {
+        self.pictures.learn(name, answer, Pictures::game_id(&self.pending, name));
     }
 
     /// The test message of the first connector, as `{"service", "url", "body"}` JSON, for settings not yet in use.
@@ -210,8 +255,17 @@ impl ShopRunner {
         let owner = owner.as_deref();
         let connector = connectors(settings).into_iter().next()?;
         let request = connector.test_request(owner, unix_now);
-        Some(json!({"service": connector.name(), "url": request.url, "body": request.body}).to_string())
+        Some(request_json(connector.name(), request).to_string())
     }
+}
+
+/// A request as the page sends it: `{"service", "url", "body", "fallback"?: {"url", "body"}}`.
+fn request_json(service: &str, request: Request) -> Value {
+    let mut json = json!({"service": service, "url": request.url, "body": request.body});
+    if let Some(fallback) = request.fallback {
+        json["fallback"] = json!({"url": fallback.url, "body": fallback.body});
+    }
+    json
 }
 
 /// An event as the page gets it.
@@ -249,5 +303,64 @@ fn status_word(status: ShopStatus) -> &'static str {
         ShopStatus::NeedSoldWindow => "need-sold-window",
         ShopStatus::Scrolled => "scrolled",
         ShopStatus::Covered => "covered",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use maplelens_core::notify::Sale;
+
+    const WEBHOOK: &str = "https://discord.com/api/webhooks/12/abc_DEF";
+
+    fn sold(runner: &mut ShopRunner, item: &str, item_id: u64, now: f64) {
+        runner.pending.push(Notification::Sale(Sale { item: item.into(), item_id: Some(item_id), ..Sale::default() }));
+        runner.pending_since = now;
+    }
+
+    fn thumbnail(runner: &mut ShopRunner) -> Option<String> {
+        let requests: Value = serde_json::from_str(&runner.take_requests()).unwrap();
+        assert_eq!(requests.as_array().unwrap().len(), 1, "{requests}");
+        let body: Value = serde_json::from_str(requests[0]["body"].as_str().unwrap()).unwrap();
+        body["embeds"][0]["thumbnail"]["url"].as_str().map(str::to_string)
+    }
+
+    #[test]
+    fn a_sale_waits_for_its_picture_found_by_name() {
+        let mut runner = ShopRunner::new();
+        runner.set_notify(NotifySettings { discord_webhook: WEBHOOK.into(), sales: true, ..NotifySettings::default() });
+        sold(&mut runner, "Garnet", 4_020_100, 0.0);
+        runner.flush(BATCH_S, 0.0);
+        let lookups: Value = serde_json::from_str(&runner.take_picture_lookups()).unwrap();
+        assert_eq!(lookups[0]["name"], "Garnet");
+        assert!(lookups[0]["url"].as_str().unwrap().ends_with("searchFor=Garnet"));
+        runner.flush(BATCH_S + 1.0, 0.0);
+        assert_eq!(runner.take_requests(), "[]", "waiting for the picture");
+        assert_eq!(runner.take_picture_lookups(), "[]", "asked once");
+        runner.picture_found("Garnet", r#"[{"name":"Garnet Ore","id":4020000},{"name":"Garnet","id":4021000}]"#);
+        runner.flush(BATCH_S + 2.0, 0.0);
+        assert!(thumbnail(&mut runner).unwrap().ends_with("/item/4021000/icon"));
+        // Known now: the next sale of it does not wait.
+        sold(&mut runner, "Garnet", 4_020_100, 10.0);
+        runner.flush(10.0 + BATCH_S, 0.0);
+        assert!(thumbnail(&mut runner).is_some());
+    }
+
+    #[test]
+    fn a_picture_that_does_not_come_does_not_hold_the_sale() {
+        let mut runner = ShopRunner::new();
+        runner.set_notify(NotifySettings { discord_webhook: WEBHOOK.into(), sales: true, ..NotifySettings::default() });
+        sold(&mut runner, "Garnet", 4_020_100, 0.0);
+        runner.flush(BATCH_S, 0.0);
+        runner.flush(BATCH_S + PICTURE_WAIT_S, 0.0);
+        assert_eq!(thumbnail(&mut runner), None);
+    }
+
+    #[test]
+    fn without_a_connector_no_picture_is_looked_up() {
+        let mut runner = ShopRunner::new();
+        sold(&mut runner, "Garnet", 4_020_100, 0.0);
+        runner.flush(BATCH_S, 0.0);
+        assert_eq!(runner.take_picture_lookups(), "[]");
     }
 }

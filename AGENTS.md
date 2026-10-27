@@ -218,7 +218,10 @@ same frames through the Rust watcher (373 real captures, 22 ms a frame against P
   and puts it on the clipboard. Its
   messages are HTML with names escaped and '@' kept from mentioning. Telegram's Bot API allows any origin, so the
   browser sends straight to it too. Settings: `discord_webhook`, `telegram_webhook`, `notify_sales`, `notify_store`. Refusals are worded by `notify::refusal`, waits read by `notify::retry_after`, for both platforms.
-  A new connector is a type and a settings field. `cargo test -p maplelens live_discord -- --ignored` sends to
+  A new connector is a type and a settings field. The item's picture (a Discord thumbnail, a Telegram `sendPhoto`
+  whose caption is the message, sent again as text if refused) is maplestory.io's, found by the item's name
+  (`notify::picture`): the price list's ids are Classic's, and only 2 of 30 named the same item there (Garnet showed
+  none). Each name is searched once; the browser holds a batch up to 8 s for the answers. `cargo test -p maplelens live_discord -- --ignored` sends to
   `MAPLELENS_DISCORD_WEBHOOK`; `live_telegram` links and writes through the bot in `MAPLELENS_TELEGRAM_BOT`.
 - The browser runs the same watcher (`web/src/shopwatch.rs`). Its OCR is asynchronous: the reader answers None while
   text is being read. Only a sale or a visitor whose text is not in (`ShopWatcher::missing_text`) undoes the frame (the

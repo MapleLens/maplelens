@@ -4,6 +4,7 @@
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
+use maplelens_core::notify::picture::{self, Pictures};
 use maplelens_core::notify::{
     Connector, Notification, NotifySettings, Request, connectors, refusal, retry_after, telegram,
 };
@@ -86,6 +87,7 @@ fn run(inbox: Receiver<Job>) {
     let mut last_sent: Option<Instant> = None;
     // Whose store the last notification was about: the test message names it too.
     let mut owner: Option<String> = None;
+    let mut pictures = Pictures::default();
     while let Ok(job) = inbox.recv() {
         match job {
             Job::Settings(new) => settings = new,
@@ -110,6 +112,8 @@ fn run(inbox: Receiver<Job>) {
                 if batch.is_empty() {
                     continue;
                 }
+                find_pictures(&mut pictures, &batch);
+                pictures.fill(&mut batch);
                 for connector in connectors(&settings) {
                     for request in connector.requests(&batch, paths::now_unix()) {
                         if let Some(since) = last_sent.and_then(|at| MIN_GAP.checked_sub(at.elapsed())) {
@@ -123,6 +127,21 @@ fn run(inbox: Receiver<Job>) {
                     }
                 }
             }
+        }
+    }
+}
+
+/// Looks the sold items' pictures up by name (each name once a run; a failed lookup is tried again next sale).
+fn find_pictures(pictures: &mut Pictures, batch: &[Notification]) {
+    for name in pictures.wanted(batch) {
+        let response = net::agent(TIMEOUT_S).get(picture::search_url(&name)).call();
+        match response {
+            Ok(mut response) if response.status() == 200 => match response.body_mut().read_to_string() {
+                Ok(answer) => pictures.learn(&name, &answer, Pictures::game_id(batch, &name)),
+                Err(error) => crate::warn!("picture of {name:?}: {error}"),
+            },
+            Ok(response) => crate::warn!("picture of {name:?}: maplestory.io answered HTTP {}", response.status()),
+            Err(error) => crate::warn!("picture of {name:?}: {error}"),
         }
     }
 }
@@ -190,8 +209,18 @@ fn post(service: &str, request: &Request) -> Result<(u16, String), String> {
     Ok((status, response.body_mut().read_to_string().unwrap_or_default()))
 }
 
-/// POST `request`, waiting out the service's rate limit.
+/// POST `request`, or its fallback if the service refuses it.
 fn deliver(connector: &dyn Connector, request: &Request) -> Result<(), String> {
+    let refused = match deliver_one(connector, request) {
+        Err(refused) if request.fallback.is_some() => refused,
+        sent => return sent,
+    };
+    crate::warn!("{}: {refused}; sending it without the picture", connector.name());
+    request.fallback.as_deref().map_or(Ok(()), |fallback| deliver_one(connector, fallback))
+}
+
+/// POST `request`, waiting out the service's rate limit.
+fn deliver_one(connector: &dyn Connector, request: &Request) -> Result<(), String> {
     for attempt in 0..=RETRIES {
         match post(connector.name(), request)? {
             (200..=204, _) => return Ok(()),
@@ -239,6 +268,7 @@ mod tests {
                 item_id,
                 store: Some("ShopOwner".into()),
                 balance,
+                ..Sale::default()
             })
         };
         notifier.send(vec![
