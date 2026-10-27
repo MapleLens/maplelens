@@ -263,7 +263,10 @@ same frames through the Rust watcher (373 real captures, 22 ms a frame against P
 - The phone app is also a dashboard of the store: the page keeps a store book (`docs/app/storebook.js`: sales with item
   pictures (a sale event carries its item's; one found by name the worker posts: `Engine::picture_url`), chat, visits, who is inside, status, owner, mesos; kept in localStorage), seals it with AES-GCM under
   HKDF(pairing secret) (`phone/relay.js` `seal`) and uploads it when it changed (every 5 s at most; a check-in each
-  minute otherwise). The relay keeps it in a Durable Object per pairing and never has the key. `?demo` on the phone
+  minute otherwise). Each waits for the one before, so every relay request times out (10 s, as on Windows): one left
+  hanging had stopped the check-ins and the phone showed the computer offline while the page ran. A check-in may go a
+  sync early: a tab the game covers wakes once a minute, and one due on the dot came every two minutes. The relay
+  keeps the book in a Durable Object per pairing and never has the key. `?demo` on the phone
   page shows the dashboard with made-up data. Remove on the computer tombstones the key (410 everywhere) and pushes a
   "disconnected" notification; the phone app clears itself. A phone leaving is seen by the page's next check-in.
   `relay/push/README.md` has the routes, limits, deploy steps and the security model; `npm test` there.
@@ -414,6 +417,13 @@ nothing is detected) had changed the client every 1.5 s and thrown the measured 
 Ratio the page flipped between 0.64 and the height's 0.9. Every writer must time readings on one clock: on Windows
 `paths::uptime`, in the browser `performance.now()`. A reading up to 1 s older than the newest goes in its place
 (the hover thread reads the clock before its grab); a clock that goes back further starts the window over.
+
+A map smaller than the client (Kerning City Pharmacy) is drawn with black around it, and that black joins the bar's
+1 px outline: its top row is dark from edge to edge, and every reading there was the whole width (1.53 in Ideal
+Ratio), so the vote settled on it and no tooltip was found. `hud::side` steps out of such a black area to the last
+column before the bar's light inside; only then are the sides, not the run, checked for centring, and the row under
+the top must be the bar's inside (black above it too). On 1,071 saved frames this changed only frames with black or
+dark scenery beside the bar, each to the true width.
 
 ## Stream footage
 

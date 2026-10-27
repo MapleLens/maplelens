@@ -76,13 +76,19 @@ export async function unseal(key, blob) {
   }
 }
 
-/** POST `body` to a relay route; resolves to {ok, status, json}. */
+/** A relay request unanswered this long fails (as the Windows app's do): the page waits for each check-in before the
+ *  next one, so a request left hanging on a dead connection had stopped them all, and the phone showed the computer
+ *  as offline while the page ran on. */
+const RELAY_TIMEOUT_MS = 10000;
+
+/** POST `body` to a relay route; resolves to {ok, status, json}, status 0 when the relay could not be reached in time. */
 export async function relay(route, body) {
   try {
     const response = await fetch(`${RELAY_URL}/${route}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(RELAY_TIMEOUT_MS),
     });
     return { ok: response.ok, status: response.status, json: await response.json().catch(() => ({})) };
   } catch {

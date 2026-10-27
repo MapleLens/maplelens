@@ -13,20 +13,103 @@ use maplelens_core::market::catalog::Catalog;
 use maplelens_core::market::models::Item;
 use maplelens_core::pipeline::FrameScreen;
 use maplelens_core::pipeline::hover::HoverDetector;
-use maplelens_core::vision::hud::find_bar;
+use maplelens_core::vision::hud::{Bar, find_bar};
 use maplelens_core::vision::reader::{NoOcr, TextReader, title_atlas};
 
 #[test]
 #[cfg_attr(not(fixtures), ignore = "needs the local captures in tests/fixtures")]
 fn bar_size_in_each_ui_mode() {
-    for (name, width, height) in
-        [("status_bar_normal_1920x1200.png", 1250, 106), ("status_bar_ideal_ratio_1920x1200.png", 800, 68)]
-    {
+    for (name, width, height) in [
+        ("status_bar_normal_1920x1200.png", 1250, 106),
+        ("status_bar_ideal_ratio_1920x1200.png", 800, 68),
+        // Kerning City Pharmacy: the map is smaller than the window and the black around it joins the outline.
+        ("status_bar_beside_black_ideal_ratio_1920x1200.png", 800, 68),
+    ] {
         let strip = fixture(name);
         let bar = find_bar(&strip).unwrap_or_else(|| panic!("{name}: no bar"));
         assert_eq!((bar.width, strip.height - bar.top), (width, height), "{name}");
         assert_eq!(bar.x, (strip.width - width) / 2, "{name}");
     }
+}
+
+/// The bottom 130 rows of a 1920x1200 client in Ideal Ratio, drawn: the bar's outline (columns 560 and 1359, top row
+/// 62) around a light inside, with the black the game draws around a small map, or scenery, to its sides and above.
+fn drawn_bar(black_left: bool, black_right: bool, black_above: bool) -> RgbImage {
+    let (left, right, top) = (560, 1359, 62);
+    let mut strip = RgbImage::filled(1920, 130, [150, 160, 120]);
+    for y in 0..strip.height {
+        for x in 0..strip.width {
+            let black = match x {
+                x if x < left => black_left,
+                x if x > right => black_right,
+                _ => y < top && black_above,
+            };
+            let outline = (left..=right).contains(&x) && y >= top && (y == top || x == left || x == right);
+            if black || outline {
+                strip.set_pixel(x, y, [0, 0, 0]);
+            } else if (left..=right).contains(&x) && y > top {
+                strip.set_pixel(x, y, [200, 200, 210]);
+            }
+        }
+    }
+    strip
+}
+
+#[test]
+fn black_around_a_small_map_is_not_part_of_the_bar() {
+    // The black runs into the outline, so its top row is dark from edge to edge: the bar ends where the black does.
+    for (black_left, black_right, black_above) in
+        [(true, true, false), (true, true, true), (true, false, false), (false, true, true), (false, false, false)]
+    {
+        let bar = find_bar(&drawn_bar(black_left, black_right, black_above));
+        let case = (black_left, black_right, black_above);
+        assert_eq!(bar, Some(Bar { x: 560, top: 62, width: 800 }), "black left, right, above: {case:?}");
+    }
+}
+
+#[test]
+#[cfg_attr(not(fixtures), ignore = "needs the local captures in tests/fixtures")]
+fn real_bars_measure_the_same_with_black_around_them() {
+    // The game's own bar insides at both UI sizes, with everything outside the outline painted black (beside it, and
+    // above it too, as in a map shorter than the window with the chat box closed).
+    for name in ["status_bar_normal_1920x1200.png", "status_bar_ideal_ratio_1920x1200.png"] {
+        let strip = fixture(name);
+        let bar = find_bar(&strip).unwrap_or_else(|| panic!("{name}: no bar"));
+        for black_above in [false, true] {
+            let mut painted = strip.clone();
+            for y in 0..strip.height {
+                for x in 0..strip.width {
+                    let beside = x < bar.x || x >= bar.x + bar.width;
+                    if (y >= bar.top && beside) || (y < bar.top && (black_above || beside)) {
+                        painted.set_pixel(x, y, [0, 0, 0]);
+                    }
+                }
+            }
+            assert_eq!(find_bar(&painted), Some(bar), "{name}, black above: {black_above}");
+        }
+    }
+}
+
+#[test]
+#[cfg_attr(not(fixtures), ignore = "needs the local captures in tests/fixtures")]
+fn a_tooltip_in_a_small_map_is_found_at_the_bars_scale() {
+    // Kerning City Pharmacy in Ideal Ratio, as the browser gets it (no mouse): the black around the map had made the
+    // whole width read as the bar (scale 1.53), and no tooltip was found at that size.
+    let frame = fixture("frame_ideal_ratio_pharmacy_tree_branch.png");
+    let bounds = Rect::new(0, 0, frame.width as i32, frame.height as i32);
+    let mut screen = FrameScreen { frame: &frame, origin: Point::default(), cursor: None };
+    let branch = Item { category: Some("Etc".into()), price: Some(5.0), ..Item::named("Tree Branch") };
+    let mut detector =
+        HoverDetector::new(Arc::new(Catalog::new([branch], None)), TextReader::new(title_atlas(), Box::new(NoOcr)));
+    let last = config::SCALE_VOTE_MIN_READINGS - 1;
+    for t in 0..last {
+        detector.step(&mut screen, bounds, t as f64);
+    }
+    let hover = detector.step(&mut screen, bounds, last as f64).expect("tooltip found at the measured scale");
+    assert_eq!(hover.title, "Tree Branch");
+    assert!((detector.ui_scale().of(bounds) - 0.64).abs() < 0.005, "{}", detector.ui_scale().of(bounds));
+    let at = hover.found_at.expect("search reports where");
+    assert!((at.y - 475).abs() <= 2 && (533..=546).contains(&at.x), "{at:?}");
 }
 
 #[test]
