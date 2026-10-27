@@ -298,8 +298,8 @@ mod tests {
     }
 
     #[test]
-    fn the_games_own_id_is_not_taken_for_the_picture() {
-        // Classic's Garnet (4020100) is nothing on maplestory.io: a thumbnail of it showed no picture.
+    fn only_the_picture_given_is_shown() {
+        // The connectors show what `Pictures::fill` gave the sale, never an id it was not checked for.
         let discord = Discord::new(URL).unwrap();
         let garnet = Notification::Sale(Sale { item: "Garnet".into(), item_id: Some(4_020_100), ..Sale::default() });
         let body: Value = serde_json::from_str(&discord.requests(&[garnet], 0.0)[0].body).unwrap();

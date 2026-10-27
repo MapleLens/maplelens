@@ -97,7 +97,7 @@ impl Phone {
                 Some(owner) => format!("Sold: {} · {owner}'s store", what(first)),
                 None => format!("Sold: {}", what(first)),
             };
-            // The picture found by name (`picture`): maplestory.io's ids are mostly not the game's.
+            // The picture `Pictures::fill` gave it (its own id, or one found by name).
             return Some(self.message(&title, &parts.join(" · "), first.picture.map(item_icon_url), None));
         }
         let mut lines: Vec<String> = sales
