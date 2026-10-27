@@ -22,6 +22,7 @@ use maplelens_core::vision::hud::find_bar;
 use windows::Win32::Foundation::HWND;
 
 use crate::notify::Notifier;
+use crate::phone::SharedBook;
 use crate::{game, ocr, paths, wgc};
 
 /// A shop changes a few times a minute at most, and a sale is believed once two polls agree (~2 s): a slower poll
@@ -52,6 +53,8 @@ pub struct Emit {
     /// Sold items and the store opening or closing are reported here (Discord).
     notifier: Option<Notifier>,
     announcer: std::sync::Mutex<Announcer>,
+    /// What the paired phones' Store tab shows, uploaded by the phone thread.
+    book: Option<SharedBook>,
 }
 
 impl Emit {
@@ -61,6 +64,22 @@ impl Emit {
             debug_dir: debug.then(|| PathBuf::from("debug")),
             notifier,
             announcer: std::sync::Mutex::default(),
+            book: None,
+        }
+    }
+
+    /// Keep the phones' store book from every look.
+    pub fn with_book(self, book: SharedBook) -> Self {
+        Self { book: Some(book), ..self }
+    }
+
+    /// One look's status, owner, balance and events into the store book, saved when they changed it.
+    fn record(&self, status: ShopStatus, context: &ShopContext, events: &[ShopEvent]) {
+        if let Some(book) = &self.book {
+            let mut book = book.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if book.update(status, context, events, paths::now_unix() * 1000.0) {
+                crate::phone::save_book(&book);
+            }
         }
     }
 
@@ -153,6 +172,7 @@ pub fn run(ui: Arc<UiScale>, updates: Option<Sender<ShopUpdate>>, emit: Emit, ca
                     emit.line("MapleStory closed; waiting for it to start");
                     watcher = new_watcher();
                 }
+                emit.record(ShopStatus::Hidden, &ShopContext::default(), &[]);
                 NO_GAME_RETRY_S
             }
             Some(hwnd) => {
@@ -169,6 +189,7 @@ pub fn run(ui: Arc<UiScale>, updates: Option<Sender<ShopUpdate>>, emit: Emit, ca
                         emit.event(event, &frame);
                     }
                     emit.notify(&events, &watcher.context());
+                    emit.record(watcher.status(), &watcher.context(), &events);
                 }
                 if watcher.sees_shop() { POLL_S } else { IDLE_POLL_S }
             }

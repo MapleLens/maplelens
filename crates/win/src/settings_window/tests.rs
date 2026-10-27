@@ -10,7 +10,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     IsWindowVisible, SendMessageW, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
 };
 
-use super::{SettingsEvent, SettingsWindow};
+use maplelens_core::notify::pairing::{Pairing, Reply};
+
+use super::{PhoneAction, SettingsEvent, SettingsWindow};
 use crate::icon;
 use crate::notify::Service;
 
@@ -171,4 +173,56 @@ fn the_close_box_hides_the_window() {
     click(window.hwnd(), Control::Close);
     // SAFETY: plain query.
     assert!(!unsafe { IsWindowVisible(window.hwnd()) }.as_bool());
+}
+
+const PHONE_KEY: &str = "AbCdEfGhIjKlMnOp.qRsTuVwXyZ0123456789-_ab";
+
+#[test]
+fn the_phone_row_asks_the_app_and_test_and_remove_need_a_key() {
+    let window = opened();
+    let hwnd = window.hwnd();
+    for control in [Control::TestPhone, Control::RemovePhone] {
+        click(hwnd, control);
+    }
+    assert_eq!(window.take_events(), [], "no key: nothing to test or remove");
+    click(hwnd, Control::ConnectPhone);
+    assert_eq!(window.take_events(), [SettingsEvent::Phone(PhoneAction::ShowCode)]);
+    window.sync(Settings { phone_key: PHONE_KEY.into(), ..Settings::default() });
+    let mut paired = Pairing::default();
+    paired.on_ping(Reply { status: Some(200), phones: Some(1) });
+    window.set_phone(&paired, None);
+    click(hwnd, Control::ConnectPhone);
+    assert_eq!(window.take_events(), [], "one phone per pairing");
+    click(hwnd, Control::TestPhone);
+    click(hwnd, Control::RemovePhone);
+    let asked = [SettingsEvent::Phone(PhoneAction::Test), SettingsEvent::Phone(PhoneAction::Remove)];
+    assert_eq!(window.take_events(), asked);
+    paired.removing();
+    window.set_phone(&paired, None);
+    click(hwnd, Control::RemovePhone);
+    assert_eq!(window.take_events(), [], "one removal at a time");
+}
+
+#[test]
+fn the_pairing_panel_covers_the_window_until_it_is_closed() {
+    let window = opened();
+    let hwnd = window.hwnd();
+    window.sync(Settings { phone_key: PHONE_KEY.into(), ..Settings::default() });
+    let mut pairing = Pairing::default();
+    pairing.show_code(PHONE_KEY, 0.0);
+    window.set_phone(&pairing, Some(120));
+    click(hwnd, Control::Overlay);
+    assert_eq!(window.take_events(), [], "the controls behind the panel can't be reached");
+    click(hwnd, Control::PanelMain);
+    assert_eq!(window.take_events(), [SettingsEvent::Phone(PhoneAction::Scanned)]);
+    key(hwnd, VK_ESCAPE.0);
+    assert_eq!(window.take_events(), [SettingsEvent::Phone(PhoneAction::HidePanel)]);
+    // SAFETY: plain query.
+    assert!(unsafe { IsWindowVisible(hwnd) }.as_bool(), "Esc closes the panel first");
+    pairing.tick(120.0);
+    window.set_phone(&pairing, None);
+    click(hwnd, Control::PanelMain);
+    assert_eq!(window.take_events(), [SettingsEvent::Phone(PhoneAction::ShowCode)], "Show it again");
+    click(hwnd, Control::Close);
+    assert_eq!(window.take_events(), [SettingsEvent::Phone(PhoneAction::HidePanel)], "the code never stays up unseen");
 }

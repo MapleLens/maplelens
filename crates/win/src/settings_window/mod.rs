@@ -6,6 +6,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use maplelens_core::notify::NotifySettings;
+use maplelens_core::notify::pairing::{Pairing, Panel};
 use maplelens_core::render::font::Fonts;
 use maplelens_core::render::settings_view::{self, Control, View};
 use maplelens_core::settings::Settings;
@@ -36,10 +37,25 @@ pub enum SettingsEvent {
     Capturing(bool),
     /// "Test" beside the webhook or the bot: send a test message there with these settings.
     TestNotify(Service, NotifySettings),
+    /// A press in the phone's row or the pairing panel; the app holds the pairing and talks to the relay.
+    Phone(PhoneAction),
     /// "Check now".
     CheckUpdates,
     /// "Update now" (or "View release" for a build that cannot update itself).
     Update,
+}
+
+/// What a phone control asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PhoneAction {
+    /// Show the pairing code (Connect, Add a phone, Show it again); a key is made the first time.
+    ShowCode,
+    /// "I've scanned it": ask the relay now.
+    Scanned,
+    Test,
+    Remove,
+    /// Hide code, Done, Close, Esc, or the window closing: the code must not stay up unseen.
+    HidePanel,
 }
 
 #[derive(Default)]
@@ -62,6 +78,9 @@ struct State {
     notify_note: String,
     /// What the last bot token paste or test came to.
     telegram_note: String,
+    /// The phone's pairing, as the app last told it.
+    phone: Pairing,
+    phone_left_s: Option<u32>,
     dragging: bool,
     tracking_leave: bool,
     events: Vec<SettingsEvent>,
@@ -73,19 +92,19 @@ pub struct SettingsWindow {
 }
 
 /// What the picture depends on, besides the update state: a message that leaves it alone needs no redraw.
-type Look = (Settings, Option<Control>, Option<Control>, Option<Control>, bool, Option<String>, String, String);
+type Look = (Settings, [Option<Control>; 3], bool, Option<String>, String, String, Pairing, Option<u32>);
 
 impl State {
     fn look(&self) -> Look {
         (
             self.current.clone(),
-            self.hover,
-            self.pressed,
-            self.focus,
+            [self.hover, self.pressed, self.focus],
             self.show_focus,
             self.capturing.clone(),
             self.notify_note.clone(),
             self.telegram_note.clone(),
+            self.phone.clone(),
+            self.phone_left_s,
         )
     }
 
@@ -104,6 +123,8 @@ impl State {
             settings: self.current.clone(),
             notify_note: &self.notify_note,
             telegram_note: &self.telegram_note,
+            phone: self.phone.clone(),
+            phone_left_s: self.phone_left_s,
             version: env!("CARGO_PKG_VERSION"),
             update_text: &text,
             can_check,
@@ -138,8 +159,16 @@ impl State {
         }
     }
 
+    /// Whether the pairing panel covers the window.
+    fn panel(&self) -> bool {
+        self.phone.panel != Panel::Hidden
+    }
+
     fn hide(&mut self) {
         self.stop_capture();
+        if self.panel() {
+            self.events.push(SettingsEvent::Phone(PhoneAction::HidePanel));
+        }
         (self.hover, self.pressed, self.dragging) = (None, None, false);
         // SAFETY: our own window.
         unsafe {
@@ -243,6 +272,35 @@ impl State {
                 }
                 return;
             }
+            Control::ConnectPhone => {
+                // One phone per pairing.
+                if self.current.phone_key.is_empty() || self.phone.phones.unwrap_or(0) == 0 {
+                    self.events.push(SettingsEvent::Phone(PhoneAction::ShowCode));
+                }
+                return;
+            }
+            Control::TestPhone => {
+                if !self.current.phone_key.is_empty() && self.phone.phones != Some(0) && self.phone.busy.is_none() {
+                    self.events.push(SettingsEvent::Phone(PhoneAction::Test));
+                }
+                return;
+            }
+            Control::RemovePhone => {
+                if !self.current.phone_key.is_empty() && self.phone.busy.is_none() {
+                    self.events.push(SettingsEvent::Phone(PhoneAction::Remove));
+                }
+                return;
+            }
+            Control::PanelBack => return self.events.push(SettingsEvent::Phone(PhoneAction::HidePanel)),
+            Control::PanelMain => {
+                let action = match self.phone.panel {
+                    Panel::Code { .. } => PhoneAction::Scanned,
+                    Panel::Connected if self.phone.busy.is_none() => PhoneAction::Test,
+                    Panel::Connected | Panel::Hidden => return,
+                    Panel::Expired => PhoneAction::ShowCode,
+                };
+                return self.events.push(SettingsEvent::Phone(action));
+            }
             Control::Hotkey => return self.start_capture(),
             Control::ClearHotkey => {
                 self.stop_capture();
@@ -280,6 +338,22 @@ impl SettingsWindow {
     pub fn set_notify_note(&self, service: Service, note: String) {
         let mut state = self.state.borrow_mut();
         state.set_note(service, note);
+        state.paint();
+    }
+
+    /// The phone's pairing changed (or the code's countdown ticked).
+    pub fn set_phone(&self, phone: &Pairing, left_s: Option<u32>) {
+        let mut state = self.state.borrow_mut();
+        if *phone == state.phone && left_s == state.phone_left_s {
+            return;
+        }
+        let was_up = state.panel();
+        state.phone = phone.clone();
+        state.phone_left_s = left_s;
+        // The keyboard's place moves into the panel and back to the row it came from.
+        if state.panel() != was_up {
+            state.focus = Some(if state.panel() { Control::PanelMain } else { Control::ConnectPhone });
+        }
         state.paint();
     }
 
