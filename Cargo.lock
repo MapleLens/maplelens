@@ -323,7 +323,7 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
 name = "maplelens"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "base64",
  "ed25519-dalek",
@@ -340,7 +340,7 @@ dependencies = [
 
 [[package]]
 name = "maplelens-core"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "ab_glyph",
  "png",
@@ -352,7 +352,7 @@ dependencies = [
 
 [[package]]
 name = "maplelens-web"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "maplelens-core",
  "serde_json",
