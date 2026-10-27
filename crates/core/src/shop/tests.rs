@@ -9,9 +9,10 @@ use super::names::same_name_key;
 use super::parse::{NO_NAME, parse_chat, parse_sale};
 use super::scrollbar::{Thumb, thumb_position};
 use super::soldlist::{self, Row};
-use super::watcher::{Observation, STORE_GONE_AFTER, STORE_VANISHED_AFTER, ShopWatcher};
+use super::watcher::{Observation, STORE_GONE_AFTER, STORE_VANISHED_AFTER, ShopWatcher, settle_scale};
 use super::{ListKind, ShopEvent, ShopStatus, chatlog};
 use crate::image::{RgbImage, decode_png};
+use crate::scale_vote::ScaleVote;
 use crate::vision::Mask;
 
 const ENTER: Point = (1062, 840);
@@ -215,6 +216,62 @@ fn console_lines() {
 }
 
 // Reading the windows.
+
+/// The scale each frame is read at, for these measures one a second, starting at t = 0.
+fn scales_read(measures: &[f32]) -> Vec<f32> {
+    let (mut vote, mut held) = (ScaleVote::default(), None);
+    measures
+        .iter()
+        .enumerate()
+        .map(|(t, &m)| {
+            let scale = settle_scale(&mut vote, held, m, t as f64);
+            held = Some(scale);
+            scale
+        })
+        .collect()
+}
+
+#[test]
+fn one_odd_measure_does_not_rescale_the_shop() {
+    // The pointer over SOLD ITEMS once: the button reads 3% narrow, which would forget every list.
+    assert_eq!(scales_read(&[1.2, 1.201, 1.163, 1.199, 1.2]), [1.2; 5]);
+}
+
+#[test]
+fn the_first_measure_is_believed_and_jitter_is_held() {
+    assert_eq!(scales_read(&[0.9, 0.905, 0.896]), [0.9; 3]);
+}
+
+#[test]
+fn a_shop_redrawn_at_another_scale_is_followed_within_seconds() {
+    let mut measures = vec![1.0; 6];
+    measures.extend([1.282; 6]);
+    let read = scales_read(&measures);
+    let switched = read.iter().position(|&s| s == 1.282).expect("the new scale took over");
+    assert!((6 + 2..=6 + 5).contains(&switched), "{read:?}");
+    assert!(read[switched..].iter().all(|&s| s == 1.282));
+}
+
+#[test]
+fn a_shop_back_after_a_gap_is_read_at_its_new_scale_at_once() {
+    let (mut vote, held) = (ScaleVote::default(), Some(1.0));
+    for t in 0..5 {
+        settle_scale(&mut vote, held, 1.0, t as f64);
+    }
+    // The game switched resolution: no shop for 20 s, then the window at 1.2.
+    assert_eq!(settle_scale(&mut vote, held, 1.2, 25.0), 1.2);
+}
+
+#[test]
+fn a_shop_back_after_a_gap_at_its_scale_keeps_it() {
+    // The pointer over SOLD ITEMS for 10 s (no measure), then a measure a pixel off: still the same scale, or every
+    // list would be forgotten and a sale made meanwhile missed.
+    let mut vote = ScaleVote::default();
+    for t in 0..3 {
+        settle_scale(&mut vote, Some(1.2), 1.2, t as f64);
+    }
+    assert_eq!(settle_scale(&mut vote, Some(1.2), 1.199, 12.0), 1.2);
+}
 
 #[test]
 #[cfg_attr(not(fixtures), ignore = "needs the local captures in tests/fixtures")]

@@ -1,5 +1,7 @@
 //! Tiny geometry primitives shared by capture, vision and overlay.
 
+use crate::scale_vote::ScaleVote;
+
 /// Axis-aligned rectangle in pixels.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Rect {
@@ -40,27 +42,49 @@ pub fn ui_scale(client: Rect) -> f32 {
     client.h as f32 / REFERENCE_HEIGHT as f32
 }
 
-/// The UI scale the game draws at, measured off its status bar (`vision::hud`) by one detector and read by
-/// the others.
+/// A capture of the same game window can be this much shorter: the browser guesses the height of the window's title
+/// bar (0, 31, 39 or 47 px) and cycles through those guesses while nothing is detected. A real resize changes more,
+/// or changes the width.
+const SAME_CLIENT_SLACK_PX: i32 = 48;
+
+/// The UI scale the game draws at, measured off its status bar (`vision::hud`) by the detectors and read by all.
 ///
 /// The window height alone is wrong in "UI Size: Ideal Ratio", where the UI stays the same size at any window
-/// size, so `ui_scale` is only the fallback until the bar has been measured for this client size (or while it is
-/// hidden).
+/// size, so `ui_scale` is only the fallback until the bar's readings have settled for this client (or while it is
+/// hidden). The readings are voted over a few seconds (`ScaleVote`): one frame never decides.
 #[derive(Debug, Default)]
 pub struct UiScale {
-    measured: std::sync::Mutex<Option<((i32, i32), f32)>>,
+    measured: std::sync::Mutex<Measured>,
+}
+
+#[derive(Debug, Default)]
+struct Measured {
+    /// The client the readings were taken on.
+    client: Option<(i32, i32)>,
+    vote: ScaleVote,
+}
+
+fn same_client(a: (i32, i32), b: (i32, i32)) -> bool {
+    a.0 == b.0 && (a.1 - b.1).abs() <= SAME_CLIENT_SLACK_PX
 }
 
 impl UiScale {
     pub fn of(&self, client: Rect) -> f32 {
-        match *self.measured.lock().unwrap_or_else(|e| e.into_inner()) {
-            Some((size, scale)) if size == (client.w, client.h) => scale,
+        let measured = self.measured.lock().unwrap_or_else(|e| e.into_inner());
+        match (measured.client, measured.vote.settled()) {
+            (Some(size), Some(scale)) if same_client(size, (client.w, client.h)) => scale,
             _ => ui_scale(client),
         }
     }
 
-    pub fn set(&self, client: Rect, scale: f32) {
-        *self.measured.lock().unwrap_or_else(|e| e.into_inner()) = Some(((client.w, client.h), scale));
+    /// A reading of the bar on `client` at `now` (seconds on a clock every caller shares).
+    pub fn set(&self, client: Rect, scale: f32, now: f64) {
+        let mut measured = self.measured.lock().unwrap_or_else(|e| e.into_inner());
+        let size = (client.w, client.h);
+        if !measured.client.is_some_and(|c| same_client(c, size)) {
+            *measured = Measured { client: Some(size), vote: ScaleVote::default() };
+        }
+        measured.vote.push(scale, now);
     }
 }
 

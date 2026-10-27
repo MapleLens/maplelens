@@ -64,7 +64,10 @@ fn stream_bench() {
         }
         let bounds = Rect::new(0, 0, frame.width as i32, frame.height as i32);
         if let Some(scale) = ui_scale {
-            hover.ui_scale().set(bounds, scale);
+            // Given by hand: as many readings as settle it at once.
+            for _ in 0..config::SCALE_VOTE_MIN_READINGS {
+                hover.ui_scale().set(bounds, scale, i as f64);
+            }
         }
         let mut screen = FrameScreen { frame: &frame, origin: Point::default(), cursor };
         let start = Instant::now();

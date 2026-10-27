@@ -162,7 +162,9 @@ fn live_game_window_capture() {
     let out = format!("{}/../../target/live_game_{}.png", env!("CARGO_MANIFEST_DIR"), crate::paths::now_unix() as u64);
     std::fs::write(&out, maplelens_core::image::encode_png(&frame)).unwrap();
     let ui = maplelens_core::geometry::UiScale::default();
-    shop::measure_ui(&ui, &frame, client);
+    for t in 0..maplelens_core::config::SCALE_VOTE_MIN_READINGS {
+        shop::measure_ui(&ui, &frame, client, t as f64);
+    }
     let mut watcher = ShopWatcher::new(shop::reader());
     let mut events = Vec::new();
     for t in 0..3 {

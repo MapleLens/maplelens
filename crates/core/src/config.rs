@@ -50,6 +50,17 @@ pub const STATUS_BAR_STRIP_HEIGHT: i32 = 200;
 /// The UI size only changes when the window is resized or the player changes "UI Size": once a second is plenty.
 pub const STATUS_BAR_CHECK_S: f64 = 1.0;
 
+/// The UI scale (off the status bar, or the shop's buttons) is decided on the readings of this many seconds, not on
+/// one frame: one frame with a menu over the bar's outline or the pointer over a button measures it wrong, and every
+/// offset and the shop's lists moved with it. A real change (a resize, "UI Size", full screen) still takes over in
+/// about half of it, since the new readings are then most of the window.
+pub const SCALE_VOTE_WINDOW_S: f64 = 5.0;
+/// Readings this close (relative) are the same scale: the bar's width is good to a pixel in ~1000, the shop's
+/// button to ~1%, and the UI sizes the game draws differ by 6% or more (1.2 and 1.28 at 1440p).
+pub const SCALE_VOTE_TOLERANCE: f32 = 0.01;
+/// Readings needed before a first decision (until then the height-derived scale stands in), and in any new majority.
+pub const SCALE_VOTE_MIN_READINGS: usize = 3;
+
 /// Items crafted by a player carry the crafter's name ("bTang's") on a line above the title, pushing the whole
 /// tooltip down by this much (measured on a real capture; the title reads anywhere in 30-42).
 pub const TOOLTIP_CRAFTED_SHIFT: i32 = 36;
