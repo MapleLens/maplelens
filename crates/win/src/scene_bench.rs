@@ -278,8 +278,8 @@ fn scene_bench() {
         .filter(|l: &Value| {
             let id = l["id"].as_u64().unwrap_or(0);
             match split.as_str() {
-                "eval" => id % 5 == 0,
-                "train" => id % 5 != 0,
+                "eval" => id.is_multiple_of(5),
+                "train" => !id.is_multiple_of(5),
                 _ => true,
             }
         })

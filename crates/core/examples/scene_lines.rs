@@ -29,8 +29,8 @@ fn main() {
         let Ok(label) = serde_json::from_str::<Value>(line) else { continue };
         let id = label["id"].as_u64().unwrap_or(0);
         let keep = match split.as_str() {
-            "train" => id % 5 != 0,
-            "eval" => id % 5 == 0,
+            "train" => !id.is_multiple_of(5),
+            "eval" => id.is_multiple_of(5),
             _ => true,
         };
         if !keep || !matches!(label["kind"].as_str(), Some("store" | "visitor")) {

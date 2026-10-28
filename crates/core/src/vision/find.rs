@@ -445,73 +445,6 @@ fn true_top(lifts: &Lifts, spot: Point) -> Point {
     Point { x: spot.x, y: border_y - BORDER_INSET }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The walk over the pixels that `Lifts` replaces, as the reference.
-    fn naive(frame: &RgbImage, pairs: impl Iterator<Item = ((i32, i32), (i32, i32))>) -> Counts {
-        let darkest = |x: i32, y: i32| -> Option<i16> {
-            if x < 0 || y < 0 || x as usize >= frame.width || y as usize >= frame.height {
-                return None;
-            }
-            let [r, g, b] = frame.pixel(x as usize, y as usize);
-            Some(r.min(g).min(b) as i16)
-        };
-        let mut counts = Counts::default();
-        for ((x, y), (ix, iy)) in pairs {
-            if let (Some(edge), Some(inside)) = (darkest(x, y), darkest(ix, iy)) {
-                counts.total += 1;
-                counts.lifted_all += (edge - inside >= LIFT_MIN) as usize;
-                if edge.max(inside) >= UNREADABLE {
-                    counts.readable += 1;
-                    counts.lifted += (edge - inside >= LIFT_MIN) as usize;
-                }
-            }
-        }
-        counts
-    }
-
-    #[test]
-    fn prefix_sums_count_like_walking_the_pixels() {
-        let (w, h) = (97usize, 61usize);
-        let mut frame = RgbImage::new(w, h);
-        let mut state = 7u32;
-        for y in 0..h {
-            for x in 0..w {
-                state = state.wrapping_mul(1664525).wrapping_add(1013904223);
-                let v = ((state >> 24) as u8 / 2).saturating_add(if x % 23 < 3 { 120 } else { 0 });
-                frame.set_pixel(x, y, [v, v / 2, v.saturating_add(30)]);
-            }
-        }
-        let lifts = Lifts::new(&frame);
-        let inside = INSIDE_PX;
-        for x in [-3, 0, 5, 40, 90, 91, 96, 120] {
-            for rows in [(-5, 10), (0, 61), (10, 50), (55, 90), (30, 30)] {
-                let side = lifts.side(x, rows.0..rows.1);
-                let reference = naive(&frame, (rows.0..rows.1).map(|y| ((x, y), (x + inside, y))));
-                let got = (side.total, side.readable, side.lifted, side.lifted_all);
-                assert_eq!(
-                    got,
-                    (reference.total, reference.readable, reference.lifted, reference.lifted_all),
-                    "side x {x} {rows:?}"
-                );
-            }
-        }
-        for y in [-3, 0, 5, 30, 55, 56, 60, 80] {
-            for cols in [(-5, 20), (0, 97), (20, 80), (90, 130), (40, 40)] {
-                let top = lifts.top(y, cols.0..cols.1);
-                let reference = naive(&frame, (cols.0..cols.1).map(|x| ((x, y), (x, y + inside))));
-                assert_eq!(
-                    (top.total, top.readable, top.lifted),
-                    (reference.total, reference.readable, reference.lifted),
-                    "top y {y} {cols:?}"
-                );
-            }
-        }
-    }
-}
-
 /// Where a tooltip title's bullet is, at UI scale 1 from the tooltip's corner (`reader`'s usual spot), its size, and
 /// how far down a crafted item's maker line pushes it.
 const BULLET_AT: (i32, i32) = (14, 23);
@@ -584,4 +517,71 @@ pub fn bullet_spots(frame: &RgbImage, scale: f32) -> Vec<Point> {
         }
     }
     corners
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The walk over the pixels that `Lifts` replaces, as the reference.
+    fn naive(frame: &RgbImage, pairs: impl Iterator<Item = ((i32, i32), (i32, i32))>) -> Counts {
+        let darkest = |x: i32, y: i32| -> Option<i16> {
+            if x < 0 || y < 0 || x as usize >= frame.width || y as usize >= frame.height {
+                return None;
+            }
+            let [r, g, b] = frame.pixel(x as usize, y as usize);
+            Some(r.min(g).min(b) as i16)
+        };
+        let mut counts = Counts::default();
+        for ((x, y), (ix, iy)) in pairs {
+            if let (Some(edge), Some(inside)) = (darkest(x, y), darkest(ix, iy)) {
+                counts.total += 1;
+                counts.lifted_all += (edge - inside >= LIFT_MIN) as usize;
+                if edge.max(inside) >= UNREADABLE {
+                    counts.readable += 1;
+                    counts.lifted += (edge - inside >= LIFT_MIN) as usize;
+                }
+            }
+        }
+        counts
+    }
+
+    #[test]
+    fn prefix_sums_count_like_walking_the_pixels() {
+        let (w, h) = (97usize, 61usize);
+        let mut frame = RgbImage::new(w, h);
+        let mut state = 7u32;
+        for y in 0..h {
+            for x in 0..w {
+                state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+                let v = ((state >> 24) as u8 / 2).saturating_add(if x % 23 < 3 { 120 } else { 0 });
+                frame.set_pixel(x, y, [v, v / 2, v.saturating_add(30)]);
+            }
+        }
+        let lifts = Lifts::new(&frame);
+        let inside = INSIDE_PX;
+        for x in [-3, 0, 5, 40, 90, 91, 96, 120] {
+            for rows in [(-5, 10), (0, 61), (10, 50), (55, 90), (30, 30)] {
+                let side = lifts.side(x, rows.0..rows.1);
+                let reference = naive(&frame, (rows.0..rows.1).map(|y| ((x, y), (x + inside, y))));
+                let got = (side.total, side.readable, side.lifted, side.lifted_all);
+                assert_eq!(
+                    got,
+                    (reference.total, reference.readable, reference.lifted, reference.lifted_all),
+                    "side x {x} {rows:?}"
+                );
+            }
+        }
+        for y in [-3, 0, 5, 30, 55, 56, 60, 80] {
+            for cols in [(-5, 20), (0, 97), (20, 80), (90, 130), (40, 40)] {
+                let top = lifts.top(y, cols.0..cols.1);
+                let reference = naive(&frame, (cols.0..cols.1).map(|x| ((x, y), (x, y + inside))));
+                assert_eq!(
+                    (top.total, top.readable, top.lifted),
+                    (reference.total, reference.readable, reference.lifted),
+                    "top y {y} {cols:?}"
+                );
+            }
+        }
+    }
 }

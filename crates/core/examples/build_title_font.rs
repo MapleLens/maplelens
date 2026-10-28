@@ -82,7 +82,7 @@ fn main() {
             tooltip,
         });
     }
-    let (eval, train): (Vec<&Title>, Vec<&Title>) = titles.iter().partition(|t| t.id % 5 == 0);
+    let (eval, train): (Vec<&Title>, Vec<&Title>) = titles.iter().partition(|t| t.id.is_multiple_of(5));
     let mut font = if check { title_font().clone() } else { PixelFont::default() };
     if !check {
         let samples: Vec<_> =
@@ -115,12 +115,7 @@ fn main() {
             if read.as_deref() == Some(t.text.as_str()) {
                 band_exact += 1;
             } else if std::env::var("TITLE_DEBUG").is_ok() {
-                let band = maplelens_core::vision::title_font::title_band(
-                    tooltip,
-                    t.scale,
-                    tooltip_width(tooltip, t.scale),
-                    0,
-                );
+                let band = title_band(tooltip, t.scale, tooltip_width(tooltip, t.scale), 0);
                 let mask = band.as_ref().and_then(|b| title_mask(b, t.scale));
                 println!(
                     "  band {:.2} {:?} -> {read:?} {:?}",
@@ -173,7 +168,7 @@ fn read_with(font: &PixelFont, tooltip: &maplelens_core::image::RgbImage, scale:
     if font == title_font() {
         return read_title(tooltip, scale, width, false).filter(|(_, n)| *n == 0).map(|(t, _)| t);
     }
-    let band = maplelens_core::vision::title_font::title_band(tooltip, scale, width, 0)?;
+    let band = title_band(tooltip, scale, width, 0)?;
     let (text, unknown) = font.read_spaced(&title_mask(&band, scale)?, SPACE_GAP);
     (unknown == 0).then(|| settle_bars(text.trim()))
 }
