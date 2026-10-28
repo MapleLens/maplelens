@@ -60,8 +60,13 @@ fn equipment_is_recognised_by_item_id_not_category() {
 #[test]
 fn a_cut_name_names_the_one_item_it_starts() {
     let catalog = Catalog::new(
-        ["Two-handed Axe Attack Scroll: Greater", "Two-handed Axe Attack Scroll: Lesser", "MapleStory Fest Gift Box"]
-            .map(|n| make(n, 1)),
+        [
+            "Two-handed Axe Attack Scroll: Greater",
+            "Two-handed Axe Attack Scroll: Lesser",
+            "Two-handed Axe Attack Scroll: Intermediate",
+            "MapleStory Fest Gift Box",
+        ]
+        .map(|n| make(n, 1)),
         None,
     );
     let cut = |t: &str| catalog.lookup_truncated(t).map(|i| i.name.clone());
@@ -69,6 +74,7 @@ fn a_cut_name_names_the_one_item_it_starts() {
     assert_eq!(cut("Two-handed Axe Attack Scr.."), None, "two grades start so");
     assert_eq!(cut("MapleStory Fest Gift Box"), None, "not cut");
     assert_eq!(cut("Map.."), None, "too little left");
+    assert_eq!(cut("Two-handed Axe Attack Scroll: l.."), None, "a bar starts Lesser and Intermediate alike");
     // Cut at the tooltip's edge with no "..", its last bar read as a capital: still every grade.
     assert_eq!(found(&catalog, "Two-handed Axe Attack ScroI"), None);
 }

@@ -385,13 +385,14 @@ impl Catalog {
     /// what was cut off) and when too little is left. Never fuzzy: the cut part is unknown, not misread.
     pub fn lookup_truncated(&self, text: &str) -> Option<Arc<Item>> {
         let stem = text.trim_end().strip_suffix("..")?.trim_end_matches('.');
-        let k = key(stem);
+        // The bars folded: "...Scroll: I.." read as "...Scroll: l.." starts Intermediate as much as Lesser.
+        let k = bar_key(stem);
         if k.len() < MIN_TRUNCATED_KEY {
             return None;
         }
-        let mut starting = self.keys.iter().filter(|c| c.starts_with(&k));
+        let mut starting = self.items().filter(|it| bar_key(&it.name).starts_with(&k));
         match (starting.next(), starting.next()) {
-            (Some(only), None) => self.by_key.get(only).cloned(),
+            (Some(only), None) => Some(only.clone()),
             _ => None,
         }
     }
