@@ -88,6 +88,12 @@ fn key(name: &str) -> String {
     name.chars().filter(|c| c.is_ascii_alphanumeric()).map(|c| c.to_ascii_lowercase()).collect()
 }
 
+/// `key` with capital I and lowercase l as one letter: the game's fonts draw them as the same bar, so an exact read
+/// cannot tell "Illustrated" from "lllustrated" (a dotted i stays an i).
+fn bar_key(name: &str) -> String {
+    key(&name.replace('I', "l"))
+}
+
 /// Pairs of letters OCR engines swap in the game font ('Stiff' -> 'Stitt', 'Ore' -> '0re', 'Iron' -> 'Iran'). Swapping
 /// one costs a quarter of a wrong letter in `similarity`, so one confusion costs little and a name with several still
 /// fits, while the cutoff stays as high as for real typos.
@@ -181,12 +187,68 @@ fn fits(pattern: &[char], key: &[char]) -> bool {
     }
 }
 
+/// A cut graded scroll's title must leave this much of its name (key letters): enough to tell the scroll.
+const MIN_GRADED_KEY: usize = 16;
+
+/// A scroll's grade, the end of its name ("Claw Attack Scroll: Greater"), which a long name loses past the tooltip's
+/// edge. Its description tells it: the success rate (100% Lesser, 60% Intermediate, 10% Greater or Chaos) and, for
+/// Chaos, the warning that the item may be destroyed (measured on the game data of all 52 graded scrolls).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Grade {
+    Lesser,
+    Intermediate,
+    Greater,
+    Chaos,
+}
+
+impl Grade {
+    fn from_name(name: &str) -> Option<Self> {
+        Some(match name.trim() {
+            "Lesser" => Self::Lesser,
+            "Intermediate" => Self::Intermediate,
+            "Greater" => Self::Greater,
+            "Chaos" => Self::Chaos,
+            _ => return None,
+        })
+    }
+
+    /// The grade a scroll's description says, read by OCR ("Success rate: 10%, Weapon Attack +4"): None unless the
+    /// rate reads as one of the three and, at 10%, the text reaches past the rate line (a Greater scroll's stat, or a
+    /// Chaos scroll's warning) so a missing warning is not a line OCR never got to.
+    pub fn from_description(text: &str) -> Option<Self> {
+        let lower = text.to_lowercase();
+        let after = &lower[lower.find("rate")? + 4..];
+        // The digits up to the '%' (read as '?' by a font that has not learnt it).
+        let mut rest = after.chars().skip_while(|c| matches!(c, ':' | ' ' | ';' | '.'));
+        let mut digits = String::new();
+        for c in rest.by_ref() {
+            match c {
+                '0'..='9' => digits.push(c),
+                'o' => digits.push('0'),
+                'l' | 'i' | '|' => digits.push('1'),
+                '%' | '?' => break,
+                _ => return None,
+            }
+        }
+        let warned = ["fail", "destroy", "chance"].iter().any(|w| after.contains(w));
+        match digits.trim() {
+            "100" if !warned => Some(Self::Lesser),
+            "60" if !warned => Some(Self::Intermediate),
+            "10" if warned => Some(Self::Chaos),
+            "10" if after.contains('+') => Some(Self::Greater),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Catalog {
     /// When MesoWatch exported the data (shown as data age).
     pub generated_at: Option<String>,
     by_key: HashMap<String, Arc<Item>>,
     keys: Vec<String>,
+    /// Names by `bar_key`; None where two names share one.
+    by_bar_key: HashMap<String, Option<Arc<Item>>>,
 }
 
 impl Catalog {
@@ -207,7 +269,14 @@ impl Catalog {
                 }
             }
         }
-        Self { generated_at, by_key, keys }
+        let mut by_bar_key: HashMap<String, Option<Arc<Item>>> = HashMap::new();
+        for item in keys.iter().filter_map(|k| by_key.get(k)) {
+            by_bar_key
+                .entry(bar_key(&item.name))
+                .and_modify(|known| *known = None)
+                .or_insert_with(|| Some(item.clone()));
+        }
+        Self { generated_at, by_key, keys, by_bar_key }
     }
 
     pub fn len(&self) -> usize {
@@ -238,7 +307,8 @@ impl Catalog {
     pub fn lookup_exact(&self, text: &str) -> Option<Arc<Item>> {
         let bare = without_gender(&clean_title(&without_enhancement(text)));
         let item = [text, bare.as_str()].into_iter().find_map(|candidate| {
-            let item = self.by_key.get(&key(candidate))?;
+            let item =
+                self.by_key.get(&key(candidate)).or_else(|| self.by_bar_key.get(&bar_key(candidate))?.as_ref())?;
             (!has_number(&item.name) || same_numbers(candidate, &item.name)).then(|| item.clone())
         })?;
         (!self.lost_gender_mark(text, &item)).then_some(item)
@@ -273,6 +343,28 @@ impl Catalog {
         (!self.lost_gender_mark(text, &item)).then_some(item)
     }
 
+    /// The grades of the scroll a cut title starts ("Two-handed Blunt Weapon Attack Scr", the grade past the
+    /// tooltip's edge): every name it starts is that one scroll's "<name>: <grade>", one item a grade. None when it
+    /// starts anything else too, or fewer than two grades, or too little is left to tell the scroll.
+    pub fn grades(&self, read: &str) -> Option<Vec<(Grade, Arc<Item>)>> {
+        let stem = read.trim_end().trim_end_matches('.');
+        let k = bar_key(stem);
+        if k.len() < MIN_GRADED_KEY {
+            return None;
+        }
+        let mut base: Option<String> = None;
+        let mut found = Vec::new();
+        for item in self.items().filter(|it| bar_key(&it.name).starts_with(&k)) {
+            let (name, grade) = item.name.rsplit_once(": ")?;
+            let grade = Grade::from_name(grade)?;
+            if base.get_or_insert_with(|| name.to_string()) != name || found.iter().any(|(g, _)| *g == grade) {
+                return None;
+            }
+            found.push((grade, item.clone()));
+        }
+        (found.len() >= 2).then_some(found)
+    }
+
     /// A name the game cut to fit its box ("Two-handed Axe Attack Scr..", the Sold Items list): the one item whose
     /// name starts with what is left. None when it was not cut, when several names start so (the scroll's grade is
     /// what was cut off) and when too little is left. Never fuzzy: the cut part is unknown, not misread.
@@ -298,9 +390,10 @@ impl Catalog {
         let brackets = text.contains("()") || text.trim_end().ends_with('(') || text.trim_end().ends_with(')');
         let key = key(&item.name);
         let has = |g: &str| self.by_key.contains_key(&format!("{key}{g}"));
-        let read = text.trim_end();
-        let letter_read =
-            (read.ends_with("(M)") && has("f") && !has("m")) || (read.ends_with("(F)") && has("m") && !has("f"));
+        // However its brackets were read ("(M(", "lF)"), as long as the letter was.
+        let tail = text.trim_end().rsplit(char::is_whitespace).next().unwrap_or_default();
+        let mark = |g: char| tail.contains(g) && tail.chars().all(|c| c == g || GENDER_BRACKETS.contains(c));
+        let letter_read = (mark('M') && has("f") && !has("m")) || (mark('F') && has("m") && !has("f"));
         brackets && !letter_read && !text.contains('+') && !item.name.contains('(') && (has("f") || has("m"))
     }
 

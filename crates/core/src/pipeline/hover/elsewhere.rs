@@ -140,7 +140,8 @@ impl HoverDetector {
         }
         self.reader.allow_ocr(true);
         let title = self.reader.read_title(&image, super::title_width(&image), 1);
-        let (Some(item), crafted) = self.lookup(&image, &title) else { return None };
+        let (item, crafted) = self.lookup(&image, &title);
+        let item = item.or_else(|| self.graded(screen, Point { x, y }, bounds, scale, &title))?;
         let at = Placement { crafted, ..Placement::default() };
         Some(self.hover(&image, &title, Some(item), bounds, scale, now, at))
     }
@@ -186,7 +187,9 @@ impl HoverDetector {
                 _ if find_bullet(&image, 0).is_some() => {
                     self.reader.allow_ocr(true);
                     let title = self.reader.read_title(&image, super::title_width(&image), 1);
-                    let (Some(item), crafted) = self.lookup(&image, &title) else { continue };
+                    let (item, crafted) = self.lookup(&image, &title);
+                    let at = Point { x: x + corner.x, y: top + corner.y };
+                    let Some(item) = item.or_else(|| self.graded(screen, at, bounds, scale, &title)) else { continue };
                     (title, item, crafted)
                 }
                 _ => continue,
@@ -220,7 +223,10 @@ impl HoverDetector {
                     (title, item, crafted)
                 }
             };
-            let Some(item) = item else { continue };
+            let Some(item) = item.or_else(|| self.graded(screen, Point { x, y: screen_top }, bounds, scale, &title))
+            else {
+                continue;
+            };
             let at =
                 Placement { pushed_up_height: Some(bounds.bottom() - screen_top), crafted, ..Placement::default() };
             return Some(self.hover(&image, &title, Some(item), bounds, scale, now, at));
@@ -283,6 +289,8 @@ impl HoverDetector {
                 }
                 None => self.lookup(&image, &title),
             };
+            let corner = Point { x: bounds.x + spot.x, y: bounds.y + spot.y };
+            let item = item.or_else(|| self.graded(screen, corner, bounds, scale, &title));
             if item.is_none() {
                 // As with a mouse: a title that names nothing shows a "no data" card only once it has read the same
                 // several frames in a row. Body lines of a tooltip ("Attack Speed: Fast") and half-read titles
@@ -326,7 +334,11 @@ impl HoverDetector {
                     _ if find_bullet(&image, 0).is_some() => {
                         self.reader.allow_ocr(true);
                         let title = self.reader.read_title(&image, super::title_width(&image), 1);
-                        let (Some(item), crafted) = self.lookup(&image, &title) else { continue };
+                        let (item, crafted) = self.lookup(&image, &title);
+                        let corner = Point { x: bounds.x + spot.x, y: bounds.y + spot.y };
+                        let Some(item) = item.or_else(|| self.graded(screen, corner, bounds, scale, &title)) else {
+                            continue;
+                        };
                         (title, item, crafted)
                     }
                     _ => continue,

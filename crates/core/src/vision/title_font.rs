@@ -86,3 +86,19 @@ pub fn read_title(native: &RgbImage, scale: f32, width: usize, crafted: bool) ->
     let text = settle_bars(text.trim());
     (!text.is_empty()).then_some((text, unknown))
 }
+
+/// Font pixels from the band's end within which a title's ink runs into the tooltip's edge: the game cut it there.
+const CUT_PX: usize = 2;
+
+/// Does the title's ink run to the end of its band, cut by the tooltip's right edge (a long scroll's name)? Its last
+/// letter may then be part of one ('m' cut to "rr").
+pub fn title_cut(native: &RgbImage, scale: f32, width: usize, crafted: bool) -> bool {
+    let shift = if crafted { config::TOOLTIP_CRAFTED_SHIFT } else { 0 };
+    let Some(mask) = title_band(native, scale, width, shift).and_then(|band| title_mask(&band, scale)) else {
+        return false;
+    };
+    (0..mask.width)
+        .rev()
+        .find(|&x| (0..mask.height).any(|y| mask.get(x, y)))
+        .is_some_and(|x| x + CUT_PX + 1 >= mask.width)
+}

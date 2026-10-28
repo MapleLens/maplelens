@@ -366,6 +366,7 @@ fn a_lost_gender_letter_names_neither_variant() {
     // The letter read: the (F) is named apart, so the plain name is the (M).
     assert_eq!(name("Red Cloth Pants (M)").as_deref(), Some("Red Cloth Pants"));
     assert_eq!(catalog.lookup_exact("Red Cloth Pants (M)").map(|i| i.name.clone()).as_deref(), Some("Red Cloth Pants"));
+    assert_eq!(catalog.lookup_exact("Red Cloth Pants (M(").map(|i| i.name.clone()).as_deref(), Some("Red Cloth Pants"));
     assert_eq!(name("Red Cloth Pants (F)").as_deref(), Some("Red Cloth Pants (F)"));
     assert_eq!(name("Red Cloth Pants").as_deref(), Some("Red Cloth Pants"));
     // An item with no variants still reads through a gender mark.
@@ -400,4 +401,43 @@ fn a_read_with_gaps_names_the_one_item_it_fits_exactly() {
     // Something beside the title, not a letter of it.
     assert_eq!(name("? Pole Arm"), None);
     assert_eq!(name("Pole Arm"), None, "no gap: not this lookup's to decide");
+}
+
+#[test]
+fn an_exact_read_takes_capital_i_and_lowercase_l_as_one_bar() {
+    let item = |name: &str| Item { name: name.into(), ..maplelens_core::market::sample::sample_items()[0].clone() };
+    let catalog = Catalog::new([item("Pig Illustrated"), item("Return Scroll to El Nath"), item("Steel Titans")], None);
+    let name = |read: &str| catalog.lookup_exact(read).map(|i| i.name.clone());
+    assert_eq!(name("Pig lllustrated").as_deref(), Some("Pig Illustrated"));
+    assert_eq!(name("Return Scroll to EI Nath").as_deref(), Some("Return Scroll to El Nath"));
+    // A dotted i is not a bar.
+    assert_eq!(name("Steel Tltans"), None);
+}
+
+#[test]
+fn a_cut_scroll_title_keeps_its_grades_and_the_description_picks_one() {
+    use maplelens_core::market::catalog::Grade;
+    let item = |name: &str| Item { name: name.into(), ..maplelens_core::market::sample::sample_items()[0].clone() };
+    let grades = ["Lesser", "Intermediate", "Greater", "Chaos"];
+    let names: Vec<String> = grades.iter().map(|g| format!("Two-handed Blunt Weapon Attack Scroll: {g}")).collect();
+    let catalog = Catalog::new(names.iter().map(|n| item(n)).chain([item("Two-handed Sword")]), None);
+    let found = catalog.grades("Two-handed Blunt Weapon Attack Scr").expect("four grades");
+    assert_eq!(found.len(), 4);
+    assert!(catalog.grades("Two-handed").is_none(), "starts other names too");
+    let grade = Grade::from_description;
+    assert_eq!(
+        grade("Improves Weapon Attack on two-handed blunt weapons. Success rate: 100%, Weapon Attack +1"),
+        Some(Grade::Lesser)
+    );
+    assert_eq!(grade("Success rate:6O%, Weapon Attack +2"), Some(Grade::Intermediate));
+    assert_eq!(grade("Success rate: 10%, Weapon Attack +4"), Some(Grade::Greater));
+    assert_eq!(
+        grade("Success rate: 10%, Weapon Attack +5 Upon failure, the item has a 50% chance to be destroyed."),
+        Some(Grade::Chaos)
+    );
+    // Cut off at the rate: a Chaos warning could be in the part not read.
+    assert_eq!(grade("Success rate: 10%"), None);
+    assert_eq!(grade("Success rate: 30%, Weapon"), None);
+    assert_eq!(grade("Success rate: 60? Weapon Attack +2"), Some(Grade::Intermediate));
+    assert_eq!(grade("Success rate: 6S%, Weapon"), None);
 }

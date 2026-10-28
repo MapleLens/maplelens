@@ -199,8 +199,13 @@ def store_body(rng, items, sid, role, d, owner, visitors, chat, sold, meso):
               "price": rng.choice([1, 999, 50000, 1000000, rng.randint(1, 99_999_999)])}
                        for i in rng.sample(items, rng.randint(1, 6))]}
     if role == "visitor" or rng.random() < 0.6:
-        store["position"] = {"x": rng.randint(0, max(1, d["width"] - 1100)),
-                             "y": rng.randint(0, max(1, d["height"] - 700))}
+        # Clear of the minimap's corner: the renderer draws the minimap over a store there, the game the store on top.
+        while True:
+            store["position"] = {"x": rng.randint(0, max(1, d["width"] - 1100)),
+                                 "y": rng.randint(0, max(1, d["height"] - 700))}
+            s = ui_px(d)
+            if store["position"]["x"] >= 230 * s or store["position"]["y"] >= 230 * s or d["height"] - 700 < 230 * s:
+                break
     body = {"display": d, "seed": sid, "map_id": rng.choice(shop_maps), "booths": [{"owner": owner}],
             "random_booths": rng.randint(0, 10), "random_players": rng.choice([0, 2, 4]), "store": store}
     return body

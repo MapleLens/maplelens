@@ -328,6 +328,7 @@ fn scene_bench() {
         // Smaller windows hide part of the store, and the renderer draws the minimap over it at 1024x768.
         .filter(|l| l["display"]["width"].as_u64().is_some_and(|w| w >= MIN_WIDTH))
         .filter(|l| readable_items(l, &catalog))
+        .filter(|l| !minimap_over_store(l))
         .take(limit)
         .collect();
     let queue = Mutex::new(labels.iter().collect::<Vec<_>>());
@@ -383,6 +384,22 @@ fn readable_items(label: &Value, catalog: &Catalog) -> bool {
     let sales = label["events"].as_array().into_iter().flatten().filter(|e| e[0] == "sale");
     item && sales.into_iter().all(|e| e[1].as_str().is_some_and(unique))
 }
+
+/// The renderer draws the minimap over a store window opened in the top-left corner, where the game draws the store
+/// (the window opened last) on top. The owner's name plate that close to the corner (UI px) is such a store.
+fn minimap_over_store(label: &Value) -> bool {
+    let d = &label["display"];
+    let (w, h) = (d["width"].as_f64().unwrap_or(0.0), d["height"].as_f64().unwrap_or(0.0));
+    let ui_px = if w < 1920.0 || h < 1080.0 || d["ui_size"] == "ideal" { 1.0 } else { h / 768.0 };
+    let Some(owner) = label["owner"].as_str() else { return false };
+    let plate = label["texts"][0].as_array().into_iter().flatten().find(|t| t[0] == owner);
+    plate
+        .and_then(|t| Some((t[1][0].as_f64()?, t[1][1].as_f64()?)))
+        .is_some_and(|(x, y)| x < MINIMAP_CORNER.0 * ui_px && y < MINIMAP_CORNER.1 * ui_px)
+}
+
+/// How far from the top-left corner (UI px) an owner's plate puts its store window under the minimap.
+const MINIMAP_CORNER: (f64, f64) = (120.0, 260.0);
 
 fn paths() -> Vec<Path> {
     let chosen = std::env::var("MAPLELENS_SCENE_PATHS").unwrap_or_else(|_| "app,browser,floor".into());

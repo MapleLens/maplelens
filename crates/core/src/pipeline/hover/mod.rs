@@ -1,6 +1,7 @@
 //! Mouse position -> tooltip measurement -> item title -> market item.
 
 mod elsewhere;
+mod graded;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -207,6 +208,9 @@ impl HoverDetector {
                 Some((_, item, crafted)) => (item, crafted),
                 None => self.lookup(&image, &title),
             };
+            if self.last_item.is_none() {
+                self.last_item = self.graded(screen, Point { x: area.x, y: area.y }, bounds, scale, &title);
+            }
             // The one-line read decided unless the match (or no match) came from the other reads.
             let decided_by_title =
                 exact || self.last_item.is_some() && !self.last_crafted && self.match_title_only(&title);
@@ -342,6 +346,14 @@ impl HoverDetector {
             }
             let stem = read.trim_end().trim_end_matches('.');
             let item = self.catalog.lookup_exact(&read).or_else(|| self.catalog.lookup_truncated(&format!("{stem}..")));
+            // Cut by the tooltip's edge, the last letter may be part of one ("...Scroll: Interr" for "Interm").
+            let item = item.or_else(|| {
+                let mut chars = stem.chars();
+                chars.next_back();
+                title_font::title_cut(native, scale, width, crafted)
+                    .then(|| self.catalog.lookup_truncated(&format!("{}..", chars.as_str())))
+                    .flatten()
+            });
             if let Some(item) = item {
                 return Some((read, Some(item), crafted));
             }
