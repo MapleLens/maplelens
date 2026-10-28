@@ -344,7 +344,10 @@ same frames through the Rust watcher (373 real captures, 22 ms a frame against P
   hanging had stopped the check-ins and the phone showed the computer offline while the page ran. A check-in may go a
   sync early: a tab the game covers wakes once a minute, and one due on the dot came every two minutes. The relay
   keeps the book in a Durable Object per pairing and never has the key. `?demo` on the phone
-  page shows the dashboard with made-up data. Remove on the computer tombstones the key (410 everywhere) and pushes a
+  page shows the dashboard with made-up data (`?demo=closed`: the store closed). A closing ends the open store into the
+  book's `sessions` (counted from the history kept); a store seen opening again within 30 minutes of its last activity
+  is the same one (a page reload). Open, the phone shows only that store's history; closed, a stall waiting for the
+  next one, the week's totals and the past stores, each opening its own sales, chat and visitors. Remove on the computer tombstones the key (410 everywhere) and pushes a
   "disconnected" notification; the phone app clears itself. A phone leaving is seen by the page's next check-in.
   `relay/push/README.md` has the routes, limits, deploy steps and the security model; `npm test` there.
 - The browser runs the same watcher (`web/src/shopwatch.rs`). Its OCR is asynchronous: the reader answers None while
