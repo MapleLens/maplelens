@@ -9,7 +9,7 @@
 <meta name="robots" content="noindex">
 <!-- The address carries the pairing key: no page it loads from learns it, and nothing it runs can send it elsewhere. -->
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://maplestory.io; connect-src https://push.maple.observer; worker-src 'self'; manifest-src 'self'; media-src 'self' blob:; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://maplestory.io; connect-src 'self' https://push.maple.observer; worker-src 'self'; manifest-src 'self'; media-src 'self' blob:; base-uri 'none'; form-action 'none'; object-src 'none'">
 <!-- No start_url in this manifest: the app added to the home screen opens this very address, pairing key included
      (on iPhone the home-screen app has its own storage, so the key must travel in the address). Chrome offers to
      install only a manifest that names its start_url, so phone.js points other browsers at install.webmanifest. -->
@@ -212,11 +212,7 @@ dialog.sheet[open]{animation:up .22s ease-out}
 
       <div class="win-b" id="install" hidden>
         <p>On iPhone, notifications only reach apps on the home screen. Add MapleLens there once (about 20 seconds):</p>
-        <ol class="steps">
-          <li>Tap <b>Share</b> <svg class="share" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5M5 12v8h14v-8"/></svg> in Safari. On iOS 26, tap <b>•••</b> at the bottom first.</li>
-          <li>Tap <b>Add to Home Screen</b> (scroll down, or look under <b>More</b>). Leave <b>Open as Web App</b> on.</li>
-          <li>Tap <b>Add</b>, then open <b>MapleLens</b> from your home screen.</li>
-        </ol>
+        <ol class="steps" id="install-steps"></ol>
         <p class="note">Needs iOS 16.4 or newer. Already added? Open MapleLens from your home screen instead.</p>
       </div>
 
@@ -283,6 +279,8 @@ dialog.sheet[open]{animation:up .22s ease-out}
   </div>
 </main>
 
+<template id="share-icon"><svg class="share" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5M5 12v8h14v-8"/></svg></template>
+
 <dialog class="sheet" id="settings" aria-labelledby="settings-title">
   <div class="grab"></div>
   <header>
@@ -324,6 +322,6 @@ dialog.sheet[open]{animation:up .22s ease-out}
 </dialog>
 
 <div class="toast" id="toast" role="status" hidden></div>
-<script type="module" src="phone.js?v=088810e6a9ca"></script>
+<script type="module" src="phone.js?v=349056720992"></script>
 </body>
 </html>
