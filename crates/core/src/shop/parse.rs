@@ -40,42 +40,7 @@ pub fn parse_chat(text: &str) -> Option<ShopEvent> {
         return Some(ShopEvent::PlayerLeft(name));
     }
     (text.chars().filter(|c| c.is_alphanumeric()).count() >= MIN_MESSAGE_CHARS)
-        .then(|| ShopEvent::ChatMessage(with_separator(text)))
-}
-
-/// Marks a chat line's " : " is misread as.
-const SEPARATORS: &[char] = &[':', '.', ';', ',', '\u{FFFD}', '\u{B7}', '\u{2022}'];
-
-/// A chat line is "name : message": the colon read as another mark ("Frost . 100% gloves?", "Pelqulick. do you") or
-/// dropped, leaving two spaces, is put back so the speaker and the message come apart. A line holding " : " stays.
-fn with_separator(text: &str) -> String {
-    if text.contains(" : ") {
-        return text.to_string();
-    }
-    // A mark standing alone between words is the separator, and all before it the name ("Yytitf31 6 . anyone"): names
-    // have no spaces, a narrow '1' leaves a gap.
-    let words: Vec<&str> = text.split(' ').collect();
-    if let Some(at) = words.iter().position(|w| w.chars().count() == 1 && w.starts_with(SEPARATORS))
-        && at > 0
-        && at + 1 < words.len()
-    {
-        return format!("{} : {}", words[..at].concat(), words[at + 1..].join(" ").trim_start());
-    }
-    let Some((name, rest)) = text.split_once(' ') else { return text.to_string() };
-    let glued = name.chars().count() > 1 && name.ends_with(SEPARATORS);
-    let name = if glued { name.trim_end_matches(SEPARATORS) } else { name };
-    let after = rest.trim_start();
-    let mark = after.chars().next().filter(|c| SEPARATORS.contains(c));
-    let marked = mark.is_some_and(|m| after[m.len_utf8()..].starts_with(' '));
-    if glued {
-        format!("{name} : {after}")
-    } else if let Some(m) = mark.filter(|_| marked) {
-        format!("{name} : {}", after[m.len_utf8()..].trim_start())
-    } else if rest.starts_with(' ') {
-        format!("{name} : {after}")
-    } else {
-        text.to_string()
-    }
+        .then(|| ShopEvent::ChatMessage(text.to_string()))
 }
 
 /// A half-read sale is still a sale (it was counted by its shape): quantity falls back to 1, buyer to raw text.

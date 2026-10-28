@@ -59,10 +59,6 @@ impl Screen for FrameScreen<'_> {
 
 /// Grab `area`, then bring it to the resolution the vision constants were measured at.
 pub fn grab_normalised(screen: &mut dyn Screen, area: Rect, scale: f32) -> RgbImage {
-    normalised(&screen.grab(area), scale)
-}
-
-/// A capture at UI `scale` resized to UI scale 1.
-pub fn normalised(image: &RgbImage, scale: f32) -> RgbImage {
-    if (scale - 1.0).abs() > 0.01 { image.resized(1.0 / scale) } else { image.clone() }
+    let image = screen.grab(area);
+    if (scale - 1.0).abs() > 0.01 { image.resized(1.0 / scale) } else { image }
 }
