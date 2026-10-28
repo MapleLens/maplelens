@@ -292,6 +292,11 @@ impl ShopWatcher {
             }
             ShopEvent::PlayerEntered(name) => ShopEvent::PlayerEntered(self.names.entered(&name)),
             ShopEvent::PlayerLeft(name) => ShopEvent::PlayerLeft(self.names.left(&name)),
+            // The speaker is one of the players seen, spelled as they are most often read.
+            ShopEvent::ChatMessage(text) => match text.split_once(" : ") {
+                Some((name, message)) => ShopEvent::ChatMessage(format!("{} : {message}", self.names.buyer(name))),
+                None => ShopEvent::ChatMessage(text),
+            },
             other => other,
         }
     }
