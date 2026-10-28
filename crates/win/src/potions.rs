@@ -25,7 +25,8 @@ fn dir() -> PathBuf {
     paths::data_dir().join("cache").join("potions")
 }
 
-fn fetch(url: &str) -> Result<Vec<u8>, NetError> {
+/// One small file (up to 4 MB): maplestory.io's lists and icons, and the map drops' NiaDB pages and item icons.
+pub fn fetch(url: &str) -> Result<Vec<u8>, NetError> {
     let mut response = agent(TIMEOUT_S).get(url).call().map_err(|e| NetError(format!("{e}")))?;
     match response.status().as_u16() {
         200 => response.body_mut().with_config().limit(MAX_BYTES).read_to_vec().map_err(|e| NetError(format!("{e}"))),

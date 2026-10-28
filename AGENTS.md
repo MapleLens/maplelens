@@ -225,6 +225,57 @@ seconds) so the history has dates; the platform keeps `Tracker::to_json` (traini
   it (the panel, its guide JSON and the switch are in PR #46's history). The tracker still follows the quest, and its
   tests and `render_cards`' `training_kpq_*.png` still cover it.
 
+## Map drops panel (`core/src/drops`, `render/drops_card`)
+
+What the monsters of the map being played drop, beside the EXP card and as tall as it (in its corner while that card
+is not shown), only on a field. Setting `map_drops` (settings window and tray). Windows only for now.
+- **Data: NiaDB (meowdb.com), used with the site's permission.** Its monster list is read off its monster page (the
+  page's streamed Next.js data: id, name, level, HP, EXP), each monster's drops from `api/drops?monsterId=` (drops
+  players confirmed in Classic; `score` above 0 counts, `itemIconKey` is the game's item ID, as the price list and
+  maplestory.io number items). The site's IDs are its own, so a map's monster (maplestory.io's name and level) is
+  matched by name and level (`meowdb::find`; two Stirges share both: the closer EXP wins). It has no drop chances,
+  so rarity comes from the market price (`Rarity::of`); a source with chances would colour by them.
+- Requests: everything is kept in `cache\meowdb` and shown from there at once, even when over a week old (then
+  refreshed behind it). A map's monsters not on disk are fetched together, in parallel (the player is waiting); while
+  nothing is asked, the site thread gathers every listed monster's drops ahead, one request every 2 s (about seven
+  minutes, weekly), so a map met later needs no request. A failure waits 5 minutes. Never bundle or commit its data
+  (tests use hand-written stand-ins); `live_meowdb` checks the real pages.
+- **Credit, as the site asks:** "NiaDB" with the exact page used, written out where it cannot be a link: the panel's
+  foot names `meowdb.com/msclassic/monsters`, a monster's page and a hovered drop's card its own page.
+- A monster pressed opens its page in the panel (stats, every drop, Back), back to the list after 3 s without the
+  pointer; resting on it does not (it opened pages the player only pointed at).
+- **Presses and drags without breaking rule 3:** the cards stay click-through; `game::left_button_down`
+  (`GetAsyncKeyState`, a read of the button's state, no hook, nothing sent) is polled on the UI tick, so the game
+  gets every press as well (on a field it does nothing). A press that moves drags the EXP card or the panel; where
+  it is let go is kept as a share of the game window (`training_at`, `drops_at`), and picking a corner in the
+  settings puts both back. Presses need MapleLens to run as administrator (next section).
+- The list: every monster as a tile on top, then the map's ten dearest worthy drops (5 to a row). Over the cards the
+  game's own cursor is drawn (maplestory.io's `UI/Basic.img/Cursor` frames 0 and 12, downloaded once into
+  `cache\cursor`, never committed) at the game's art size, UI scale x 1.5625; `render::pointer`'s arrow until then.
+
+## Why MapleLens runs as administrator (`win/src/elevate.rs`)
+
+MapleStory is started by its launcher as administrator. While a window of an elevated program is in front, Windows'
+User Interface Privilege Isolation (UIPI) hides that program's input from programs that are not elevated: the
+pointer's position still reads (`GetCursorPos`, which is why hover works), but `GetAsyncKeyState` reports the mouse
+buttons as never pressed. Seen on the maintainer's PC: a non-elevated shell could not even open MapleStory's process,
+and a non-elevated build saw no press on its cards (hover worked); run elevated, clicking a monster and dragging the
+cards both worked.
+
+The cards must stay click-through and never take focus (rule 3), and nothing may hook the mouse (rule 1), so reading
+the button's state is the only way MapleLens can see a press on its own cards (a monster clicked in the drops panel,
+a card dragged). Hence `main` calls `elevate::relaunch_elevated` before anything else of the app: not elevated, it
+starts itself again with the "runas" verb (the Windows prompt), same arguments and folder, and leaves.
+- Declined (or failed), it carries on without: hover and price cards work; opening a monster's page and dragging
+  the cards do not. Nothing else in the app needs it.
+- `--version`, `--help`, `--screenshot`, `--shop` and the maintainer tools never ask (`--version` is the update's
+  self-test). An update relaunched from an elevated copy is elevated already; started at sign-in from the Run key
+  (`startup.rs`), it asks then.
+- Being elevated raises what a compromised update could do: one more reason rule 7 (the signed update chain) must
+  never weaken. Do not add anything that needs elevation for its own sake.
+- Not a manifest `requireAdministrator`: Windows does not start such programs from the Run key at sign-in, and the
+  prompt could not be declined into a working app.
+
 ## Store Permit watcher (`core/src/shop`)
 
 Frame in, events out. The app always runs it (the pill needs it); `--debug` also prints its events, `--shop` runs

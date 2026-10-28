@@ -11,7 +11,8 @@ use maplelens_core::config;
 use maplelens_core::geometry::{Point, Rect};
 use maplelens_core::image::RgbImage;
 use maplelens_core::mapinfo::data::{
-    assemble, index_from_json, index_to_json, map_from_json, map_to_json, parse_map, parse_mob, parse_npc, parse_search,
+    assemble, index_from_json, index_to_json, is_event_mob, map_from_json, map_to_json, parse_map, parse_mob,
+    parse_npc, parse_search,
 };
 use maplelens_core::mapinfo::resolve::{Candidate, key, parse_location, pick, search_terms};
 use maplelens_core::mapinfo::vote::Voter;
@@ -358,6 +359,20 @@ fn the_cache_keeps_maps_and_title_readings() {
     index.insert(key(&Location::new("Victoria Road", "Henesys Hunting Ground I")), 104040000);
     let again = index_from_json(&index_to_json(&index));
     assert_eq!(again.get(&key(&Location::new("Victoria Road", "Henesys Hunting Ground l"))), Some(&104040000));
+}
+
+#[test]
+fn event_monsters_the_data_leaves_on_a_map_are_left_out() {
+    // Henesys Hunting Ground I as the data has it: a level 20 event King Slime among its monsters.
+    let slime = Mob { id: 9_500_168, name: "King Slime".into(), level: 20, exp: 182, hp: 945, count: 1 };
+    let mut with_event = info();
+    with_event.mobs.push(slime.clone());
+    assert_eq!(map_from_json(&map_to_json(&with_event)), Some(info()), "a map cached with it");
+    let outline = parse_map(br#"{"name":"Henesys Hunting Ground I","streetName":"Victoria Road","mobs":[{"id":100101},{"id":9500168}],"npcs":[]}"#).unwrap();
+    let blue = info().mobs[0].clone();
+    let fetched = assemble(104040000, outline, vec![blue.clone(), slime], Vec::new());
+    assert_eq!(fetched.mobs, [blue], "a map fetched now");
+    assert!(!is_event_mob(9_300_003), "the party quest's King Slime stays");
 }
 
 #[test]

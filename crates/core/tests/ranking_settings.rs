@@ -91,7 +91,10 @@ fn settings_default_roundtrip_and_validation() {
         notify_store: false,
         training_card: false,
         quest_helper: false,
+        map_drops: false,
         training_corner: Corner::BottomLeft,
+        training_at: Some((0.25, 0.5)),
+        drops_at: Some((0.75, 0.0)),
     };
     assert_eq!(Settings::from_json(&wanted.to_json()), wanted);
     // Invalid fields fall back one by one; unknown ones are ignored.
@@ -101,6 +104,10 @@ fn settings_default_roundtrip_and_validation() {
     assert!(Settings::default().store_status_bar);
     assert!(Settings::default().training_card);
     assert!(!Settings::default().quest_helper, "the party quest helper is hidden");
+    assert!(Settings::default().map_drops);
+    assert_eq!(Settings::default().training_at, None);
+    let dragged = Settings::from_json(r#"{"training_at": [0.5, 2.0], "drops_at": [0.1, 0.2, 0.3]}"#);
+    assert_eq!((dragged.training_at, dragged.drops_at), (None, None), "off the window, or not a pair");
     assert_eq!(Settings::default().training_corner, Corner::BottomRight);
     assert_eq!(Settings::from_json(r#"{"training_corner": "middle"}"#).training_corner, Corner::BottomRight);
     for corner in Corner::ALL {

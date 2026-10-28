@@ -1,18 +1,25 @@
 //! Render sample cards to PNG files for a visual check: `cargo run -p maplelens-core --example render_cards -- OUT_DIR`.
 
+use std::sync::Arc;
+
+use maplelens_core::drops::{self, sample as drop_sample};
+use maplelens_core::geometry::Rect;
 use maplelens_core::mapinfo::{MapInfo, Mob, Npc};
 use maplelens_core::market::sample::sample_items;
 use maplelens_core::market::time::parse_iso;
 use maplelens_core::notify::pairing::{Pairing, QR_SHOWN_S, Reply};
 use maplelens_core::ranking::{Rank, RankResult, Status};
 use maplelens_core::render::RgbaImage;
-use maplelens_core::render::card::{CardSpec, render_card};
+use maplelens_core::render::canvas::Canvas;
+use maplelens_core::render::card::{CardSpec, Heading, render_card, render_named_card};
+use maplelens_core::render::drops_card::{Hit, PanelState, colour, render_drops_card};
 use maplelens_core::render::font::Fonts;
 use maplelens_core::render::map_card::{render_loading_card, render_map_card};
 use maplelens_core::render::rank_card::render_rank_card;
 use maplelens_core::render::settings_view::{self, Control, View};
 use maplelens_core::render::status_pill::render_status;
 use maplelens_core::render::training_card::{Show, render_training_card};
+use maplelens_core::settings::Corner;
 use maplelens_core::shop::ShopStatus;
 use maplelens_core::training::kpq::Run;
 use maplelens_core::training::potions::{PotionLine, Potions};
@@ -113,12 +120,9 @@ fn main() {
     // The training block's picker: the top-left card (beside the minimap) with a corner under the pointer and the
     // keyboard on another, and the card switched off.
     let picking = View {
-        settings: maplelens_core::settings::Settings {
-            training_corner: maplelens_core::settings::Corner::TopLeft,
-            ..Default::default()
-        },
-        hover: Some(Control::Corner(maplelens_core::settings::Corner::BottomRight)),
-        focus: Some(Control::Corner(maplelens_core::settings::Corner::TopRight)),
+        settings: maplelens_core::settings::Settings { training_corner: Corner::TopLeft, ..Default::default() },
+        hover: Some(Control::Corner(Corner::BottomRight)),
+        focus: Some(Control::Corner(Corner::TopRight)),
         ..view.clone()
     };
     save(&settings_view::render(&fonts, &picking, 2.0), &out.join("settings_corner.png"));
@@ -159,7 +163,8 @@ fn main() {
     };
     save(&settings_view::render(&fonts, &busy, 1.5), &out.join("settings_busy.png"));
     phone_steps(&fonts, &out, &view);
-    training(&fonts, &out);
+    let exp_card = training(&fonts, &out);
+    map_drops(&fonts, &out, &exp_card);
 }
 
 /// The phone's row and the pairing panel in each of their states.
@@ -195,8 +200,8 @@ fn phone_steps(fonts: &Fonts, out: &std::path::Path, view: &View<'_>) {
     }
 }
 
-/// A session an hour in, and the party quest's first and fourth stages.
-fn training(fonts: &Fonts, out: &std::path::Path) {
+/// A session an hour in, and the party quest's first and fourth stages; returns the EXP card.
+fn training(fonts: &Fonts, out: &std::path::Path) -> RgbaImage {
     let map = MapStat { map: "Ant Tunnel I".into(), active_s: 2_100.0, gained: 61_400 };
     let session = Session {
         active_s: 3_725.0,
@@ -225,7 +230,7 @@ fn training(fonts: &Fonts, out: &std::path::Path) {
     let icon = |id: u32| {
         let png = std::fs::read(format!("{}/../../tests/fixtures/icons/{id}.png", env!("CARGO_MANIFEST_DIR"))).ok()?;
         let (width, height, data) = maplelens_core::image::decode_png_rgba(&png).ok()?;
-        Some(std::sync::Arc::new(RgbaImage { width, height, data }))
+        Some(Arc::new(RgbaImage { width, height, data }))
     };
     let line = |id: u32, name: &str, used: u32, picked: u32| PotionLine {
         id,
@@ -242,11 +247,93 @@ fn training(fonts: &Fonts, out: &std::path::Path) {
         ],
     };
     let exp_only = Training { exp: exp.clone(), potions, ..Training::default() };
-    save(&render_training_card(fonts, &exp_only, both, 0.0, 1.0).expect("card"), &out.join("training_exp.png"));
+    let exp_card = render_training_card(fonts, &exp_only, both, 0.0, 1.0).expect("card");
+    save(&exp_card, &out.join("training_exp.png"));
     for stage in [0, 3] {
         let training =
             Training { exp: exp.clone(), quest: Some(Run { started: 0.0, stage, seen: 400.0 }), ..Training::default() };
         let card = render_training_card(fonts, &training, both, 412.0, 1.0).expect("card");
         save(&card, &out.join(format!("training_kpq_{stage}.png")));
     }
+    exp_card
+}
+
+/// The map drops panel on the sample field, alone and beside the EXP card in a left and a right corner. Sprites and
+/// item icons come from `MAPLELENS_ICONS` (`mob/<id>.png`, `item/<id>.png`), by default the app's sprite cache.
+fn map_drops(fonts: &Fonts, out: &std::path::Path, exp_card: &RgbaImage) {
+    let folder = std::env::var_os("MAPLELENS_ICONS").map(std::path::PathBuf::from).unwrap_or_else(|| {
+        std::path::PathBuf::from(std::env::var("LOCALAPPDATA").unwrap_or_default()).join("MapleLens/cache/icons")
+    });
+    let icons = |kind: &str, id: u32| {
+        let png = std::fs::read(folder.join(kind).join(format!("{id}.png"))).ok()?;
+        let (width, height, data) = maplelens_core::image::decode_png_rgba(&png).ok()?;
+        Some(Arc::new(RgbaImage { width, height, data }))
+    };
+    let prices = drop_sample::prices();
+    let drops = drops::assemble(&drop_sample::map(), &drop_sample::table(), |id| prices.get(&id).copied());
+    let drops = drops.expect("the sample field has drops");
+    let panel = render_drops_card(fonts, &drops, &icons, PanelState::default(), 1.0);
+    save(&panel, &out.join("drops_card.png"));
+    save(
+        &render_drops_card(fonts, &drops, &icons, PanelState::default(), 0.64),
+        &out.join("drops_card_ideal_ratio.png"),
+    );
+    for corner in [Corner::TopLeft, Corner::BottomRight] {
+        let scene = beside(fonts, exp_card, &panel, corner);
+        save(&scene, &out.join(format!("drops_beside_exp_{}.png", corner.key())));
+    }
+    // The Orange Mushroom's dearest drop hovered: the slot lit up and its price card under its name.
+    let hovered = render_drops_card(
+        fonts,
+        &drops,
+        &icons,
+        PanelState { hover: Some(Hit::Slot((0, 0))), ..PanelState::default() },
+        1.0,
+    );
+    save(&hovered, &out.join("drops_card_hovered.png"));
+    // The Orange Mushroom's page, its Back button under the pointer; and the list as tall as the EXP card.
+    let page = PanelState { page: Some(0), hover: Some(Hit::Back), height: None };
+    save(&render_drops_card(fonts, &drops, &icons, page, 1.0), &out.join("drops_card_page.png"));
+    let height = Some((exp_card.height as f32 / maplelens_core::render::theme::CARD_SCALE) as u32);
+    let level = PanelState { height, ..PanelState::default() };
+    let level_panel = render_drops_card(fonts, &drops, &icons, level, 1.0);
+    save(&beside(fonts, exp_card, &level_panel, Corner::BottomRight), &out.join("drops_level_with_exp.png"));
+    let drop = &drops.mobs[0].drops[0];
+    let mut item = sample_items().into_iter().next().expect("a sample item");
+    item.name = drop.name.clone();
+    item.category = Some("Scrolls".into());
+    item.price = drop.price;
+    let spec = CardSpec {
+        item: Some(&item),
+        title: &item.name,
+        generated_at: None,
+        now: parse_iso("2026-10-22T00:00:00Z").unwrap(),
+        expanded: false,
+        ui_scale: 1.0,
+        wide: false,
+        source: "demo data",
+    };
+    let note = format!("Very rare drop · 0.03% a kill · {}", drops.mobs[0].name);
+    let credit = &drops.mobs[0].credit;
+    let heading = Heading { name: &drop.name, note: &note, colour: colour(drop.rarity), source: credit };
+    save(&render_named_card(fonts, &spec, &heading), &out.join("drops_price_card.png"));
+}
+
+/// The EXP card in `corner` of a small game scene with the drops panel placed beside it as the app places it.
+fn beside(fonts: &Fonts, exp_card: &RgbaImage, panel: &RgbaImage, corner: Corner) -> RgbaImage {
+    let (width, height) = (1100, 820);
+    let client = Rect::new(0, 0, width, height);
+    let (card_w, card_h) = (exp_card.width as i32, exp_card.height as i32);
+    let size = (card_w, card_h);
+    let at = maplelens_core::placement::place_in_corner(client, size, corner, 10, None, None).expect("card fits");
+    let card = Rect::new(at.0, at.1, card_w, card_h);
+    let panel_size = (panel.width as i32, panel.height as i32);
+    let beside = maplelens_core::placement::place_beside_card(card, panel_size, corner, 6, client).expect("fits");
+    let mut cv = Canvas::new(fonts, width as f32, height as f32, 1.0);
+    cv.rect(0.0, 0.0, width as f32, height as f32, [118, 178, 236, 255]);
+    cv.rect(0.0, height as f32 - 90.0, width as f32, 90.0, [124, 168, 82, 255]);
+    for (image, (x, y)) in [(exp_card, at), (panel, beside)] {
+        cv.image(x as f32, y as f32, image.width as f32, image.height as f32, (image.width, image.height, &image.data));
+    }
+    RgbaImage::from_canvas(&cv)
 }
