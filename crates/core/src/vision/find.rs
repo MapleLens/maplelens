@@ -310,21 +310,7 @@ pub fn find_tooltips(frame: &RgbImage, scale: f32) -> Vec<Point> {
         }
     }
     spots.sort_by_key(|s| (s.x, s.y));
-    // A corner on another's top line, less than a tooltip's width right of it, is a line inside that one (a faint top
-    // counts beside a clear side, and an icon box's edge is one): the compare tooltip starts a whole width away. Left to
-    // right, so a line inside the first tooltip does not hide the compare tooltip beside it.
-    let mut kept: Vec<Point> = Vec::with_capacity(spots.len());
-    for p in spots {
-        let inside = kept.iter().any(|s| {
-            (p.y - s.y).abs() <= px(SAME_SPOT_PX)
-                && p.x - s.x > px(SAME_SPOT_PX)
-                && p.x - s.x < px(config::TOOLTIP_WIDTHS[0] - SAME_SPOT_PX)
-        });
-        if !inside {
-            kept.push(p);
-        }
-    }
-    kept
+    spots
 }
 
 /// Is there still a tooltip with its top-left corner at `spot` (a point of `frame`, whose UI is drawn at `scale`)?
@@ -459,95 +445,6 @@ fn true_top(lifts: &Lifts, spot: Point) -> Point {
     let lifted_row = |y: i32| lifts.top(y, cols.clone()).strict() >= MIN_BORDER_SCORE;
     let border_y = (top - SNAP_PX / 2..=top + SNAP_PX / 2).rev().find(|&y| lifted_row(y)).unwrap_or(top - BORDER_INSET);
     Point { x: spot.x, y: border_y - BORDER_INSET }
-}
-
-/// Where a tooltip title's bullet is, at UI scale 1 from the tooltip's corner (`reader`'s usual spot), its size, and
-/// how far down a crafted item's maker line pushes it.
-pub const BULLET_AT: (i32, i32) = (14, 23);
-const BULLET_SPAN: (i32, i32) = (5, 10);
-/// Around a bullet: the tooltip's dark fill, this far out (UI scale 1) left, above and below.
-const BULLET_CLEARANCE: i32 = 6;
-const FILL_DARK: u8 = 120;
-/// Bullets looked at in one frame, at most: a busy frame's light-blue specks must not cost a look its budget.
-const MAX_BULLETS: usize = 96;
-/// The bullet's colour.
-const BULLET_GREEN: (u8, u8) = (185, 225);
-const BULLET_BLUE_MIN: u8 = 222;
-const BULLET_RED: (u8, u8) = (60, 145);
-
-/// Tooltip corners (frame pixels) inferred from title bullets: light-blue dots of the bullet's size on dark fill. For
-/// a crafted item the corner is higher by the maker line, so both corners are given. Cheap enough for every look:
-/// a sparse scan, and a dot is only followed where its surroundings are dark.
-pub fn bullet_spots(frame: &RgbImage, scale: f32) -> Vec<Point> {
-    let s = |v: i32| (v as f32 * scale).round() as i32;
-    // The bullet's own light blue (measured 85-119, 204, 255 in rendered scenes, 77-137, 185-214, 222-250 in 1080p
-    // videos): a sky's or water's blue specks, darker in green, had used up the frame's budget before the bullet.
-    // A dot is followed only from a pixel of that colour.
-    let core = |x: usize, y: usize| {
-        let [r, g, b] = frame.pixel(x, y);
-        (BULLET_GREEN.0..=BULLET_GREEN.1).contains(&g)
-            && b >= BULLET_BLUE_MIN
-            && (BULLET_RED.0..=BULLET_RED.1).contains(&r)
-    };
-    let blue = |x: usize, y: usize| {
-        let [r, g, b] = frame.pixel(x, y);
-        b > 200 && g > 150 && r < 150
-    };
-    let dark = |x: i32, y: i32| {
-        x >= 0 && y >= 0 && (x as usize) < frame.width && (y as usize) < frame.height && {
-            let [r, g, b] = frame.pixel(x as usize, y as usize);
-            crate::image::luma(r, g, b) < FILL_DARK
-        }
-    };
-    let step = (s(BULLET_SPAN.0) / 2).max(1) as usize;
-    let (lo, hi) = (s(BULLET_SPAN.0).max(2) - 1, s(BULLET_SPAN.1) + 1);
-    let clear = s(BULLET_CLEARANCE);
-    let mut found: Vec<Point> = Vec::new();
-    let mut corners = Vec::new();
-    for y in (0..frame.height).step_by(step) {
-        for x in (0..frame.width).step_by(step) {
-            if !core(x, y) || found.iter().any(|p| (p.x - x as i32).abs() <= hi && (p.y - y as i32).abs() <= hi) {
-                continue;
-            }
-            let (xi, yi) = (x as i32, y as i32);
-            if !(dark(xi - clear, yi) && dark(xi, yi - clear) && dark(xi, yi + clear)) {
-                continue;
-            }
-            // The dot's extent along its row and column through this pixel: by its own colour, or where a video's
-            // blur has taken that from its edges, by the broader light blue.
-            let run = |dx: i32, dy: i32, test: &dyn Fn(usize, usize) -> bool| {
-                let mut n = 0;
-                while n <= hi
-                    && (xi + dx * (n + 1)) >= 0
-                    && (yi + dy * (n + 1)) >= 0
-                    && ((xi + dx * (n + 1)) as usize) < frame.width
-                    && ((yi + dy * (n + 1)) as usize) < frame.height
-                    && test((xi + dx * (n + 1)) as usize, (yi + dy * (n + 1)) as usize)
-                {
-                    n += 1;
-                }
-                n
-            };
-            let extent = |test: &dyn Fn(usize, usize) -> bool| {
-                let (left, right, up, down) = (run(-1, 0, test), run(1, 0, test), run(0, -1, test), run(0, 1, test));
-                let (w, h) = (left + right + 1, up + down + 1);
-                ((lo..=hi).contains(&w) && (lo..=hi).contains(&h)).then_some((left, up))
-            };
-            let Some((left, up)) = extent(&core).or_else(|| extent(&blue)) else { continue };
-            let (x0, y0) = (xi - left, yi - up);
-            found.push(Point { x: x0, y: y0 });
-            for shift in [0, config::TOOLTIP_CRAFTED_SHIFT] {
-                let corner = Point { x: x0 - s(BULLET_AT.0), y: y0 - s(BULLET_AT.1 + shift) };
-                if corner.x >= 0 && corner.y >= 0 {
-                    corners.push(corner);
-                }
-            }
-            if found.len() >= MAX_BULLETS {
-                return corners;
-            }
-        }
-    }
-    corners
 }
 
 #[cfg(test)]

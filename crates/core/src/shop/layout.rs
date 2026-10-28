@@ -253,10 +253,9 @@ pub fn chat_scroll((x, y): Point) -> (i32, (i32, i32)) {
     (x + 82, (y - 340, y - 39))
 }
 
-/// The shop owner's name plate, under their character, left of the meso counter (light letters on dark blue). Tall
-/// enough for descenders: 17 rows cut the hook off a 'g', which then read as 'q'.
+/// The shop owner's name plate, under their character, left of the meso counter (light letters on dark blue).
 pub fn owner_name((x, y): Point) -> Area {
-    (x - 690, y - 389, 128, 20)
+    (x - 690, y - 389, 128, 17)
 }
 
 /// The shop owner's meso counter; it changes on every sale.

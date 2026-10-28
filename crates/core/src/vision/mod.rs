@@ -18,7 +18,6 @@ pub mod quickslot;
 pub mod reader;
 pub mod samples;
 pub mod segment;
-pub mod title_font;
 pub mod tooltip;
 pub mod vector_font;
 

@@ -36,16 +36,6 @@ cargo test --release -p maplelens live_shop_text -- --ignored --nocapture   # th
 cargo run --release -p maplelens-core --example chat_frames -- FRAMES_DIR   # per frame: chat lines found, scroll thumb (locate_frames: scale, markers)
 MAPLELENS_NAMES=debug/names MAPLELENS_NAME_LABELS=<labels.tsv> cargo test --release -p maplelens name_bench -- --ignored --nocapture
                                                 # Character Info names on saved windows (--debug saves them)
-python -I scripts/scenes.py <scenes> --count 6000 [--server http://<host>:8765]   # labelled scenes from mscw-render
-MAPLELENS_SCENES=<scenes> [MAPLELENS_SCENE_SPLIT=eval] [MAPLELENS_TESSERACT=http://127.0.0.1:8799] [MAPLELENS_SCENE_PATHS=app,browser,floor] cargo test --release -p maplelens scene_bench -- --ignored --nocapture
-                                                # items, stores and names on the scenes: the app's path, the browser's
-                                                # (video-like frames, the page's Tesseract) and its floor (no OCR)
-cargo run --release -p maplelens-core --example scene_lines -- <scenes> LINES.tsv [--split eval]   # shop lines, labelled
-cargo run --release -p maplelens-core --example build_shop_font -- --init C:/Windows/Fonts/arial.ttf --corpus LINES.tsv
-cargo run --release -p maplelens-core --example build_title_font -- <scenes> [--check]   # the titles' bold table
-cargo run --release -p maplelens-core --example read_corpus -- LINES.tsv     # how the watcher reads a labelled corpus
-MAPLELENS_LIVE_OUT=<folder> MAPLELENS_LIVE_N=60 cargo test --release -p maplelens live_frames -- --ignored --nocapture
-                                                # frames of the running game (Windows Graphics Capture)
 ```
 
 CI (`.github/workflows/ci.yml`) runs all of these in parallel jobs, each restoring its dependencies' build from a
@@ -81,14 +71,10 @@ a screenshot of the running overlay over the game (`maplelens --screenshot OUT.p
 4. **No per-frame guessing.** With a mouse (Windows), the tooltip is always at `mouse + config::TOOLTIP_OFFSET`
    (measured, not assumed); the card position comes from the live cursor on the UI tick; detection only supplies
    title and tooltip size. Do not add trackers/filters to paper over a wrong constant: re-measure it. Two
-   exceptions: (a) the game's own clamps: a tooltip too tall for the room below the mouse is pushed up to the
-   client's bottom edge, so `vision::locate` (and the title's bullet, `find::bullet_spots`) looks for it there, and
-   one too wide for the room right of the mouse is slid left until its right border is the client's, so it is read at
-   `right - width` for each of the game's two widths (only when the usual spot found no item and the tooltip could not
-   fit); the card then uses `min(mouse + offset, bottom - height)` and `min(mouse + offset, right - width)`. (b) Without
-   a mouse position (the browser), `vision::find` searches the frame for tooltips (fill band + continuous borders + the
-   usual checks), and over dark scenery, where the border is as dark as the fill, by the title's bullet
-   (`find::bullet_spots`): such a spot counts only when the title font names a catalog item exactly.
+   exceptions: (a) the game's own clamp: a tooltip too tall for the room below the mouse is pushed up to the
+   client's bottom edge, so `vision::locate` looks for it there (only when the usual spot found no item and a tall
+   tooltip could not fit); the card then uses `min(mouse + offset, bottom - height)`. (b) Without a mouse position
+   (the browser), `vision::find` searches the frame for tooltips (fill band + continuous borders + the usual checks).
    (c) The world map's tooltip is a different widget whose offset from the cursor was not measurable (two samples
    disagree by ~20 px), so `vision::map_tooltip` reads its text lines by OCR inside a bounded window next to the
    cursor and `MapHover.offset` is relative to the cursor; unknown text never shows a card (the lookup must find a
@@ -124,8 +110,7 @@ crates/core/src/          platform-free; everything here is unit-testable
     reader.rs             TextReader: atlas first, Ocr trait fallback, cache; title_mask; ocr_image
     samples.rs            the labelled fixtures the bundled atlases (assets/glyphs/*.json) are built from
     pixel_font.rs         exact reading of the small UI's bitmap font (names, and shop lines at Ideal Ratio:
-                          assets/glyphs/name_small.json); `unscaled_line_mask` undoes the default sizes' scaling
-    title_font.rs         item titles read exactly by the game's bold font (assets/glyphs/title_small.json)
+                          assets/glyphs/name_small.json)
     vector_font/          the anti-aliased UI font read by drawing it: templates, DP reader, learner
                           (assets/glyphs/shop_vector.{png,json}); gaps.rs: OCR fills only a reading's '?'
     gauge.rs              the status bar's EXP ("12,128[59.99%]"): 5x7 gauge font scaled like the game, grammar-bound decode
@@ -512,58 +497,6 @@ Ratio), so the vote settled on it and no tooltip was found. `hud::side` steps ou
 column before the bar's light inside; only then are the sides, not the run, checked for centring, and the row under
 the top must be the bar's inside (black above it too). On 1,071 saved frames this changed only frames with black or
 dark scenery beside the bar, each to the true width.
-
-## Rendered scenes
-
-mscw-render draws MapleStory Classic World scenes offline with the client's own engine, pixel for pixel, and reports
-every text it drew with its box. `scripts/scenes.py` asks it for labelled scenes (item tooltips over ~335 maps at 13
-window sizes and the three UI Sizes, inventory and store hovers, pairs of owner-view store frames before and after
-visitors, chat and sales, someone else's store as a visitor); names are made up, items come from the local snapshot.
-They are synthetic, not fixtures, and stay out of git (D: or a scratch folder). Only windows of 1366x768 and up, and
-only items whose drawn name is the price list's and no other item's (the (M) and (F) vests read alike), are drawn and
-scored. `scene_bench` reads them three ways: the app's path (mouse where the scene put it, Windows OCR behind the
-fonts), the browser's (no mouse, the frame as a shared window's video gives it: colour at half resolution,
-`as_video`; Tesseract behind the fonts: the page's tesseract.js 7.0.0 and English data in a local Node process,
-`MAPLELENS_TESSERACT`, `scripts/tesseract-server.mjs`) and the browser's floor (no OCR at all).
-Items count only by catalog id; names are compared with I/l folded (one bar in both fonts). Scenes with id % 5 == 0
-are held out: fonts learn from the rest; a set nothing was tuned on is the honest last measure.
-- The UI scale is scored only where no tooltip can be over the status bar (a running app read the bar before the
-  tooltip opened); the scale vote is seeded oldest reading first (newest first is a clock gone back: the seeds were
-  dropped and some scenes were read at the client height's scale).
-- The default UI sizes draw the frame at 768 px high and scale it up, so their text is the bitmap font scaled:
-  shrunk back onto its grid at the crispest phase (`pixel_font::unscaled_line_mask`) the exact tables read it. In the
-  shop it only fills the drawn templates' '?' where it agrees with their sure letters (a dot can fade in the shrink).
-- Titles (`vision::title_font`) are Arial Bold, anti-aliased against whatever the translucent box shows: only
-  full-strength ink (red 235+, white or an enhanced item's orange) is the same in every scene. A shrunk title's letter
-  may differ from the table by a few pixels (`PixelFont::read_near`); an exact read names an item by
-  `Catalog::lookup_exact` or, cut with "..", by `lookup_truncated`, never fuzzily.
-- Tables learn by vote (`PixelFont::learn_by_vote`): a shape counts once two lines agree on it, three to one against
-  any other spelling, and only at about its letter's usual width ("tt" drawn touching had been learnt as "t").
-- The status bar's name and the plate are the shop's Arial, light on dark: read by the shop tables first. Their boxes
-  hold descenders (a cut 'g' is a 'q').
-- Known differences from the game: the renderer draws Ideal Ratio at 1440 px high at 1x (the game at 2x,
-  `shop_live_1440.png`): those scenes are not drawn. It draws the minimap over a store window opened in the top-left
-  corner (the game draws the store, opened last, on top): `scenes.py` keeps stores clear of it, `scene_bench` skips
-  those already drawn.
-- Every title starts with its light-blue bullet, and it decides more than reading does: a tooltip slid by a clamp or
-  found without a mouse is its bullet's corner (`find::bullet_spots`, seeded by the bullet's own colour so a sky's blue
-  specks do not use up the budget); a spot inside a tooltip with a bullet (its icon box's edge, a body line's row)
-  is never read as a title: its text is the end of the title ("...Leather") or a body line ("Type: Spear"). The
-  pointer, which the game draws into the frame, often covers the bullet of the tooltip it opened.
-- A title running into the tooltip's edge (`title_font::title_cut`) is matched only by the name it starts; a fuzzy
-  match completed cut grades of scrolls wrongly. A scroll cut before its grade is graded by its description
-  (`hover/graded.rs`: 100% Lesser, 60% Intermediate, 10% Greater, 10% with the destruction warning Chaos).
-- Measured on v3, 5,917 scenes drawn after the work was tuned and never looked at during it (main at 695b591 ->
-  2b1b0d8; app path / browser path, % right with % wrong): items 80.7/1.25 -> 96.6/0.05 / 45.7/1.14 -> 95.7/0.05
-  (tooltips 74.3 -> 95.8 / 29.1 -> 94.4, inventory 91.4 -> 97.9 / 72.2 -> 97.7), owner names 68.2/26.0 -> 96.8/2.2 /
-  67.7/20.2 -> 96.0/2.0, visitor names 92.1 -> 95.6 / 92.3 -> 95.8, stores found 91.3 -> 97.4 / 91.2 -> 96.8, sales
-  83.6 -> 91.4 / 83.1 -> 90.0 (sales naming another item 27 -> 1 / 25 -> 0), chat 68.9 -> 90.2 / 65.8 -> 89.9, UI
-  scale 94.6 -> 97.8 / 94.4 -> 97.8; false store events 891 -> 362 / 916 -> 363. The browser's floor (no OCR): items
-  43.5 -> 88.6%. The 12,000-scene development set agrees within half a point. What is left: owner names still wrong 2%
-  of the time, sales and chat lines the fonts read only in part, the scale read off a covered bar. On the live game (a
-  store at Ideal Ratio, 1,805 frames) both read 316/315 of 319 lines checked by eye and the same 110 visitors and 2
-  sales; on six 1080p YouTube videos 251 frames and 88 items found where ae62206 found 211 and 73, each new one
-  checked by eye.
 
 ## Stream footage
 

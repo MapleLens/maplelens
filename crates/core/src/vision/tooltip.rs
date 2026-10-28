@@ -59,8 +59,6 @@ pub(crate) fn is_fill(r: u8, g: u8, b: u8) -> bool {
 const LIFT_ROWS: (usize, usize) = (14, 118);
 /// Compare each column with the one this far to its left (inside the tooltip).
 const LIFT_INSIDE_PX: usize = 5;
-/// And with the one this far in, past the border's own blur.
-const LIFT_NEAR_PX: usize = 2;
 /// A border pixel is at least this much brighter than the fill next to it.
 const LIFT_MIN: i16 = 30;
 /// Where to look for the border around a candidate width.
@@ -91,11 +89,7 @@ fn edge_score_by(image: &RgbImage, width: i32, level: impl Fn([u8; 3]) -> i16) -
             continue;
         }
         let x = x as usize;
-        // Against the darker of two pixels inside: the fill is translucent, so where the scenery behind it changes
-        // just inside the border (a character's hair, a window's edge), the one further in can be lighter than the
-        // border itself.
-        let inside = |y: usize| darkest(x - LIFT_INSIDE_PX, y).min(darkest(x - LIFT_NEAR_PX, y));
-        let lifted = (y0..y1).filter(|&y| darkest(x, y) - inside(y) >= LIFT_MIN).count();
+        let lifted = (y0..y1).filter(|&y| darkest(x, y) - darkest(x - LIFT_INSIDE_PX, y) >= LIFT_MIN).count();
         best = best.max(lifted as f32 / rows as f32);
     }
     best
