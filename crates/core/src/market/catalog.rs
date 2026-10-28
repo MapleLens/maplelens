@@ -80,6 +80,9 @@ fn same_numbers(read: &str, name: &str) -> bool {
 /// Lowercase letters and digits only: what two spellings of one name have in common.
 /// A cut name must keep this many letters and digits to name an item.
 const MIN_TRUNCATED_KEY: usize = 8;
+/// The game cuts only long titles (past ~30 letters at the tooltip's edge): a shorter read that starts names is a
+/// misread (a letter lost at its end), left to the fuzzy match.
+const MIN_CUT_KEY: usize = 24;
 
 fn key(name: &str) -> String {
     name.chars().filter(|c| c.is_ascii_alphanumeric()).map(|c| c.to_ascii_lowercase()).collect()
@@ -282,6 +285,16 @@ impl Catalog {
                 && (!has_number(&item.name) || same_numbers(&candidate, &item.name))
             {
                 return Some(item.clone());
+            }
+            // The start of names (the game cut a long title at the tooltip's edge): the one name it starts, or none
+            // when it starts several. A fuzzy match would name the closest of them ('...Scroll: Interme' as Greater).
+            if k.len() >= MIN_CUT_KEY {
+                let mut starting = self.keys.iter().filter(|c| c.len() > k.len() && c.starts_with(&k));
+                match (starting.next(), starting.next()) {
+                    (Some(only), None) => return self.by_key.get(only).cloned(),
+                    (Some(_), Some(_)) => return None,
+                    _ => {}
+                }
             }
             if let Some(item) = self.fuzzy(&candidate, &k) {
                 return Some(item);

@@ -367,7 +367,10 @@ fn bench_one(folder: &str, label: &Value, catalog: &Arc<Catalog>, names: &BTreeM
         // An item the price list has only under its plain name ('Red Bennis Chainmail' for the (F) one): the card
         // names that, as the catalog is meant to.
         let plain = maplelens_core::market::catalog::without_gender(label["item"].as_str().unwrap_or_default());
-        let right = got == Some(want) || (!known && got.and_then(|g| names.get(&g)).is_some_and(|n| *n == plain));
+        // Two items of one name (the price list's 'Blue Cloth Vest' twice) cannot be told apart by any reading.
+        let same_name = known && got.and_then(|g| names.get(&g)) == names.get(&want);
+        let right =
+            got == Some(want) || same_name || (!known && got.and_then(|g| names.get(&g)).is_some_and(|n| *n == plain));
         let wrong = got.is_some() && !right;
         report.add(&format!("{p} items/{kind}"), right, wrong);
         report.add(&format!("{p} items/all"), right, wrong);

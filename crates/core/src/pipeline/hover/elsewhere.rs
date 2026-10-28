@@ -8,6 +8,7 @@ use crate::pipeline::{Screen, normalised};
 use crate::vision::find;
 use crate::vision::locate::candidate_tops;
 use crate::vision::reader::find_bullet;
+use crate::vision::tooltip::measure_width;
 
 /// A pushed-up tooltip's bullet stands at most this far (UI scale 1) from where the tooltip's left edge was expected.
 const BULLET_COLUMN: i32 = 4;
@@ -33,12 +34,14 @@ impl HoverDetector {
         if let Some(hover) = self.pushed_up(screen, usual_x, cursor, bounds, scale, now) {
             return Some(hover);
         }
-        for width in config::TOOLTIP_WIDTHS {
+        // Widest first: read from a narrow tooltip's spot, a wide one's title loses its first word and can still spell
+        // another item; read from a wide one's, a narrow tooltip's title starts in the scenery and spells nothing.
+        for width in config::TOOLTIP_WIDTHS.into_iter().rev() {
             let x = bounds.right() - scaled(width, scale);
             if usual_x + scaled(width, scale) <= bounds.right() || x < bounds.x {
                 continue; // a tooltip this wide fits where it opens: not slid
             }
-            if let Some(hover) = self.pushed_left(screen, x, cursor, bounds, scale, now) {
+            if let Some(hover) = self.pushed_left(screen, x, width, cursor, bounds, scale, now) {
                 return Some(hover);
             }
             if let Some(hover) = self.pushed_up(screen, x, cursor, bounds, scale, now) {
@@ -49,10 +52,12 @@ impl HoverDetector {
     }
 
     /// A known item's tooltip at the usual height but slid left to `x` by the game's right-edge clamp.
+    #[allow(clippy::too_many_arguments)]
     fn pushed_left(
         &mut self,
         screen: &mut dyn Screen,
         x: i32,
+        width: i32,
         cursor: Point,
         bounds: Rect,
         scale: f32,
@@ -71,9 +76,19 @@ impl HoverDetector {
         if !super::tooltip_evidence(&image) {
             return None; // nothing tooltip-like there: no read, so an idle pointer by the edge costs one grab
         }
-        if let Some((read, item, crafted)) = self.font_lookup(&native, &image, scale) {
-            let at = Placement { crafted, ..Placement::default() };
-            return Some(self.hover(&image, &read, Some(item), bounds, scale, now, at));
+        // Only a tooltip of the width assumed ends at the edge from `x`: a wider one starts further left, and read
+        // from `x` its title loses its first word ("Crossbow Attack Scroll" read as the Bow one). (Its right border
+        // on the client's last column often cannot be measured at all: that is no evidence against it.)
+        if measure_width(&image, &config::TOOLTIP_WIDTHS).is_some_and(|w| w != width) {
+            return None;
+        }
+        match self.font_lookup(&native, &image, scale) {
+            Some((read, Some(item), crafted)) => {
+                let at = Placement { crafted, ..Placement::default() };
+                return Some(self.hover(&image, &read, Some(item), bounds, scale, now, at));
+            }
+            Some((_, None, _)) => return None, // read in full, and no item of the catalog
+            None => {}
         }
         self.reader.allow_ocr(true);
         let title = self.reader.read_title(&image, super::title_width(&image), 1);
@@ -116,7 +131,7 @@ impl HoverDetector {
                 cy + scaled(config::TOOLTIP_CAPTURE_SIZE.1, scale) as usize,
             );
             let image = normalised(&native, scale);
-            if let Some((read, item, crafted)) = self.font_lookup(&native, &image, scale) {
+            if let Some((read, Some(item), crafted)) = self.font_lookup(&native, &image, scale) {
                 let screen_top = top + corner.y;
                 let at =
                     Placement { pushed_up_height: Some(bounds.bottom() - screen_top), crafted, ..Placement::default() };
@@ -140,7 +155,7 @@ impl HoverDetector {
             let by_font = self.font_lookup(&native, &image, scale);
             self.reader.allow_ocr(super::tooltip_evidence(&image));
             let (title, item, crafted) = match by_font {
-                Some((read, item, crafted)) => (read, Some(item), crafted),
+                Some((read, item, crafted)) => (read, item, crafted),
                 None => {
                     let title = self.reader.read_title(&image, super::title_width(&image), 1);
                     let (item, crafted) = self.lookup(&image, &title);
@@ -185,7 +200,7 @@ impl HoverDetector {
                 None => self.reader.read_title(&image, super::title_width(&image), 1),
             };
             let (item, crafted) = match by_font {
-                Some((_, item, crafted)) => (Some(item), crafted),
+                Some((_, item, crafted)) => (item, crafted),
                 None if self.last_title.as_deref() == Some(title.as_str()) => {
                     (self.last_item.clone(), self.last_crafted)
                 }
@@ -226,7 +241,7 @@ impl HoverDetector {
             for spot in find::bullet_spots(&frame, scale) {
                 let native = frame.crop(spot.x as usize, spot.y as usize, (spot.x + w) as usize, (spot.y + h) as usize);
                 let image = normalised(&native, scale);
-                let Some((title, item, crafted)) = self.font_lookup(&native, &image, scale) else { continue };
+                let Some((title, Some(item), crafted)) = self.font_lookup(&native, &image, scale) else { continue };
                 self.last_title = Some(title.clone());
                 self.last_item = Some(item.clone());
                 self.last_crafted = crafted;

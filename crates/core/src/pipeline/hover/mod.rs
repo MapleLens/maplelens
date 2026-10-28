@@ -197,12 +197,12 @@ impl HoverDetector {
             self.compare_seen_at = f64::NEG_INFINITY; // a new item: forget the old item's compare tooltip
             let exact = by_font.is_some();
             (self.last_item, self.last_crafted) = match by_font {
-                Some((_, item, crafted)) => (Some(item), crafted),
+                Some((_, item, crafted)) => (item, crafted),
                 None => self.lookup(&image, &title),
             };
             // The one-line read decided unless the match (or no match) came from the other reads.
             let decided_by_title =
-                self.last_item.is_some() && (exact || !self.last_crafted && self.match_title_only(&title));
+                exact || self.last_item.is_some() && !self.last_crafted && self.match_title_only(&title);
             self.last_reads = (!decided_by_title).then(|| self.other_reads(&image));
             self.last_title = Some(title.clone());
             if let Some(item) = self.last_item.clone() {
@@ -307,31 +307,36 @@ impl HoverDetector {
         (None, false)
     }
 
-    /// The item the game's own font names, read exactly off the tooltip's own pixels (`native`, at UI `scale`;
-    /// `image` the same at scale 1): the title, or below a crafted item's maker line. A cut title ("...") names the
-    /// one item it starts. Needs the tooltip's look (bullet or fill), as any read does.
+    /// The title as the game's own font reads it off the tooltip's own pixels (`native`, at UI `scale`; `image` the
+    /// same at scale 1), and the item it names: the title, or below a crafted item's maker line. Read in full, the
+    /// title decides: the item it spells, else the one item whose name starts with it (the game cuts a long title at
+    /// the tooltip's edge, with ".." or without), else none, and no fuzzy match may name another (a cut
+    /// "...Scroll: Interme" had named the Greater one). None when the font could not read every letter. Needs the
+    /// tooltip's look (bullet or fill), as any read does.
     pub(super) fn font_lookup(
         &mut self,
         native: &RgbImage,
         image: &RgbImage,
         scale: f32,
-    ) -> Option<(String, Arc<Item>, bool)> {
+    ) -> Option<(String, Option<Arc<Item>>, bool)> {
         if !tooltip_evidence(image) {
             return None;
         }
         let width = title_width(image);
+        let mut unmatched = None;
         for crafted in [false, true] {
             let Some((read, 0)) = title_font::read_title(native, scale, width, crafted) else { continue };
-            let item = if read.trim_end().ends_with("..") {
-                self.catalog.lookup_truncated(&read)
-            } else {
-                self.catalog.lookup_exact(&read)
-            };
+            let stem = read.trim_end().trim_end_matches('.');
+            let item = self.catalog.lookup_exact(&read).or_else(|| self.catalog.lookup_truncated(&format!("{stem}..")));
             if let Some(item) = item {
-                return Some((read, item, crafted));
+                return Some((read, Some(item), crafted));
+            }
+            // A crafted item's first line is its maker's ("bTang's"), not a title.
+            if !crafted && !read.ends_with("'s") && looks_like_title(&read) {
+                unmatched = Some(read);
             }
         }
-        None
+        unmatched.map(|read| (read, None, false))
     }
 
     /// The crafted-row and two-line reads of `image` (cached by mask in the reader, so cheap to repeat).
