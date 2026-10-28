@@ -310,7 +310,21 @@ pub fn find_tooltips(frame: &RgbImage, scale: f32) -> Vec<Point> {
         }
     }
     spots.sort_by_key(|s| (s.x, s.y));
-    spots
+    // A corner on another's top line, less than a tooltip's width right of it, is a line inside that one (a faint top
+    // counts beside a clear side, and an icon box's edge is one): the compare tooltip starts a whole width away. Left to
+    // right, so a line inside the first tooltip does not hide the compare tooltip beside it.
+    let mut kept: Vec<Point> = Vec::with_capacity(spots.len());
+    for p in spots {
+        let inside = kept.iter().any(|s| {
+            (p.y - s.y).abs() <= px(SAME_SPOT_PX)
+                && p.x - s.x > px(SAME_SPOT_PX)
+                && p.x - s.x < px(config::TOOLTIP_WIDTHS[0] - SAME_SPOT_PX)
+        });
+        if !inside {
+            kept.push(p);
+        }
+    }
+    kept
 }
 
 /// Is there still a tooltip with its top-left corner at `spot` (a point of `frame`, whose UI is drawn at `scale`)?
