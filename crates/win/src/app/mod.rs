@@ -5,6 +5,7 @@ mod map;
 mod phone;
 mod settings;
 mod status;
+mod training;
 mod updates;
 
 use std::path::{Path, PathBuf};
@@ -24,6 +25,7 @@ use maplelens_core::render::RgbaImage;
 use maplelens_core::render::font::Fonts;
 use maplelens_core::settings::Settings;
 use maplelens_core::shop::ShopStatus;
+use maplelens_core::training::watcher::Training;
 use windows::Win32::Media::{timeBeginPeriod, timeEndPeriod};
 use windows::Win32::UI::WindowsAndMessaging::{DispatchMessageW, MSG, PM_REMOVE, PeekMessageW, TranslateMessage};
 
@@ -32,6 +34,7 @@ use crate::notify::{Notifier, TestAnswer};
 use crate::phone::PhoneLink;
 use crate::settings_window::{SettingsEvent, SettingsWindow};
 use crate::shop::ShopUpdate;
+use crate::training::{TrainingCommand, TrainingUpdate};
 use crate::tray::{Tray, TrayCommand};
 use crate::update::check::UpdateChecker;
 use crate::update::install::InstallEvent;
@@ -88,6 +91,8 @@ type CardCache = Vec<((String, bool, u32, bool), Arc<RgbaImage>)>;
 type RankCard = Option<((String, Status, Option<String>, u32), Arc<RgbaImage>)>;
 /// The status pill last rendered, by (status, UI scale bits); None inside when the status has no pill.
 type StatusCard = Option<((ShopStatus, u32), Option<Arc<RgbaImage>>)>;
+/// The training card last rendered, by (numbers, what is shown, UI scale bits, clock second).
+type TrainingCard = Option<((Training, maplelens_core::render::training_card::Show, u32, u64), Arc<RgbaImage>)>;
 
 struct Shown {
     title: String,
@@ -115,6 +120,13 @@ pub struct App {
     status_window: LayeredWindow,
     status_card: StatusCard,
     map: map::MapUi,
+    training_events: Receiver<TrainingUpdate>,
+    training_commands: Sender<TrainingCommand>,
+    training: Option<TrainingUpdate>,
+    training_window: LayeredWindow,
+    training_card: TrainingCard,
+    /// The game's UI scale as the hover thread measured it off the status bar.
+    ui: Arc<maplelens_core::geometry::UiScale>,
     confirmed: Option<String>,
     enabled: Arc<AtomicBool>,
     tray: Tray,
@@ -166,6 +178,7 @@ impl App {
         let (reject_tx, rejects) = mpsc::channel();
         let item_showing = Arc::new(AtomicBool::new(false));
         let flags = maps::ScanFlags { enabled: enabled.clone(), item_showing: item_showing.clone(), ui: ui.clone() };
+        let app_ui = ui.clone();
         maps::spawn_scanner(map_tx, rejects, flags, debug);
         let map = map::MapUi::new(map_events, reject_tx, item_showing, maps::service())?;
         // The Store Permit watcher always runs (the pill needs it); --debug also prints its events, and sold items
@@ -186,6 +199,13 @@ impl App {
                     shop_catalog,
                 );
             })
+            .map_err(|e| windows::core::Error::new(windows::core::HRESULT(-1), e.to_string()))?;
+        // The training card's reader: EXP off the status bar, the map off the minimap; sessions in training.json.
+        let (training_tx, training_events) = mpsc::channel();
+        let (training_commands, training_rx) = mpsc::channel();
+        std::thread::Builder::new()
+            .name("training".into())
+            .spawn(move || crate::training::run(training_tx, training_rx))
             .map_err(|e| windows::core::Error::new(windows::core::HRESULT(-1), e.to_string()))?;
         workers::spawn_ranks(ranks.clone(), clock);
         let (catalog_tx, catalog_updates) = mpsc::channel();
@@ -222,6 +242,12 @@ impl App {
             status_window: LayeredWindow::new()?,
             status_card: None,
             map,
+            training_events,
+            training_commands,
+            training: None,
+            training_window: LayeredWindow::new()?,
+            training_card: None,
+            ui: app_ui,
             confirmed: None,
             enabled,
             tray: Tray::new(icon)?,
@@ -274,6 +300,15 @@ impl App {
                     let overlay_enabled = !self.settings.overlay_enabled;
                     self.update_settings(Settings { overlay_enabled, ..self.settings.clone() });
                 }
+                TrayCommand::ToggleExp => {
+                    let training_card = !self.settings.training_card;
+                    self.update_settings(Settings { training_card, ..self.settings.clone() });
+                }
+                TrayCommand::PauseTraining => {
+                    let paused = self.training.as_ref().is_some_and(|(_, t)| t.exp.paused);
+                    self.send_training(TrainingCommand::SetPaused(!paused));
+                }
+                TrayCommand::NewSession => self.send_training(TrainingCommand::NewSession),
                 TrayCommand::Settings => {
                     if let Err(error) = self.settings_window.show(self.settings.clone()) {
                         crate::error!("could not open the settings window: {error}");
@@ -326,6 +361,9 @@ impl App {
         }
         if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.follow_phone())).is_err() {
             crate::error!("phone tick failed");
+        }
+        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.follow_training())).is_err() {
+            crate::error!("training card tick failed");
         }
         while let Ok(catalog) = self.catalog_updates.try_recv() {
             let catalog = Arc::new(catalog);

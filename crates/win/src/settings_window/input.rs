@@ -3,6 +3,7 @@
 
 use maplelens_core::hotkey::{self, Modifiers};
 use maplelens_core::render::settings_view::{self, Control};
+use maplelens_core::settings::Corner;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::UI::Controls::WM_MOUSELEAVE;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -70,6 +71,17 @@ impl State {
             VK_LEFT | VK_RIGHT | VK_UP | VK_DOWN if self.focus == Some(Control::Delay) => {
                 let up = vk == VK_RIGHT || vk == VK_UP;
                 self.set_delay(settings_view::delay_step(self.current.expand_delay_s, up));
+            }
+            // In the corner picker the arrows go to the neighbouring corner and pick it.
+            VK_LEFT | VK_RIGHT | VK_UP | VK_DOWN if matches!(self.focus, Some(Control::Corner(_))) => {
+                let Some(Control::Corner(at)) = self.focus else { return false };
+                let (top, left) = match vk {
+                    VK_LEFT | VK_RIGHT => (at.is_top(), vk == VK_LEFT),
+                    _ => (vk == VK_UP, at.is_left()),
+                };
+                let to = Control::Corner(Corner::of(top, left));
+                self.focus = Some(to);
+                self.activate(to);
             }
             // Esc closes the pairing panel first, then the window.
             VK_ESCAPE if self.panel() => self.events.push(super::SettingsEvent::Phone(super::PhoneAction::HidePanel)),

@@ -205,7 +205,18 @@ pub trait Ocr {
     fn recognize(&mut self, mask: &Mask) -> OcrAnswer;
 }
 
+/// OCR of a ready grey image, dark text on white paper: for text a mask would break apart (the minimap's title).
+pub trait ImageOcr {
+    fn recognize_image(&mut self, image: &GrayImage) -> OcrAnswer;
+}
+
 pub struct NoOcr;
+
+impl ImageOcr for NoOcr {
+    fn recognize_image(&mut self, _image: &GrayImage) -> OcrAnswer {
+        OcrAnswer::Unavailable
+    }
+}
 
 impl Ocr for NoOcr {
     fn recognize(&mut self, _mask: &Mask) -> OcrAnswer {

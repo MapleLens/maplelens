@@ -50,6 +50,7 @@ impl App {
             self.window.hide();
             self.rank_window.hide();
             self.map.hide();
+            self.training_window.hide();
         }
     }
 

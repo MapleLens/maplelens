@@ -107,6 +107,27 @@ fn tooltips_are_found_anywhere_without_a_mouse() {
     assert!(find_tooltips(&game_frame(&RgbImage::new(1, 1), (0, 0)), 1.0).is_empty());
 }
 
+/// An equipment tooltip at Ideal Ratio (UI 0.641) over Perion's orange rock, from a live capture the browser found
+/// nothing in: its fill there is a dull purple, its right border takes the rock's colour, and the top line, smeared
+/// over two rows by the enlargement, read 0.799 in one of the frames. Each crop goes back where it was in the frame.
+#[test]
+#[cfg_attr(not(fixtures), ignore = "needs the local captures in tests/fixtures")]
+fn a_tooltip_over_warm_rock_at_ideal_ratio_is_found_without_a_mouse() {
+    for name in
+        ["tooltip_ideal_ratio_over_rock.png", "tooltip_ideal_ratio_over_smoke.png", "tooltip_ideal_ratio_faint_top.png"]
+    {
+        let mut frame = RgbImage::filled(1920, 1200, [120, 120, 120]);
+        let crop = fixture(name);
+        for y in 0..crop.height {
+            for x in 0..crop.width {
+                frame.set_pixel(800 + x, 470 + y, crop.pixel(x, y));
+            }
+        }
+        let spots = find_tooltips(&frame, 0.641);
+        assert!(spots.iter().any(|s| (s.x - 950).abs() <= 2 && (s.y - 549).abs() <= 2), "{name}: {spots:?}");
+    }
+}
+
 #[test]
 #[cfg_attr(not(fixtures), ignore = "needs the local captures in tests/fixtures")]
 fn the_browser_path_reads_the_same_item() {

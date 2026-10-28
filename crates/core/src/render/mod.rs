@@ -15,6 +15,7 @@ pub mod rank_card;
 pub mod settings_view;
 pub mod status_pill;
 pub mod theme;
+pub mod training_card;
 
 /// A rendered overlay: straight (not premultiplied) RGBA, row-major.
 #[derive(Clone, Debug, PartialEq, Eq)]

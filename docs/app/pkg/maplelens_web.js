@@ -10,6 +10,21 @@ export class Engine {
         wasm.__wbg_engine_free(ptr, 0);
     }
     /**
+     * An item's icon (its PNG), so the quickslots can tell which item a slot holds. False when unreadable.
+     * @param {number} id
+     * @param {string} name
+     * @param {Uint8Array} png
+     * @returns {boolean}
+     */
+    add_potion_icon(id, name, png) {
+        const ptr0 = passStringToWasm0(name, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(png, wasm.__wbindgen_export);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.engine_add_potion_icon(this.__wbg_ptr, id, ptr0, len0, ptr1, len1);
+        return ret !== 0;
+    }
+    /**
      * The item the price card is about, `{"name", "price", "trend"}` JSON: the catalog's name (the read title when
      * it names nothing), the price as the card writes it (null without sales), the week's trend as a fraction.
      * @returns {string}
@@ -27,7 +42,7 @@ export class Engine {
             return getStringFromWasm0(r0, r1);
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
-            wasm.__wbindgen_export(deferred1_0, deferred1_1, 1);
+            wasm.__wbindgen_export3(deferred1_0, deferred1_1, 1);
         }
     }
     /**
@@ -48,7 +63,7 @@ export class Engine {
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var v1 = getArrayU8FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export(r0, r1 * 1, 1);
+            wasm.__wbindgen_export3(r0, r1 * 1, 1);
             return v1;
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
@@ -69,7 +84,7 @@ export class Engine {
     catalog_picture(name) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passStringToWasm0(name, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+            const ptr0 = passStringToWasm0(name, wasm.__wbindgen_export, wasm.__wbindgen_export2);
             const len0 = WASM_VECTOR_LEN;
             wasm.engine_catalog_picture(retptr, this.__wbg_ptr, ptr0, len0);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
@@ -77,7 +92,7 @@ export class Engine {
             let v2;
             if (r0 !== 0) {
                 v2 = getStringFromWasm0(r0, r1);
-                wasm.__wbindgen_export(r0, r1 * 1, 1);
+                wasm.__wbindgen_export3(r0, r1 * 1, 1);
             }
             return v2;
         } finally {
@@ -101,9 +116,9 @@ export class Engine {
     learn_glyphs(font, json) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passStringToWasm0(font, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+            const ptr0 = passStringToWasm0(font, wasm.__wbindgen_export, wasm.__wbindgen_export2);
             const len0 = WASM_VECTOR_LEN;
-            const ptr1 = passStringToWasm0(json, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+            const ptr1 = passStringToWasm0(json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
             const len1 = WASM_VECTOR_LEN;
             wasm.engine_learn_glyphs(retptr, this.__wbg_ptr, ptr0, len0, ptr1, len1);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
@@ -125,7 +140,7 @@ export class Engine {
     learnt_glyphs(font) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passStringToWasm0(font, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+            const ptr0 = passStringToWasm0(font, wasm.__wbindgen_export, wasm.__wbindgen_export2);
             const len0 = WASM_VECTOR_LEN;
             wasm.engine_learnt_glyphs(retptr, this.__wbg_ptr, ptr0, len0);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
@@ -133,7 +148,7 @@ export class Engine {
             let v2;
             if (r0 !== 0) {
                 v2 = getStringFromWasm0(r0, r1);
-                wasm.__wbindgen_export(r0, r1 * 1, 1);
+                wasm.__wbindgen_export3(r0, r1 * 1, 1);
             }
             return v2;
         } finally {
@@ -148,7 +163,7 @@ export class Engine {
     load_catalog(json) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passStringToWasm0(json, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+            const ptr0 = passStringToWasm0(json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
             const len0 = WASM_VECTOR_LEN;
             wasm.engine_load_catalog(retptr, this.__wbg_ptr, ptr0, len0);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
@@ -163,6 +178,15 @@ export class Engine {
         }
     }
     /**
+     * Sessions saved by an earlier visit (the page keeps `training_save()` in localStorage).
+     * @param {string} json
+     */
+    load_training(json) {
+        const ptr0 = passStringToWasm0(json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.engine_load_training(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
      * An engine with the built-in demo prices and the card font (regular and bold TrueType bytes).
      * @param {Uint8Array} regular
      * @param {Uint8Array} bold
@@ -170,9 +194,9 @@ export class Engine {
     constructor(regular, bold) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passArray8ToWasm0(regular, wasm.__wbindgen_export2);
+            const ptr0 = passArray8ToWasm0(regular, wasm.__wbindgen_export);
             const len0 = WASM_VECTOR_LEN;
-            const ptr1 = passArray8ToWasm0(bold, wasm.__wbindgen_export2);
+            const ptr1 = passArray8ToWasm0(bold, wasm.__wbindgen_export);
             const len1 = WASM_VECTOR_LEN;
             wasm.engine_new(retptr, ptr0, len0, ptr1, len1);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
@@ -202,7 +226,7 @@ export class Engine {
             let v1;
             if (r0 !== 0) {
                 v1 = getStringFromWasm0(r0, r1);
-                wasm.__wbindgen_export(r0, r1 * 1, 1);
+                wasm.__wbindgen_export3(r0, r1 * 1, 1);
             }
             return v1;
         } finally {
@@ -220,7 +244,7 @@ export class Engine {
         let deferred2_1;
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passStringToWasm0(service, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+            const ptr0 = passStringToWasm0(service, wasm.__wbindgen_export, wasm.__wbindgen_export2);
             const len0 = WASM_VECTOR_LEN;
             wasm.engine_notify_refusal(retptr, ptr0, len0, status);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
@@ -230,7 +254,7 @@ export class Engine {
             return getStringFromWasm0(r0, r1);
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
-            wasm.__wbindgen_export(deferred2_0, deferred2_1, 1);
+            wasm.__wbindgen_export3(deferred2_0, deferred2_1, 1);
         }
     }
     /**
@@ -243,7 +267,7 @@ export class Engine {
     notify_test_request(webhook, unix_now) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passStringToWasm0(webhook, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+            const ptr0 = passStringToWasm0(webhook, wasm.__wbindgen_export, wasm.__wbindgen_export2);
             const len0 = WASM_VECTOR_LEN;
             wasm.engine_notify_test_request(retptr, this.__wbg_ptr, ptr0, len0, unix_now);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
@@ -251,7 +275,7 @@ export class Engine {
             let v2;
             if (r0 !== 0) {
                 v2 = getStringFromWasm0(r0, r1);
-                wasm.__wbindgen_export(r0, r1 * 1, 1);
+                wasm.__wbindgen_export3(r0, r1 * 1, 1);
             }
             return v2;
         } finally {
@@ -264,7 +288,7 @@ export class Engine {
      * @param {string} text
      */
     ocr_answer(id, text) {
-        const ptr0 = passStringToWasm0(text, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+        const ptr0 = passStringToWasm0(text, wasm.__wbindgen_export, wasm.__wbindgen_export2);
         const len0 = WASM_VECTOR_LEN;
         wasm.engine_ocr_answer(this.__wbg_ptr, id, ptr0, len0);
     }
@@ -280,7 +304,7 @@ export class Engine {
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var v1 = getArrayU8FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export(r0, r1 * 1, 1);
+            wasm.__wbindgen_export3(r0, r1 * 1, 1);
             return v1;
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
@@ -303,7 +327,7 @@ export class Engine {
             return getStringFromWasm0(r0, r1);
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
-            wasm.__wbindgen_export(deferred1_0, deferred1_1, 1);
+            wasm.__wbindgen_export3(deferred1_0, deferred1_1, 1);
         }
     }
     /**
@@ -316,13 +340,13 @@ export class Engine {
     static phone_qr(url) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passStringToWasm0(url, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+            const ptr0 = passStringToWasm0(url, wasm.__wbindgen_export, wasm.__wbindgen_export2);
             const len0 = WASM_VECTOR_LEN;
             wasm.engine_phone_qr(retptr, ptr0, len0);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var v2 = getArrayU8FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export(r0, r1 * 1, 1);
+            wasm.__wbindgen_export3(r0, r1 * 1, 1);
             return v2;
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
@@ -337,7 +361,7 @@ export class Engine {
     phone_test_request(key, unix_now) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passStringToWasm0(key, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+            const ptr0 = passStringToWasm0(key, wasm.__wbindgen_export, wasm.__wbindgen_export2);
             const len0 = WASM_VECTOR_LEN;
             wasm.engine_phone_test_request(retptr, this.__wbg_ptr, ptr0, len0, unix_now);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
@@ -345,7 +369,7 @@ export class Engine {
             let v2;
             if (r0 !== 0) {
                 v2 = getStringFromWasm0(r0, r1);
-                wasm.__wbindgen_export(r0, r1 * 1, 1);
+                wasm.__wbindgen_export3(r0, r1 * 1, 1);
             }
             return v2;
         } finally {
@@ -357,9 +381,9 @@ export class Engine {
      * @param {string} answer
      */
     picture_found(name, answer) {
-        const ptr0 = passStringToWasm0(name, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+        const ptr0 = passStringToWasm0(name, wasm.__wbindgen_export, wasm.__wbindgen_export2);
         const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(answer, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+        const ptr1 = passStringToWasm0(answer, wasm.__wbindgen_export, wasm.__wbindgen_export2);
         const len1 = WASM_VECTOR_LEN;
         wasm.engine_picture_found(this.__wbg_ptr, ptr0, len0, ptr1, len1);
     }
@@ -371,7 +395,7 @@ export class Engine {
     picture_url(name) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passStringToWasm0(name, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+            const ptr0 = passStringToWasm0(name, wasm.__wbindgen_export, wasm.__wbindgen_export2);
             const len0 = WASM_VECTOR_LEN;
             wasm.engine_picture_url(retptr, this.__wbg_ptr, ptr0, len0);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
@@ -379,11 +403,54 @@ export class Engine {
             let v2;
             if (r0 !== 0) {
                 v2 = getStringFromWasm0(r0, r1);
-                wasm.__wbindgen_export(r0, r1 * 1, 1);
+                wasm.__wbindgen_export3(r0, r1 * 1, 1);
             }
             return v2;
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * The healing and buff items in that list, as `[[id, name, icon url]]` JSON.
+     * @param {string} json
+     * @returns {string}
+     */
+    static potion_candidates(json) {
+        let deferred2_0;
+        let deferred2_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passStringToWasm0(json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.engine_potion_candidates(retptr, ptr0, len0);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            deferred2_0 = r0;
+            deferred2_1 = r1;
+            return getStringFromWasm0(r0, r1);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export3(deferred2_0, deferred2_1, 1);
+        }
+    }
+    /**
+     * Where the page gets the list of healing and buff items (maplestory.io's Classic data).
+     * @returns {string}
+     */
+    static potion_list_url() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.engine_potion_list_url(retptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            deferred1_0 = r0;
+            deferred1_1 = r1;
+            return getStringFromWasm0(r0, r1);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export3(deferred1_0, deferred1_1, 1);
         }
     }
     /**
@@ -404,7 +471,7 @@ export class Engine {
         let deferred2_1;
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passArray8ToWasm0(rgba, wasm.__wbindgen_export2);
+            const ptr0 = passArray8ToWasm0(rgba, wasm.__wbindgen_export);
             const len0 = WASM_VECTOR_LEN;
             wasm.engine_process(retptr, this.__wbg_ptr, ptr0, len0, width, height, top_inset, scale, now, unix_now);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
@@ -414,7 +481,7 @@ export class Engine {
             return getStringFromWasm0(r0, r1);
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
-            wasm.__wbindgen_export(deferred2_0, deferred2_1, 1);
+            wasm.__wbindgen_export3(deferred2_0, deferred2_1, 1);
         }
     }
     /**
@@ -437,7 +504,7 @@ export class Engine {
             return getStringFromWasm0(r0, r1);
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
-            wasm.__wbindgen_export(deferred1_0, deferred1_1, 1);
+            wasm.__wbindgen_export3(deferred1_0, deferred1_1, 1);
         }
     }
     /**
@@ -457,7 +524,7 @@ export class Engine {
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var v1 = getArrayU8FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export(r0, r1 * 1, 1);
+            wasm.__wbindgen_export3(r0, r1 * 1, 1);
             return v1;
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
@@ -472,9 +539,9 @@ export class Engine {
      * @param {number} now
      */
     rank_response(name, status, body, retry_after, now) {
-        const ptr0 = passStringToWasm0(name, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+        const ptr0 = passStringToWasm0(name, wasm.__wbindgen_export, wasm.__wbindgen_export2);
         const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(body, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+        const ptr1 = passStringToWasm0(body, wasm.__wbindgen_export, wasm.__wbindgen_export2);
         const len1 = WASM_VECTOR_LEN;
         wasm.engine_rank_response(this.__wbg_ptr, ptr0, len0, status, ptr1, len1, retry_after, now);
     }
@@ -496,11 +563,11 @@ export class Engine {
      * @param {boolean} store
      */
     set_notify(webhook, telegram_webhook, phone_key, sales, store) {
-        const ptr0 = passStringToWasm0(webhook, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+        const ptr0 = passStringToWasm0(webhook, wasm.__wbindgen_export, wasm.__wbindgen_export2);
         const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(telegram_webhook, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+        const ptr1 = passStringToWasm0(telegram_webhook, wasm.__wbindgen_export, wasm.__wbindgen_export2);
         const len1 = WASM_VECTOR_LEN;
-        const ptr2 = passStringToWasm0(phone_key, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+        const ptr2 = passStringToWasm0(phone_key, wasm.__wbindgen_export, wasm.__wbindgen_export2);
         const len2 = WASM_VECTOR_LEN;
         wasm.engine_set_notify(this.__wbg_ptr, ptr0, len0, ptr1, len1, ptr2, len2, sales, store);
     }
@@ -517,6 +584,13 @@ export class Engine {
      */
     set_shop(enabled) {
         wasm.engine_set_shop(this.__wbg_ptr, enabled);
+    }
+    /**
+     * Whether the training card shows the EXP rates. The party quest helper is hidden: never on the page's card.
+     * @param {boolean} exp
+     */
+    set_training_show(exp) {
+        wasm.engine_set_training_show(this.__wbg_ptr, exp);
     }
     /**
      * Sold items whose picture to look up first, `[{"name", "url"}]` JSON (GET maplestory.io); each answer's text
@@ -536,7 +610,7 @@ export class Engine {
             return getStringFromWasm0(r0, r1);
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
-            wasm.__wbindgen_export(deferred1_0, deferred1_1, 1);
+            wasm.__wbindgen_export3(deferred1_0, deferred1_1, 1);
         }
     }
     /**
@@ -557,7 +631,7 @@ export class Engine {
             return getStringFromWasm0(r0, r1);
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
-            wasm.__wbindgen_export(deferred1_0, deferred1_1, 1);
+            wasm.__wbindgen_export3(deferred1_0, deferred1_1, 1);
         }
     }
     /**
@@ -569,7 +643,7 @@ export class Engine {
     static telegram_link_request(url) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passStringToWasm0(url, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+            const ptr0 = passStringToWasm0(url, wasm.__wbindgen_export, wasm.__wbindgen_export2);
             const len0 = WASM_VECTOR_LEN;
             wasm.engine_telegram_link_request(retptr, ptr0, len0);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
@@ -577,7 +651,7 @@ export class Engine {
             let v2;
             if (r0 !== 0) {
                 v2 = getStringFromWasm0(r0, r1);
-                wasm.__wbindgen_export(r0, r1 * 1, 1);
+                wasm.__wbindgen_export3(r0, r1 * 1, 1);
             }
             return v2;
         } finally {
@@ -596,9 +670,9 @@ export class Engine {
         let deferred3_1;
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passStringToWasm0(url, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+            const ptr0 = passStringToWasm0(url, wasm.__wbindgen_export, wasm.__wbindgen_export2);
             const len0 = WASM_VECTOR_LEN;
-            const ptr1 = passStringToWasm0(answer, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+            const ptr1 = passStringToWasm0(answer, wasm.__wbindgen_export, wasm.__wbindgen_export2);
             const len1 = WASM_VECTOR_LEN;
             wasm.engine_telegram_linked(retptr, ptr0, len0, ptr1, len1);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
@@ -608,7 +682,7 @@ export class Engine {
             return getStringFromWasm0(r0, r1);
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
-            wasm.__wbindgen_export(deferred3_0, deferred3_1, 1);
+            wasm.__wbindgen_export3(deferred3_0, deferred3_1, 1);
         }
     }
     /**
@@ -621,7 +695,7 @@ export class Engine {
     telegram_test_request(url, unix_now) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passStringToWasm0(url, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+            const ptr0 = passStringToWasm0(url, wasm.__wbindgen_export, wasm.__wbindgen_export2);
             const len0 = WASM_VECTOR_LEN;
             wasm.engine_telegram_test_request(retptr, this.__wbg_ptr, ptr0, len0, unix_now);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
@@ -629,7 +703,7 @@ export class Engine {
             let v2;
             if (r0 !== 0) {
                 v2 = getStringFromWasm0(r0, r1);
-                wasm.__wbindgen_export(r0, r1 * 1, 1);
+                wasm.__wbindgen_export3(r0, r1 * 1, 1);
             }
             return v2;
         } finally {
@@ -646,7 +720,7 @@ export class Engine {
         let deferred2_1;
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passStringToWasm0(text, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+            const ptr0 = passStringToWasm0(text, wasm.__wbindgen_export, wasm.__wbindgen_export2);
             const len0 = WASM_VECTOR_LEN;
             wasm.engine_telegram_webhook(retptr, ptr0, len0);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
@@ -656,8 +730,92 @@ export class Engine {
             return getStringFromWasm0(r0, r1);
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
-            wasm.__wbindgen_export(deferred2_0, deferred2_1, 1);
+            wasm.__wbindgen_export3(deferred2_0, deferred2_1, 1);
         }
+    }
+    /**
+     * @returns {number}
+     */
+    training_height() {
+        const ret = wasm.engine_training_height(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Finished sessions, oldest first, as JSON.
+     * @returns {string}
+     */
+    training_history() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.engine_training_history(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            deferred1_0 = r0;
+            deferred1_1 = r1;
+            return getStringFromWasm0(r0, r1);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export3(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * End the training session (into the history) and start a new one.
+     * @param {number} unix_now
+     */
+    training_new_session(unix_now) {
+        wasm.engine_training_new_session(this.__wbg_ptr, unix_now);
+    }
+    /**
+     * Pause or resume the training session (neither time nor EXP counts while paused).
+     * @param {boolean} paused
+     */
+    training_pause(paused) {
+        wasm.engine_training_pause(this.__wbg_ptr, paused);
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    training_pixels() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.engine_training_pixels(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayU8FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export3(r0, r1 * 1, 1);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * The session and its history, for the page to keep.
+     * @returns {string}
+     */
+    training_save() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.engine_training_save(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            deferred1_0 = r0;
+            deferred1_1 = r1;
+            return getStringFromWasm0(r0, r1);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export3(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * @returns {number}
+     */
+    training_width() {
+        const ret = wasm.engine_training_width(this.__wbg_ptr);
+        return ret >>> 0;
     }
     /**
      * The MapleLens version.
@@ -676,7 +834,7 @@ export class Engine {
             return getStringFromWasm0(r0, r1);
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
-            wasm.__wbindgen_export(deferred1_0, deferred1_1, 1);
+            wasm.__wbindgen_export3(deferred1_0, deferred1_1, 1);
         }
     }
     /**
@@ -689,7 +847,7 @@ export class Engine {
         let deferred2_1;
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passStringToWasm0(webhook, wasm.__wbindgen_export2, wasm.__wbindgen_export3);
+            const ptr0 = passStringToWasm0(webhook, wasm.__wbindgen_export, wasm.__wbindgen_export2);
             const len0 = WASM_VECTOR_LEN;
             wasm.engine_webhook_masked(retptr, ptr0, len0);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
@@ -699,7 +857,7 @@ export class Engine {
             return getStringFromWasm0(r0, r1);
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
-            wasm.__wbindgen_export(deferred2_0, deferred2_1, 1);
+            wasm.__wbindgen_export3(deferred2_0, deferred2_1, 1);
         }
     }
     /**

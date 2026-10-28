@@ -24,7 +24,9 @@ pub enum Tone {
 }
 
 const ORANGE: [Rgba; 3] = [[255, 224, 122, 255], [255, 173, 31, 255], [240, 138, 0, 255]];
-const ORANGE_EDGE: Rgba = [154, 82, 0, 255];
+/// The orange button's face top to bottom, for other things drawn in it.
+pub const ORANGE_STOPS: [(f32, Rgba); 3] = [(0.0, ORANGE[0]), (0.55, ORANGE[1]), (1.0, ORANGE[2])];
+pub const ORANGE_EDGE: Rgba = [154, 82, 0, 255];
 const GREY: [Rgba; 3] = [[255, 255, 255, 255], [227, 232, 241, 255], [201, 208, 222, 255]];
 const GREY_EDGE: Rgba = [77, 86, 112, 255];
 const GREY_INK: Rgba = [44, 50, 71, 255];

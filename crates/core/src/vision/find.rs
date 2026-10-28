@@ -9,13 +9,14 @@
 use crate::config;
 use crate::geometry::{Point, Rect};
 use crate::image::RgbImage;
-use crate::vision::tooltip::{is_fill, measure_width, right_edge_unreadable, tooltip_present};
+use crate::vision::tooltip::{is_fill, measure_width, measure_width_lit, right_edge_unreadable, tooltip_present};
 
 /// Scan every this many rows and columns: the band is 8 rows tall and 150+ px wide, so nothing is missed.
 const SCAN_ROW_STEP: usize = 4;
 const SCAN_COL_STEP: usize = 2;
 /// A 150 px stretch (at the reference resolution) with at least half of it fill makes a band, as in
 /// `tooltip_present`.
+const BAND_WIDTH: i32 = 150;
 const BAND_MIN_FILL: f32 = 0.5;
 /// The band covers tooltip columns 150..300; the tooltip's left edge is at most this far left of a band.
 const BAND_LEFT: i32 = 300;
@@ -44,6 +45,11 @@ const SPOT_MARGIN: i32 = 6;
 const MAX_SPAN_MARGIN: i32 = 160;
 /// Share of a border line's length that must be lifted for the spot to be a tooltip.
 const FRAME_LINE_SCORE: f32 = 0.8;
+/// A line this lifted also counts while the other one is lifted all along (`CLEAR_LINE_SCORE`): at Ideal Ratio the
+/// region is enlarged 1.56x, which smears the 1 px top line over two rows, and over a busy backdrop it read 0.80 in one
+/// frame and 0.799 in the next of a live capture (the left line read 1.0 in both).
+const FAINT_LINE_SCORE: f32 = 0.7;
+const CLEAR_LINE_SCORE: f32 = 0.95;
 /// How much of the band right of the border must be fill.
 const BORDER_FILL_PX: usize = 45;
 /// How far a first guess at a border line can be off.
@@ -234,18 +240,14 @@ fn has_frame(lifts: &Lifts, spot: Point) -> bool {
     let (x, y) = (spot.x, spot.y);
     let side = |bx: i32| lifts.side(bx, y + 14..y + 118).readable_share();
     let top = |by: i32| lifts.top(by, x + 20..x + 300).readable_share();
+    // The best of the three rows (columns) the line may be on; None: unreadable.
+    let best = |score: &dyn Fn(i32) -> Option<f32>, at: i32| (at..=at + 2).filter_map(score).reduce(f32::max);
+    let (side, top) = (best(&side, x), best(&top, y));
     // Some(true): drawn; Some(false): read and absent; None: unreadable.
-    let line = |score: &dyn Fn(i32) -> Option<f32>, at: i32| {
-        let scores: Vec<Option<f32>> = (at..=at + 2).map(score).collect();
-        if scores.iter().flatten().any(|&v| v >= FRAME_LINE_SCORE) {
-            Some(true)
-        } else if scores.iter().any(Option::is_some) {
-            Some(false)
-        } else {
-            None
-        }
+    let drawn = |line: Option<f32>, other: Option<f32>| {
+        line.map(|v| v >= FRAME_LINE_SCORE || (v >= FAINT_LINE_SCORE && other.is_some_and(|o| o >= CLEAR_LINE_SCORE)))
     };
-    matches!((line(&side, x), line(&top, y)), (Some(true), Some(true) | None) | (None, Some(true)))
+    matches!((drawn(side, top), drawn(top, side)), (Some(true), Some(true) | None) | (None, Some(true)))
 }
 
 /// The fill band starts right at the left border (a busy backdrop next to a tooltip has edges that look like
@@ -263,7 +265,7 @@ fn band_reaches_border(image: &RgbImage) -> bool {
 /// resolution, so a 1440p frame costs about what a 1200p one does.
 pub fn find_tooltips(frame: &RgbImage, scale: f32) -> Vec<Point> {
     let px = |v: i32| (v as f32 * scale).round() as i32;
-    let band_samples = ((150.0 * scale) as usize / SCAN_COL_STEP).max(1);
+    let band_samples = ((BAND_WIDTH as f32 * scale) as usize / SCAN_COL_STEP).max(1);
     let mut spots: Vec<Point> = Vec::new();
     for cluster in clusters(bands(frame, band_samples)) {
         // Everything the checks below look at, for every row of the cluster: from the leftmost possible border to
@@ -333,11 +335,15 @@ pub fn tooltip_at(frame: &RgbImage, scale: f32, spot: Point) -> bool {
     }
     let lifts = Lifts::new(&region);
     let image = region.crop(local.x as usize, local.y as usize, (local.x + w) as usize, (local.y + h) as usize);
-    has_frame(&lifts, local)
-        && band_reaches_border(&image)
-        && tooltip_present(&image)
-        && (measure_width(&image, &config::TOOLTIP_WIDTHS).is_some()
-            || right_edge_unreadable(&image, &config::TOOLTIP_WIDTHS))
+    has_frame(&lifts, local) && band_reaches_border(&image) && tooltip_present(&image) && right_edge_shows(&image)
+}
+
+/// The right border is at one of the game's widths (by either measure), or too dark to be read.
+fn right_edge_shows(image: &RgbImage) -> bool {
+    let widths = &config::TOOLTIP_WIDTHS;
+    measure_width(image, widths).is_some()
+        || right_edge_unreadable(image, widths)
+        || measure_width_lit(image, widths).is_some()
 }
 
 /// The tooltip a fill band at row `band_y` (columns `lo..hi`) belongs to, in a frame at the reference
@@ -399,11 +405,7 @@ fn spot_at_band(
             continue;
         }
         let image = frame.crop(spot.x as usize, spot.y as usize, (spot.x + w) as usize, (spot.y + h) as usize);
-        if has_frame(lifts, spot)
-            && band_reaches_border(&image)
-            && tooltip_present(&image)
-            && (measure_width(&image, &config::TOOLTIP_WIDTHS).is_some()
-                || right_edge_unreadable(&image, &config::TOOLTIP_WIDTHS))
+        if has_frame(lifts, spot) && band_reaches_border(&image) && tooltip_present(&image) && right_edge_shows(&image)
         {
             let spot = true_top(lifts, spot);
             return (!is_known(spot)).then_some(spot);
