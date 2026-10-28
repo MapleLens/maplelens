@@ -41,10 +41,12 @@ impl App {
             // The game keeps a tall tooltip's bottom inside the client area.
             tooltip_y = tooltip_y.min(hover.bounds.bottom() - height);
         }
-        // And its right border inside the client: a tooltip opened near the right edge is slid left.
-        let tooltip_x =
-            (cursor.x + scaled(config::TOOLTIP_OFFSET.0, scale)).min(hover.bounds.right() - hover.tooltip_size.0);
-        let tooltip = Rect::new(tooltip_x, tooltip_y, hover.tooltip_size.0, hover.tooltip_size.1);
+        let tooltip = Rect::new(
+            cursor.x + scaled(config::TOOLTIP_OFFSET.0, scale),
+            tooltip_y,
+            hover.tooltip_size.0,
+            hover.tooltip_size.1,
+        );
         let size = (card.width as i32, card.height as i32);
         let (x, y) = place_card(tooltip, size, scaled(config::CARD_GAP_PX, scale), hover.bounds, hover.compare);
         if !fits_inside(x, y, size, hover.bounds) {

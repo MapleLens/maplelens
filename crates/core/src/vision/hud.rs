@@ -102,28 +102,6 @@ fn side(counts: &[Vec<u16>], top: usize, around: usize, inward: isize) -> Option
     (share(x) >= SIDE_MIN_DARK).then_some(Side { x, beside_black: x != found })
 }
 
-/// The outermost pair of side outlines along a top row's run `start..end`: columns dark under `top` with the bar's
-/// light inside next to them, placed alike about `centre`.
-fn sides_along(counts: &[Vec<u16>], top: usize, start: usize, end: usize, centre: f32) -> (Option<Side>, Option<Side>) {
-    let rows = counts.len().saturating_sub(top + 2);
-    if rows == 0 || end < 2 {
-        return (None, None);
-    }
-    let share = |x: usize| counts[top + 1][x] as f32 / rows as f32;
-    let edge = |x: usize, inside: usize| share(x) >= SIDE_MIN_DARK && share(inside) <= INSIDE_MAX_DARK;
-    let lefts = (start..(centre as usize).min(end - 1)).filter(|&x| edge(x, x + 1));
-    for left in lefts {
-        let mirror = 2.0 * centre - left as f32;
-        let right = ((mirror - CENTRE_SLACK_PX).max(1.0) as usize..=(mirror + CENTRE_SLACK_PX) as usize)
-            .filter(|&x| x < end)
-            .find(|&x| edge(x, x - 1));
-        if let Some(right) = right {
-            return (Some(Side { x: left, beside_black: true }), Some(Side { x: right, beside_black: true }));
-        }
-    }
-    (None, None)
-}
-
 /// Is the area under the top outline as dark as the outline itself? Then it is a black border or letterbox, not
 /// the bar (whose inside is the chat line, gauges and buttons).
 fn solid(dark: &[Vec<bool>], top: usize, left: usize, right: usize) -> bool {
@@ -163,45 +141,19 @@ pub fn find_bar(strip: &RgbImage) -> Option<Bar> {
         if ((end - start) as f32) < min_width {
             continue;
         }
-        let (mut left_side, mut right_side) = (side(&counts, top, start, 1), side(&counts, top, end, -1));
-        // Another window's dark edge can run on from the outline (the quick slots' bottom joins its top row): then
-        // the run's far end is not the bar's, and the side found at the near end, mirrored about the centre, is.
-        let off_centre = ((start + end) as f32 / 2.0 - centre).abs() > CENTRE_SLACK_PX;
-        if off_centre {
-            let mirror = |x: usize| (2.0 * centre - x as f32).round().max(0.0) as usize;
-            if let Some(l) = left_side.filter(|l| mirror(l.x) < end) {
-                right_side = side(&counts, top, mirror(l.x), -1);
-            } else if let Some(r) = right_side.filter(|r| mirror(r.x) > start) {
-                left_side = side(&counts, top, mirror(r.x), 1);
-            }
-        }
-        // Dark scenery joins the outline from an end, or both (a dark map with the quick slots over the bar): that end
-        // is not the bar's, and what was found there is not centred. The sides are then the outline columns along the
-        // run, centred.
-        let centred_pair = |l: Option<Side>, r: Option<Side>| {
-            let (Some(l), Some(r)) = (l, r) else { return false };
-            let (from, to) = if l.beside_black || r.beside_black || off_centre { (l.x, r.x + 1) } else { (start, end) };
-            ((from + to) as f32 / 2.0 - centre).abs() <= CENTRE_SLACK_PX
-        };
-        if !centred_pair(left_side, right_side) {
-            let (l, r) = sides_along(&counts, top, start, end, centre);
-            if l.is_some() {
-                (left_side, right_side) = (l, r);
-            }
-        }
-        let (Some(left), Some(right)) = (left_side, right_side) else {
+        let (Some(left), Some(right)) = (side(&counts, top, start, 1), side(&counts, top, end, -1)) else {
             continue;
         };
         let beside_black = left.beside_black || right.beside_black;
         let (left, right) = (left.x, right.x);
         // Black beside the bar makes the top row dark from edge to edge: then the sides, not the run, say where the bar
         // is (a row of a black area walks them past each other).
-        let (from, to) = if beside_black || off_centre { (left, right + 1) } else { (start, end) };
+        let (from, to) = if beside_black { (left, right + 1) } else { (start, end) };
         let centred = ((from + to) as f32 / 2.0 - centre).abs() <= CENTRE_SLACK_PX;
         if right < left || (to.saturating_sub(from) as f32) < min_width || !centred {
             continue;
         }
-        if !solid(&dark, top, left, right) && !((beside_black || off_centre) && black_under(&dark, top, left, right)) {
+        if !solid(&dark, top, left, right) && !(beside_black && black_under(&dark, top, left, right)) {
             return Some(Bar { x: left, top, width: right - left + 1 });
         }
     }

@@ -1,12 +1,11 @@
 //! Mouse position -> tooltip measurement -> item title -> market item.
 
 mod elsewhere;
-mod graded;
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::{Screen, normalised};
+use super::{Screen, grab_normalised};
 use crate::config;
 use crate::geometry::{Point, Rect, UiScale, scaled, ui_scale};
 use crate::image::RgbImage;
@@ -14,7 +13,6 @@ use crate::market::catalog::{Catalog, clean_title};
 use crate::market::models::Item;
 use crate::vision::hud::find_bar;
 use crate::vision::reader::{TextReader, find_bullet};
-use crate::vision::title_font;
 use crate::vision::tooltip::{measure_width, tooltip_present};
 
 /// Titles whose measured tooltip width is remembered.
@@ -82,9 +80,6 @@ pub fn looks_like_title(text: &str) -> bool {
     good as f64 >= 0.9 * count as f64
 }
 
-/// A font read with gaps checks other readings only when it knows this many letters.
-const MIN_FONT_LETTERS: usize = 6;
-
 pub struct HoverDetector {
     catalog: Arc<Catalog>,
     reader: TextReader,
@@ -100,11 +95,6 @@ pub struct HoverDetector {
     widths: HashMap<String, i32>,
     unknown_title: Option<String>,
     unknown_streak: u32,
-    /// The title being read runs into the tooltip's edge (`title_font::title_cut`): its end is missing, not misread,
-    /// so a loose read of it names an item only by the name it starts.
-    title_cut: bool,
-    /// The title font's read of the title being read, when it had gaps: what any other reading names must fit it.
-    font_read: Option<String>,
     /// Where the tooltip was found last (no-mouse search) and how many looks since the whole frame was searched.
     last_spot: Option<Point>,
     looks_since_search: u32,
@@ -130,8 +120,6 @@ impl HoverDetector {
             widths: HashMap::new(),
             unknown_title: None,
             unknown_streak: 0,
-            title_cut: false,
-            font_read: None,
             last_spot: None,
             looks_since_search: 0,
             tooltip_in_view: false,
@@ -198,23 +186,11 @@ impl HoverDetector {
         let Some(cursor) = screen.cursor() else { return self.search(screen, bounds, scale, now) };
         let Some(area) = tooltip_area(cursor, bounds, scale) else {
             // No room below the mouse for even the top of a tooltip: it can only have been pushed up.
-            return self.clamped(screen, cursor, bounds, scale, now);
+            return self.pushed_up(screen, cursor, bounds, scale, now);
         };
-        let native = screen.grab(area);
-        let image = normalised(&native, scale);
-        // No bullet here but one to the left on the title row: the game slid the tooltip left (the right edge's clamp)
-        // and this is its inside, whose cut title ("ole Arm") can read close to another item's name.
-        if !elsewhere::has_bullet(&image)
-            && elsewhere::bullet_left_on_screen(screen, Point { x: area.x, y: area.y }, bounds, scale)
-        {
-            return self.clamped(screen, cursor, bounds, scale, now);
-        }
+        let image = grab_normalised(screen, area, scale);
         self.reader.allow_ocr(tooltip_evidence(&image));
-        let by_font = self.font_lookup(&native, &image, scale);
-        let title = match &by_font {
-            Some((read, _, _)) => read.clone(),
-            None => self.reader.read_title(&image, title_width(&image), 1),
-        };
+        let title = self.reader.read_title(&image, config::TOOLTIP_TITLE_WIDTH as usize, 1);
         let same_title = self.last_title.as_deref() == Some(title.as_str());
         let unchanged = same_title
             && match self.last_reads.clone() {
@@ -223,17 +199,9 @@ impl HoverDetector {
             };
         if !unchanged {
             self.compare_seen_at = f64::NEG_INFINITY; // a new item: forget the old item's compare tooltip
-            let exact = by_font.is_some();
-            (self.last_item, self.last_crafted) = match by_font {
-                Some((_, item, crafted)) => (item, crafted),
-                None => self.lookup(&image, &title),
-            };
-            if self.last_item.is_none() {
-                self.last_item = self.graded(screen, Point { x: area.x, y: area.y }, bounds, scale, &title);
-            }
+            (self.last_item, self.last_crafted) = self.lookup(&image, &title);
             // The one-line read decided unless the match (or no match) came from the other reads.
-            let decided_by_title =
-                exact || self.last_item.is_some() && !self.last_crafted && self.match_title_only(&title);
+            let decided_by_title = self.last_item.is_some() && !self.last_crafted && self.match_title_only(&title);
             self.last_reads = (!decided_by_title).then(|| self.other_reads(&image));
             self.last_title = Some(title.clone());
             if let Some(item) = self.last_item.clone() {
@@ -245,7 +213,7 @@ impl HoverDetector {
         // check only has to carry unknown items. Other blue-ish UI (friend list, menus) passes the colour check
         // and has text on it, so an unknown title must also have the tooltip border at one of the game's widths.
         if self.last_item.is_none()
-            && let Some(hover) = self.clamped(screen, cursor, bounds, scale, now)
+            && let Some(hover) = self.pushed_up(screen, cursor, bounds, scale, now)
         {
             return Some(hover);
         }
@@ -305,7 +273,7 @@ impl HoverDetector {
 
     /// The item named by `title` (the one-line read of the tooltip in `image`), and whether it is player-crafted.
     fn lookup(&mut self, image: &RgbImage, title: &str) -> (Option<Arc<Item>>, bool) {
-        let width = title_width(image);
+        let width = config::TOOLTIP_TITLE_WIDTH as usize;
         let shift = config::TOOLTIP_CRAFTED_SHIFT as usize;
         // Crafted before wrapped: the wrapped read's two rows reach down into a crafted item's title and would
         // match it without knowing the tooltip is taller.
@@ -338,61 +306,9 @@ impl HoverDetector {
         (None, false)
     }
 
-    /// The title as the game's own font reads it off the tooltip's own pixels (`native`, at UI `scale`; `image` the
-    /// same at scale 1), and the item it names: the title, or below a crafted item's maker line. Read in full, the
-    /// title decides: the item it spells, else the one item whose name starts with it (the game cuts a long title at
-    /// the tooltip's edge, with ".." or without), else none, and no fuzzy match may name another (a cut
-    /// "...Scroll: Interme" had named the Greater one). None when the font could not read every letter. Needs the
-    /// tooltip's look (bullet or fill), as any read does.
-    pub(super) fn font_lookup(
-        &mut self,
-        native: &RgbImage,
-        image: &RgbImage,
-        scale: f32,
-    ) -> Option<(String, Option<Arc<Item>>, bool)> {
-        let width = title_width(image);
-        self.title_cut = title_font::title_cut(native, scale, width, false);
-        self.font_read = None;
-        if !tooltip_evidence(image) {
-            return None;
-        }
-        let mut unmatched = None;
-        for crafted in [false, true] {
-            let Some((read, unknown)) = title_font::read_title(native, scale, width, crafted) else { continue };
-            if unknown > 0 {
-                if !crafted {
-                    self.font_read = Some(read.clone());
-                }
-                // Letters the table has not learnt: their gaps fit one item's name, or the other readers decide.
-                if let Some(item) = self.catalog.lookup_gaps(&read) {
-                    return Some((read, Some(item), crafted));
-                }
-                continue;
-            }
-            let stem = read.trim_end().trim_end_matches('.');
-            let item = self.catalog.lookup_exact(&read).or_else(|| self.catalog.lookup_truncated(&format!("{stem}..")));
-            // Cut by the tooltip's edge, the last letter may be part of one ("...Scroll: Interr" for "Interm").
-            let item = item.or_else(|| {
-                let mut chars = stem.chars();
-                chars.next_back();
-                title_font::title_cut(native, scale, width, crafted)
-                    .then(|| self.catalog.lookup_truncated(&format!("{}..", chars.as_str())))
-                    .flatten()
-            });
-            if let Some(item) = item {
-                return Some((read, Some(item), crafted));
-            }
-            // A crafted item's first line is its maker's ("bTang's"), not a title.
-            if !crafted && !read.ends_with("'s") && looks_like_title(&read) {
-                unmatched = Some(read);
-            }
-        }
-        unmatched.map(|read| (read, None, false))
-    }
-
     /// The crafted-row and two-line reads of `image` (cached by mask in the reader, so cheap to repeat).
     fn other_reads(&mut self, image: &RgbImage) -> (String, String) {
-        let width = title_width(image);
+        let width = config::TOOLTIP_TITLE_WIDTH as usize;
         let crafted = self.reader.read_title_at(image, width, 1, config::TOOLTIP_CRAFTED_SHIFT as usize);
         (crafted, self.reader.read_title(image, width, 2))
     }
@@ -406,25 +322,7 @@ impl HoverDetector {
     /// it read as '?'.
     fn match_read(&mut self, image: &RgbImage, read: &str) -> Option<Arc<Item>> {
         // Longer than a title = misread (title + description), not worth matching.
-        if read.chars().count() > config::MAX_TITLE_CHARS {
-            return None;
-        }
-        // A cut title fuzzily matched is completed by a guess ("...Scroll: Inler" as Greater).
-        let stem = read.trim_end().trim_end_matches('.');
-        let item = if self.title_cut {
-            self.catalog.lookup_exact(read).or_else(|| self.catalog.lookup_truncated(&format!("{stem}..")))
-        } else {
-            self.catalog.lookup(read)
-        }?;
-        // The font saw more of the title than the name has ("Red Moon G?oves" is not "Red Moon"): the other reading
-        // lost a word, and what is left can be another item's whole name. Only a whole word more counts: the font
-        // misreads a letter here and there on real captures ("?ctopus ILeg").
-        let known = |r: &str| r.chars().filter(|c| c.is_ascii_alphanumeric()).count();
-        if let Some(font) = self.font_read.as_deref().filter(|f| known(f) >= MIN_FONT_LETTERS)
-            && Catalog::read_goes_past(font, &item.name)
-        {
-            return None;
-        }
+        let item = (read.chars().count() <= config::MAX_TITLE_CHARS).then(|| self.catalog.lookup(read)).flatten()?;
         if !self.credible(image, read) {
             return None;
         }
@@ -475,20 +373,6 @@ impl HoverDetector {
         if let Some(captures) = &mut self.captures {
             captures.push((name.to_string(), image.clone()));
         }
-    }
-}
-
-/// A wide tooltip has no compare tooltip beside it (only equipment, the narrow kind, does), so its title is read
-/// across the whole tooltip: a long scroll name runs past the narrow width, and its cut read had named another grade
-/// of the scroll.
-const WIDE_TITLE_MARGIN: i32 = 8;
-
-/// How much of `image` (a tooltip's top, at UI scale 1) its title may span.
-pub(crate) fn title_width(image: &RgbImage) -> usize {
-    let wide = config::TOOLTIP_WIDTHS[1];
-    match measure_width(image, &config::TOOLTIP_WIDTHS) {
-        Some(w) if w == wide && image.width as i32 >= wide => (wide - WIDE_TITLE_MARGIN) as usize,
-        _ => config::TOOLTIP_TITLE_WIDTH as usize,
     }
 }
 

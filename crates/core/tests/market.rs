@@ -58,28 +58,6 @@ fn equipment_is_recognised_by_item_id_not_category() {
 }
 
 #[test]
-fn a_cut_name_names_the_one_item_it_starts() {
-    let catalog = Catalog::new(
-        [
-            "Two-handed Axe Attack Scroll: Greater",
-            "Two-handed Axe Attack Scroll: Lesser",
-            "Two-handed Axe Attack Scroll: Intermediate",
-            "MapleStory Fest Gift Box",
-        ]
-        .map(|n| make(n, 1)),
-        None,
-    );
-    let cut = |t: &str| catalog.lookup_truncated(t).map(|i| i.name.clone());
-    assert_eq!(cut("MapleStory Fest Gi.."), Some("MapleStory Fest Gift Box".into()));
-    assert_eq!(cut("Two-handed Axe Attack Scr.."), None, "two grades start so");
-    assert_eq!(cut("MapleStory Fest Gift Box"), None, "not cut");
-    assert_eq!(cut("Map.."), None, "too little left");
-    assert_eq!(cut("Two-handed Axe Attack Scroll: l.."), None, "a bar starts Lesser and Intermediate alike");
-    // Cut at the tooltip's edge with no "..", its last bar read as a capital: still every grade.
-    assert_eq!(found(&catalog, "Two-handed Axe Attack ScroI"), None);
-}
-
-#[test]
 fn trailing_read_junk_is_ignored() {
     assert_eq!(found(&catalog(), "Emerald Ore ii").as_deref(), Some("Emerald Ore"));
     assert_eq!(clean_title("Kitty Camping Hat ii"), "Kitty Camping Hat");
@@ -369,10 +347,6 @@ fn a_lost_gender_letter_names_neither_variant() {
     let catalog = Catalog::new([item("Red Cloth Pants"), item("Red Cloth Pants (F)"), item("Undershirt")], None);
     let name = |read: &str| catalog.lookup(read).map(|i| i.name.clone());
     assert_eq!(name("Red Cloth Pants ()"), None);
-    // The letter read: the (F) is named apart, so the plain name is the (M).
-    assert_eq!(name("Red Cloth Pants (M)").as_deref(), Some("Red Cloth Pants"));
-    assert_eq!(catalog.lookup_exact("Red Cloth Pants (M)").map(|i| i.name.clone()).as_deref(), Some("Red Cloth Pants"));
-    assert_eq!(catalog.lookup_exact("Red Cloth Pants (M(").map(|i| i.name.clone()).as_deref(), Some("Red Cloth Pants"));
     assert_eq!(name("Red Cloth Pants (F)").as_deref(), Some("Red Cloth Pants (F)"));
     assert_eq!(name("Red Cloth Pants").as_deref(), Some("Red Cloth Pants"));
     // An item with no variants still reads through a gender mark.
@@ -390,74 +364,4 @@ fn several_look_alike_misreads_in_one_name_still_find_it() {
     assert_eq!(found(&catalog, "lron 0re").as_deref(), Some("Iron Ore"));
     // Wrong letters that are not look-alikes cost full price: this is nothing, not Iron Axe.
     assert_eq!(found(&catalog, "Iron Qxz"), None);
-}
-
-#[test]
-fn a_read_with_gaps_names_the_one_item_it_fits_exactly() {
-    let item = |name: &str| Item { name: name.into(), ..maplelens_core::market::sample::sample_items()[0].clone() };
-    let catalog = Catalog::new(
-        [item("Wooden Top"), item("Wooden Wand"), item("Wooden Board"), item("Pole Arm"), item("Axe Pole Arm")],
-        None,
-    );
-    let name = |read: &str| catalog.lookup_gaps(read).map(|i| i.name.clone());
-    assert_eq!(name("?ooden Top").as_deref(), Some("Wooden Top"));
-    // Two names fit; a letter misread as punctuation leaves none.
-    assert_eq!(name("Wooden ?a?d"), None);
-    assert_eq!(name("Wooden ?a(r((d"), None);
-    // Something beside the title, not a letter of it.
-    assert_eq!(name("? Pole Arm"), None);
-    assert_eq!(name("?ooden Top (?)"), None, "a gender mark's letter unread");
-    assert_eq!(name("Pole Arm"), None, "no gap: not this lookup's to decide");
-}
-
-#[test]
-fn an_exact_read_takes_capital_i_and_lowercase_l_as_one_bar() {
-    let item = |name: &str| Item { name: name.into(), ..maplelens_core::market::sample::sample_items()[0].clone() };
-    let catalog = Catalog::new([item("Pig Illustrated"), item("Return Scroll to El Nath"), item("Steel Titans")], None);
-    let name = |read: &str| catalog.lookup_exact(read).map(|i| i.name.clone());
-    assert_eq!(name("Pig lllustrated").as_deref(), Some("Pig Illustrated"));
-    assert_eq!(name("Return Scroll to EI Nath").as_deref(), Some("Return Scroll to El Nath"));
-    // A dotted i is not a bar.
-    assert_eq!(name("Steel Tltans"), None);
-    // A 'd' read as "cl".
-    let catalog = Catalog::new([item("Reindeer Milk")], None);
-    assert_eq!(catalog.lookup_exact("Reincleer Milk").map(|i| i.name.clone()).as_deref(), Some("Reindeer Milk"));
-}
-
-#[test]
-fn a_cut_scroll_title_keeps_its_grades_and_the_description_picks_one() {
-    use maplelens_core::market::catalog::Grade;
-    let item = |name: &str| Item { name: name.into(), ..maplelens_core::market::sample::sample_items()[0].clone() };
-    let grades = ["Lesser", "Intermediate", "Greater", "Chaos"];
-    let names: Vec<String> = grades.iter().map(|g| format!("Two-handed Blunt Weapon Attack Scroll: {g}")).collect();
-    let catalog = Catalog::new(names.iter().map(|n| item(n)).chain([item("Two-handed Sword")]), None);
-    let found = catalog.grades("Two-handed Blunt Weapon Attack Scr").expect("four grades");
-    assert_eq!(found.len(), 4);
-    assert!(catalog.grades("Two-handed").is_none(), "starts other names too");
-    let grade = Grade::from_description;
-    assert_eq!(
-        grade("Improves Weapon Attack on two-handed blunt weapons. Success rate: 100%, Weapon Attack +1"),
-        Some(Grade::Lesser)
-    );
-    assert_eq!(grade("Success rate:6O%, Weapon Attack +2"), Some(Grade::Intermediate));
-    assert_eq!(grade("Success rate: 10%, Weapon Attack +4"), Some(Grade::Greater));
-    assert_eq!(
-        grade("Success rate: 10%, Weapon Attack +5 Upon failure, the item has a 50% chance to be destroyed."),
-        Some(Grade::Chaos)
-    );
-    // Cut off at the rate: a Chaos warning could be in the part not read.
-    assert_eq!(grade("Success rate: 10%"), None);
-    assert_eq!(grade("Success rate: 30%, Weapon"), None);
-    assert_eq!(grade("Success rate: 60? Weapon Attack +2"), Some(Grade::Intermediate));
-    assert_eq!(grade("Success rate: 6S%, Weapon"), None);
-}
-
-#[test]
-fn a_reading_that_lost_the_titles_last_word_is_caught() {
-    let past = Catalog::read_goes_past;
-    assert!(past("Red Moon G?oves", "Red Moon"));
-    assert!(past("?range Calaf (F) (+?)", "Orange"));
-    assert!(!past("Red Moon G?oves", "Red Moon Gloves"));
-    assert!(!past("?ctopus ILeg", "Octopus Leg"), "a stray letter is no word");
-    assert!(!past("Ink?and?Wash Painting", "Ink-and-Wash Painting Name Tag Ring"), "a wrapped title");
 }

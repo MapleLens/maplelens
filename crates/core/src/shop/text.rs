@@ -10,8 +10,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use super::layout::{Area, View};
 use crate::image::RgbImage;
-use crate::vision::gaps::fits;
-use crate::vision::pixel_font::{PixelFont, line_mask, shop_small_font, unscaled_line_mask};
+use crate::vision::pixel_font::{PixelFont, line_mask, shop_small_font};
 use crate::vision::vector_font::{Line, read, shop_font};
 
 /// The bitmap font's UI scale ("Ideal Ratio"); it is drawn at whole multiples of it.
@@ -73,31 +72,12 @@ pub fn read_area(view: &View<'_>, area: Area, light_text: bool) -> Option<Text> 
     read_pixels(&view.frame.crop(x0, y0, x1, y1), view.scale, light_text)
 }
 
-/// A line's text by the shop's fonts, from its pixels as captured at UI `scale`.
-pub fn read_pixels(pixels: &RgbImage, scale: f32, light_text: bool) -> Option<Text> {
+fn read_pixels(pixels: &RgbImage, scale: f32, light_text: bool) -> Option<Text> {
     let (text, unknown) = match bitmap_block(scale) {
         Some(block) => bitmap_font().read_line(&line_mask(pixels, block, light_text)?),
         None => {
-            // The default sizes scale the bitmap font up with the whole frame: shrunk back it is read exactly, but a
-            // dot can fade away in the shrink. So it only fills the drawn templates' gaps, where it agrees with every
-            // letter they are sure of.
-            // A name (light on dark: the status bar's, the plate's) is read exactly when the shrunk read knows every
-            // shape: the templates take a kerned "yy" or "vv" for 'w', and names are letters only, nothing a shrink loses.
-            if light_text
-                && let Some((text, 0)) =
-                    unscaled_line_mask(pixels, scale / BITMAP_SCALE, true).map(|m| bitmap_font().read_line(&m))
-                && !text.trim().is_empty()
-            {
-                let text = settle(text.trim());
-                return Some(Text { text, unknown: 0 });
-            }
             let reading = read(&Line::new(pixels, scale, light_text)?, shop_font())?;
-            let exact = (reading.unknown > 0)
-                .then(|| unscaled_line_mask(pixels, scale / BITMAP_SCALE, light_text))
-                .flatten()
-                .map(|mask| bitmap_font().read_line(&mask))
-                .filter(|(text, unknown)| *unknown == 0 && fits(&reading.text, text));
-            exact.unwrap_or((reading.text, reading.unknown))
+            (reading.text, reading.unknown)
         }
     };
     let text = settle(text.trim());
@@ -158,9 +138,6 @@ pub fn settle_bars(text: &str) -> String {
                 if after.is_some_and(|c| "aeiouy".contains(c)) { 'l' } else { 'I' }
             } else if upper(before) && lower(after) {
                 'l'
-            } else if starts_word && upper(after) {
-                // Before a capital, starting a word: an initial or an acronym ("INT", "IV").
-                'I'
             } else if lower(before) && (lower(after) || upper(after) || after.is_none_or(|c| !c.is_alphanumeric())) {
                 // After lowercase letters a bar ends the lowercase run: before more lowercase, the end of a word
                 // ("Steel", "Mithril") or a capital starting the next part of a name ("ApexKillKing").
@@ -187,7 +164,6 @@ mod tests {
         assert_eq!(settle_bars("ltsDaniel"), "ItsDaniel");
         assert_eq!(settle_bars("Iooking4deal Iicksack lron"), "looking4deal licksack Iron");
         assert_eq!(settle_bars("YlNO"), "YINO");
-        assert_eq!(settle_bars("Cape lNT Scroll"), "Cape INT Scroll");
         assert_eq!(settle_bars("ElliottBoy"), "ElliottBoy");
         assert_eq!(settle_bars("SteeI Titans"), "Steel Titans");
         assert_eq!(settle_bars("MithriI Ore"), "Mithril Ore");
