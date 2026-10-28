@@ -5,6 +5,7 @@
 //! to show the card.
 
 pub mod config;
+pub mod drops;
 pub mod geometry;
 pub mod hotkey;
 pub mod image;

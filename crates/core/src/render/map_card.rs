@@ -197,7 +197,7 @@ fn sprite(cv: &mut Canvas<'_>, x: f32, y: f32, image: Option<Arc<RgbaImage>>) {
     cv.image(left, top, w, h, (image.width, image.height, &image.data));
 }
 
-fn fit_text(cv: &Canvas<'_>, text: &str, size: f32, bold: bool, width: f32) -> String {
+pub(super) fn fit_text(cv: &Canvas<'_>, text: &str, size: f32, bold: bool, width: f32) -> String {
     if cv.measure(text, size, bold) <= width {
         return text.to_string();
     }

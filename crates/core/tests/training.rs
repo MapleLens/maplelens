@@ -5,6 +5,7 @@ mod common;
 use common::fixture;
 use maplelens_core::geometry::{Point, Rect};
 use maplelens_core::image::{GrayImage, RgbImage};
+use maplelens_core::mapinfo::Location;
 use maplelens_core::pipeline::FrameScreen;
 use maplelens_core::placement::place_in_corner;
 use maplelens_core::render::theme;
@@ -330,6 +331,8 @@ fn the_watcher_reads_the_exp_and_the_map() {
     let training = watcher.training(108.0);
     assert_eq!(training.exp.reading, read(19_945, 9_866));
     assert_eq!(training.exp.map.as_deref(), Some("Free Market <3>"));
+    // The street comes with it, for the map drops panel's lookup.
+    assert_eq!(training.location, Some(Location::new("Hidden Street", "Free Market <3>")));
     assert_eq!(training.quest, None);
 }
 

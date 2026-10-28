@@ -110,7 +110,17 @@ fn npc_rank(npc: &Npc) -> (bool, bool) {
     (SEASONAL.iter().any(|w| role.contains(w)), npc.role.is_empty())
 }
 
-pub fn assemble(id: u32, outline: MapOutline, mobs: Vec<Mob>, mut npcs: Vec<Npc>) -> MapInfo {
+/// Monster IDs the game keeps for event-only monsters. The classic-era data still places some on ordinary maps (a
+/// level 20 "King Slime", 9500168, on Henesys Hunting Ground I) where they do not spawn: the map helper's card listed
+/// it, and the drops panel, matching by name, showed the real King Slime's drops for it.
+const EVENT_MOBS: std::ops::RangeInclusive<u32> = 9_500_000..=9_599_999;
+
+pub fn is_event_mob(id: u32) -> bool {
+    EVENT_MOBS.contains(&id)
+}
+
+pub fn assemble(id: u32, outline: MapOutline, mut mobs: Vec<Mob>, mut npcs: Vec<Npc>) -> MapInfo {
+    mobs.retain(|m| !is_event_mob(m.id));
     npcs.sort_by_key(npc_rank);
     MapInfo { id, name: outline.name, street: outline.street, is_town: outline.is_town, mobs, npcs }
 }
@@ -153,7 +163,8 @@ pub fn map_from_json(file: &str) -> Option<MapInfo> {
         name: text(&raw, "name")?,
         street: text(&raw, "street")?,
         is_town: raw.get("is_town")?.as_bool()?,
-        mobs: mobs.collect::<Option<_>>()?,
+        // Maps cached before event monsters were left out lose them here.
+        mobs: mobs.collect::<Option<Vec<Mob>>>()?.into_iter().filter(|m| !is_event_mob(m.id)).collect(),
         npcs: npcs.collect::<Option<_>>()?,
     })
 }

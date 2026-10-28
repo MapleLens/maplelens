@@ -7,7 +7,8 @@
 
 use super::canvas::{Anchor, Canvas, Ink};
 use super::font::Fonts;
-use super::theme;
+use super::map_card::fit_text;
+use super::theme::{self, Rgba};
 use super::{RgbaImage, details, glance, origin, range_bar};
 use crate::market::format::format_ago;
 use crate::market::models::Item;
@@ -64,14 +65,36 @@ fn draw(section: Section, cv: &mut Canvas<'_>, y: f32, item: &Item, now: f64) ->
     }
 }
 
+/// A card opened where the game does not name the item (a drop in the map drops panel): its name is the card's title,
+/// with a line about it in a colour of its own under it, and where that comes from (faint; "" for none).
+#[derive(Clone, Copy, Debug)]
+pub struct Heading<'a> {
+    pub name: &'a str,
+    pub note: &'a str,
+    pub colour: Rgba,
+    pub source: &'a str,
+}
+
 /// The card for `spec.item`, or a small notice when the item has no market data.
 pub fn render_card(fonts: &Fonts, spec: &CardSpec<'_>) -> RgbaImage {
+    compose(fonts, spec, None)
+}
+
+/// The same card under the item's name instead of the data's.
+pub fn render_named_card(fonts: &Fonts, spec: &CardSpec<'_>, heading: &Heading<'_>) -> RgbaImage {
+    compose(fonts, spec, Some(heading))
+}
+
+fn compose(fonts: &Fonts, spec: &CardSpec<'_>, heading: Option<&Heading<'_>>) -> RgbaImage {
     let wide = spec.wide && spec.expanded && spec.item.is_some_and(|i| i.price.is_some());
     let width = if wide { CARD_WIDTH + SIDE_WIDTH } else { CARD_WIDTH };
     let factor = theme::CARD_SCALE * spec.ui_scale;
     let mut body = Canvas::new(fonts, width, MAX_HEIGHT, factor);
     body.width = CARD_WIDTH; // sections lay out in the main column
-    let mut y = glance::header(&mut body, 8.0, spec.item);
+    let mut y = match heading {
+        Some(heading) => named_header(&mut body, 8.0, spec.item, heading),
+        None => glance::header(&mut body, 8.0, spec.item),
+    };
     match spec.item {
         None => {
             let headline =
@@ -93,6 +116,26 @@ pub fn render_card(fonts: &Fonts, spec: &CardSpec<'_>) -> RgbaImage {
     card.frame(height);
     card.composite(&body, 0.0, 0.0);
     RgbaImage::from_canvas(&card)
+}
+
+fn named_header(cv: &mut Canvas<'_>, y: f32, item: Option<&Item>, heading: &Heading<'_>) -> f32 {
+    cv.circle(glance::PAD + 3.5, y + 9.5, 3.5, theme::BULLET, None);
+    let left = glance::PAD + 13.0;
+    let right = item.map_or(cv.width - glance::PAD, |item| glance::chips(cv, y, item));
+    let name = fit_text(cv, heading.name, 13.0, true, right - 6.0 - left);
+    cv.text(left, y + 1.0, &name, Ink::new(13.0, theme::TEXT).bold(), Anchor::LA);
+    if heading.note.is_empty() {
+        return y + 26.0;
+    }
+    let room = cv.width - glance::PAD - left;
+    let note = fit_text(cv, heading.note, 10.0, false, room);
+    cv.text(left, y + 21.0, &note, Ink::new(10.0, heading.colour), Anchor::LA);
+    if heading.source.is_empty() {
+        return y + 40.0;
+    }
+    let source = fit_text(cv, heading.source, 9.0, false, room);
+    cv.text(left, y + 35.0, &source, Ink::new(9.0, theme::TEXT_FAINT), Anchor::LA);
+    y + 52.0
 }
 
 /// What the main column shows, as groups of sections; a divider separates groups that drew anything.

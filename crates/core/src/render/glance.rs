@@ -30,15 +30,22 @@ pub(crate) fn coin() -> &'static (usize, usize, Vec<u8>) {
 pub fn header(cv: &mut Canvas<'_>, y: f32, item: Option<&Item>) -> f32 {
     cv.circle(PAD + 3.5, y + 9.5, 3.5, theme::BULLET, None);
     cv.text(PAD + 13.0, y + 2.0, "MesoWatch", Ink::new(11.0, theme::TEXT_DIM).bold(), Anchor::LA);
-    let Some(item) = item else { return y + 26.0 };
+    if let Some(item) = item {
+        chips(cv, y, item);
+    }
+    y + 26.0
+}
+
+/// The LOW DATA and category chips at the header's right end; returns where they begin.
+pub fn chips(cv: &mut Canvas<'_>, y: f32, item: &Item) -> f32 {
     let mut right = cv.width - PAD;
     if item.low_data {
         right -= cv.chip(right, y, "LOW DATA", Ink::new(10.0, theme::WARN).bold(), true, 16.0) + 4.0;
     }
     if let Some(category) = &item.category {
-        cv.chip(right, y, category, Ink::new(10.0, theme::TEXT_DIM), true, 16.0);
+        right -= cv.chip(right, y, category, Ink::new(10.0, theme::TEXT_DIM), true, 16.0);
     }
-    y + 26.0
+    right
 }
 
 /// The price, large, on the left; the trend pill over a sparkline of the week on the right, so a long price

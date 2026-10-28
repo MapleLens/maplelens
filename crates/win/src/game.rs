@@ -13,6 +13,7 @@ use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
 };
 use windows::Win32::UI::HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext};
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClientRect, GetCursorPos, GetForegroundWindow, GetWindowThreadProcessId, IsIconic, IsWindow,
     IsWindowVisible, SetProcessDPIAware,
@@ -105,6 +106,13 @@ pub fn client_rect(hwnd: HWND) -> Option<Rect> {
 pub fn is_foreground(hwnd: HWND) -> bool {
     // SAFETY: plain queries.
     unsafe { GetForegroundWindow() == hwnd && !IsIconic(hwnd).as_bool() }
+}
+
+/// Is the left mouse button held? A read of the input state (no hook, nothing sent): presses on MapleLens's own
+/// cards, which stay click-through, are seen this way.
+pub fn left_button_down() -> bool {
+    // SAFETY: a plain query; the high bit is "down now".
+    unsafe { GetAsyncKeyState(i32::from(VK_LBUTTON.0)) as u16 & 0x8000 != 0 }
 }
 
 pub fn cursor() -> Option<Point> {
