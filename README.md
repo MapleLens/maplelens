@@ -245,6 +245,9 @@ git commit -am "Release 0.2.1"; git tag v0.2.1; git push --follow-tags
 Pushing a `v*.*.*` tag runs `.github/workflows/release.yml`: format and lint checks, tests, a release build, a
 `--version` smoke test, then a GitHub Release with `maplelens-vX.Y.Z-windows.zip` (exe, README, LICENSE), its
 SHA-256 and the signed update manifest (`maplelens-vX.Y.Z-manifest.json` + `.sig`) the in-app updater requires.
-Signing uses the `UPDATE_SIGNING_KEY` Actions secret; `maplelens --make-update-key BACKUP_PATH` creates a key once
-(it stores the secret through `gh` and prints the public key for `crates/win/src/update/mod.rs`). Tags containing `-` (e.g. `v0.3.0-rc1`) are marked pre-release. No price data is ever bundled. `ci.yml`
+Signing runs in a job of its own (`scripts/sign-release.sh`, OpenSSL: nothing of the build runs beside the key) with
+the `UPDATE_SIGNING_KEY` secret of the `release` environment; `maplelens --make-update-key BACKUP_PATH` creates a key
+once (it stores the secret through `gh` and prints the public key for `crates/win/src/update/mod.rs`), and
+`maplelens --sign-release ZIP` signs the same way locally. Versions are plain X.Y.Z: a tag like `v0.3.0-rc1` fails at
+signing. No price data is ever bundled. `ci.yml`
 runs the same checks plus the WebAssembly build on every push and PR.

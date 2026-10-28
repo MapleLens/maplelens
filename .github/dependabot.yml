@@ -4,8 +4,9 @@ updates:
     directory: /
     schedule:
       interval: monthly
-    # dtolnay/rust-toolchain's refs name Rust versions, not action versions: @1.88 is the minimum-Rust check
-    # (rust-version in Cargo.toml) and must only move with it.
+    # Actions are pinned to commit SHAs with the version in a comment, which Dependabot updates together.
+    # dtolnay/rust-toolchain has no releases, only branches named after Rust versions: it is pinned to a commit of its
+    # master (the toolchain is an input) and moved by hand.
     ignore:
       - dependency-name: dtolnay/rust-toolchain
   - package-ecosystem: cargo
