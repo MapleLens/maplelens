@@ -21,7 +21,8 @@ function storage(action) {
 export class Lens {
   /**
    * @param {object} options
-   * @param {(state: object, fps: number, ms: number) => void} options.onState  every processed frame (ms: the engine's time on it)
+   * @param {(state: object, fps: number, ms: number, grab: number) => void} options.onState  every processed frame (ms: the
+   *   engine's time on it; grab: the worker's, turning the bitmap into pixels)
    * @param {(which: "card"|"rank"|"training", image: ImageData, about: object) => void} options.onCard
    *   a card was redrawn; `about` says what it shows (an item card: {name, price, trend}; the rank panel: {read,
    *   status, rank}, see `Engine::rank_about`; the training card: nothing)
@@ -46,6 +47,7 @@ export class Lens {
   constructor(options, resolve, reject) {
     this.options = options;
     this.busy = false;
+    this.idleWaiters = [];
     this.ocrEnabled = Boolean(options.ocr);
     this.ocrQueue = [];
     this.testResolvers = [];
@@ -54,7 +56,7 @@ export class Lens {
     this.catalogCount = 0;
     this.tesseract = null;
     this.tesseractLoading = null;
-    this.worker = new Worker(new URL("worker.js?v=278fbc46ebfc", base), { type: "module" });
+    this.worker = new Worker(new URL("worker.js?v=074b62c0806b", base), { type: "module" });
     this.worker.onerror = event => reject(new Error(event.message || "the engine could not start"));
     this.counts = {};
     this.bytes = 0;
@@ -63,8 +65,8 @@ export class Lens {
       if (data.json) this.bytes += data.json.length;
       switch (data.type) {
         case "ready": this.version = data.version; this.items = data.items; if (this.ocrEnabled) this.loadTesseract(); resolve(this); break;
-        case "idle": this.busy = false; break;
-        case "state": options.onState(data.state, data.fps, data.ms); break;
+        case "idle": this.busy = false; this.idleWaiters.splice(0).forEach(resolve => resolve()); break;
+        case "state": options.onState(data.state, data.fps, data.ms, data.grab); break;
         case "card": options.onCard(data.which, new ImageData(new Uint8ClampedArray(data.pixels.buffer), data.width, data.height), data.about); break;
         case "glyphs": storage(s => s.setItem(GLYPHS_KEY(data.font), data.json)); break;
         case "training-save": storage(s => s.setItem(TRAINING_KEY, data.json)); options.onTrainingHistory?.(data.history); break;
@@ -79,7 +81,13 @@ export class Lens {
     };
   }
 
-  /** Offer a frame (an ImageBitmap of the game window); dropped while the previous one is still being read. */
+  /** Resolves once the engine is ready for the next frame. */
+  idle() {
+    return this.busy ? new Promise(resolve => this.idleWaiters.push(resolve)) : Promise.resolve();
+  }
+
+  /** Offer a frame of the game window (an ImageBitmap or a VideoFrame, handed over); dropped while the previous one is
+   *  still being read. */
   frame(bitmap, { inset = 0, scale = 0 } = {}) {
     if (this.busy) {
       bitmap.close();

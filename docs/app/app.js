@@ -2,13 +2,13 @@
 // test hooks started by a URL parameter), feed frames to the engine, show the cards in the page and, on request, in a picture-in-picture window that floats over the game.
 // The training panel (EXP rates, potions) is drawn from the numbers the engine reads off the HUD.
 
-import { Lens } from "./lens.js?v=278fbc46ebfc";
-import { CardView, floatingSize, openFloating } from "./cards.js?v=278fbc46ebfc";
-import { CardFeed } from "./cardfeed.js?v=278fbc46ebfc";
-import { Prices } from "./prices.js?v=278fbc46ebfc";
-import { drawMapleQr } from "./mapleqr.js?v=278fbc46ebfc";
-import { StoreBook } from "./storebook.js?v=278fbc46ebfc";
-import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=278fbc46ebfc";
+import { Lens } from "./lens.js?v=074b62c0806b";
+import { CardView, floatingSize, openFloating } from "./cards.js?v=074b62c0806b";
+import { CardFeed } from "./cardfeed.js?v=074b62c0806b";
+import { Prices } from "./prices.js?v=074b62c0806b";
+import { drawMapleQr } from "./mapleqr.js?v=074b62c0806b";
+import { StoreBook } from "./storebook.js?v=074b62c0806b";
+import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=074b62c0806b";
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -46,8 +46,12 @@ const LOG_ROWS = 40;
 /** A still frame is held this long (and until its text is read, up to the maximum) before the next one. */
 const FRAME_HOLD_MS = 4000;
 const FRAME_HOLD_MAX_MS = 90000;
-/** The engine may take at most a third of the time: after a frame that took `ms`, the next waits twice as long. */
+/** The engine may take about a third of the time: after frames that took `ms` (the median of the last few), the next
+ *  waits twice as long. The median, because the searches that run on their own clocks (a Character Info band every
+ *  0.3 s, the shop each second) made one look in three slow, and with the mean a 1440p window was looked at 8 times a
+ *  second instead of 10. */
 const PACE = 2;
+const PACE_FRAMES = 5;
 /** With nothing to follow, a quarter-second between looks is fast enough (a tooltip takes longer than that to
  *  appear); while a tooltip or window is being read, the full rate. */
 const IDLE_GAP_MS = 250;
@@ -63,7 +67,8 @@ let floating = null; // {window, view}
 let pageView = null;
 /** What the page's card panel and the floating window show (the item card lingers, then joins the recent items). */
 const feed = new CardFeed();
-let lastMs = 0;
+/** The worker's time on the last few frames (ms), for the pacing. */
+const recentMs = [];
 let lastState = null;
 let lastSeen = 0; // when a tooltip or Character Info window was last in the state
 let latest = { title: "", store: null, sharing: false };
@@ -73,7 +78,7 @@ let latest = { title: "", store: null, sharing: false };
 const images = { card: null, about: null, rank: null };
 /** Which of them the last state showed. */
 let live = { card: false, rank: false };
-const stats = { shopEvents: [], frames: 0, dropped: 0, ms: [], longTasks: 0, started: 0, cards: 0, hovers: 0, titles: {}, mainMs: 0, pumpMs: 0 };
+const stats = { shopEvents: [], frames: 0, dropped: 0, ms: [], grab: [], parts: [], gaps: [], longTasks: 0, started: 0, cards: 0, hovers: 0, titles: {}, mainMs: 0, pumpMs: 0 };
 window.maplelensStats = () => summary();
 
 function storage(action) {
@@ -539,15 +544,26 @@ function setPill(id, on, text) {
   $(id).textContent = text;
 }
 
-function summary() {
-  const sorted = [...stats.ms].sort((a, b) => a - b);
+/** The engine's parts, in the order of its state's `parts`. */
+const PARTS = ["pixels", "tooltip", "info", "cards", "shop", "training"];
+
+/** Average and 95th percentile of a list of timings (ms). */
+function spread(list) {
+  const sorted = [...list].sort((a, b) => a - b);
   const at = q => sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))] : 0;
+  return { avg: sorted.length ? sorted.reduce((a, b) => a + b, 0) / sorted.length : 0, p50: at(0.5), p95: at(0.95), max: sorted.at(-1) || 0 };
+}
+
+function summary() {
+  const { avg, p50, p95, max } = spread(stats.ms);
   const seconds = stats.started ? (performance.now() - stats.started) / 1000 : 0;
   return {
     frames: stats.frames, dropped: stats.dropped, cards: stats.cards, hovers: stats.hovers, titles: stats.titles, seconds,
     fps: seconds ? stats.frames / seconds : 0,
-    avgMs: sorted.length ? sorted.reduce((a, b) => a + b, 0) / sorted.length : 0,
-    p50Ms: at(0.5), p95Ms: at(0.95), maxMs: sorted.at(-1) || 0,
+    avgMs: avg, p50Ms: p50, p95Ms: p95, maxMs: max,
+    // The time between looks (ms), the worker's turning a bitmap into pixels, and the engine's parts.
+    gap: spread(stats.gaps), grab: spread(stats.grab), sourceFps: stats.sourceFps,
+    parts: Object.fromEntries(PARTS.map((name, i) => [name, spread(stats.parts.map(p => p[i] || 0))])),
     longTasks: stats.longTasks,
     shopEvents: stats.shopEvents,
     shop: stats.shop, frameSize: lastSize,
@@ -574,7 +590,7 @@ function show(which, image, about) {
 }
 
 function drawBoxes(state, frameWidth, frameHeight) {
-  const stage = $("view");
+  const stage = $("boxes");
   const rect = stage.getBoundingClientRect();
   const k = Math.min(rect.width / frameWidth, rect.height / frameHeight);
   const ox = (rect.width - frameWidth * k) / 2;
@@ -600,19 +616,24 @@ function drawBoxes(state, frameWidth, frameHeight) {
   }));
 }
 
-function onState(state, fps, ms) {
+function onState(state, fps, ms, grab) {
   const t0 = performance.now();
   try {
-    handleState(state, fps, ms);
+    handleState(state, fps, ms, grab);
   } finally {
     stats.mainMs += performance.now() - t0;
   }
 }
 
-function handleState(state, fps, ms) {
+function handleState(state, fps, ms, grab) {
   lastState = state;
   stats.frames += 1;
-  lastMs = ms;
+  recentMs.push(ms + (grab || 0));
+  if (recentMs.length > PACE_FRAMES) recentMs.shift();
+  for (const [list, value] of [[stats.grab, grab || 0], [stats.parts, state.parts || []]]) {
+    list.push(value);
+    if (list.length > STATS_FRAMES) list.shift();
+  }
   if (state.hover) {
     stats.hovers += 1;
     stats.titles[state.hover.title] = (stats.titles[state.hover.title] || 0) + 1;
@@ -628,7 +649,7 @@ function handleState(state, fps, ms) {
     stats.shopEvents.push(...state.shop.events);
   }
   stats.shop = { looks: state.shop?.looks, undone: state.shop?.undone, ownerReads: state.shop?.owner_reads };
-  const note = `${fps.toFixed(0)} fps · read ${ms.toFixed(0)} ms · UI ${state.scale.toFixed(2)}x${state.ocr ? " · reading new letters" : ""}`;
+  const note = `${fps.toFixed(0)} looks a second · read ${ms.toFixed(0)} ms · UI ${state.scale.toFixed(2)}x${state.ocr ? " · reading new letters" : ""}`;
   $("fps").textContent = note;
   latest = {
     title: state.hover?.title || (state.info?.name ? `${state.info.name}'s ranks` : ""),
@@ -670,43 +691,90 @@ function manualScale() {
 /** Longest side (px) of the picture shown in the page: the engine gets the full frame, the player only a preview. */
 const PREVIEW_PX = 960;
 
+/** The time between looks (ms): the full rate while something is followed, a quarter second otherwise, and longer
+ *  while the engine is slow. */
+function lookGap() {
+  const idle = performance.now() - lastSeen > IDLE_AFTER_MS;
+  const ms = [...recentMs].sort((a, b) => a - b)[recentMs.length >> 1] || 0;
+  return Math.max(idle ? IDLE_GAP_MS : 1000 / FPS, PACE * ms);
+}
+
 async function pump() {
   const view = $("view");
   const context = view.getContext("2d");
   let last = 0;
-  // Asked by the source before it makes a bitmap of a frame: most of a 60 fps video's frames would be thrown away,
-  // and a bitmap of every one of them cost more than reading the ones we keep.
-  const due = () => performance.now() - last >= Math.max(performance.now() - lastSeen > IDLE_AFTER_MS ? IDLE_GAP_MS : 1000 / FPS, PACE * lastMs);
+  // Looks are kept on a grid (`nextAt`, a gap after the one before), and a frame is taken when it is nearer its look's
+  // time than the next frame would be. "A gap or more since the last look" missed most frames of a shared window,
+  // which come at about the rate asked: each came a millisecond early, the next was taken, and a 10 fps share was
+  // looked at 5 times a second.
+  let nextAt = 0;
+  let frameGap = 1000 / FPS; // between the source's frames, measured
+  let lastFrame = 0;
+  const due = () => performance.now() >= nextAt - frameGap / 2;
+  // Asked by the source for every frame before it makes a bitmap of it: most of a 60 fps video's frames would be
+  // thrown away, and a bitmap of every one of them cost more than reading the ones we keep.
+  const offered = () => {
+    const now = performance.now();
+    if (lastFrame) frameGap += (Math.min(now - lastFrame, IDLE_GAP_MS) - frameGap) / 8;
+    stats.sourceFps = 1000 / frameGap;
+    lastFrame = now;
+    return due();
+  };
   while (source) {
-    const bitmap = await source.next(due);
+    const bitmap = await source.next(offered);
     if (!bitmap || !source) break;
     if (!due()) {
       bitmap.close();
       continue;
     }
     const t0 = performance.now();
-    last = t0;
-    const k = Math.min(1, PREVIEW_PX / Math.max(bitmap.width, bitmap.height));
-    const [w, h] = [Math.round(bitmap.width * k), Math.round(bitmap.height * k)];
-    if (view.width !== w || view.height !== h) {
-      view.width = w;
-      view.height = h;
+    lastSize = [bitmap.displayWidth ?? bitmap.width, bitmap.displayHeight ?? bitmap.height];
+    if (!source.preview) {
+      const k = Math.min(1, PREVIEW_PX / Math.max(...lastSize));
+      const [w, h] = lastSize.map(n => Math.round(n * k));
+      if (view.width !== w || view.height !== h) {
+        view.width = w;
+        view.height = h;
+      }
+      context.drawImage(bitmap, 0, 0, w, h);
     }
-    context.drawImage(bitmap, 0, 0, w, h);
-    lastSize = [bitmap.width, bitmap.height];
+    // A look due while the engine is still on a slow one waits for it (a few ms) rather than for the next frame.
+    if (lens.busy) await lens.idle();
+    if (!source) {
+      bitmap.close();
+      break;
+    }
     const accepted = lens.frame(bitmap, { inset: source.fullFrame ? 0 : inset(), scale: source.scale || manualScale() });
-    if (!accepted) stats.dropped += 1;
+    if (accepted) {
+      if (last) {
+        stats.gaps.push(t0 - last);
+        if (stats.gaps.length > STATS_FRAMES) stats.gaps.shift();
+      }
+      last = t0;
+      // On time (early, or late by less than a frame): the grid holds. Later (the engine was busy, the source paused):
+      // it starts again from now.
+      nextAt = t0 - nextAt < frameGap ? nextAt + lookGap() : t0 + lookGap();
+    } else stats.dropped += 1;
     stats.pumpMs += performance.now() - t0;
   }
+}
+
+/** The shared window shown as it plays (the page's own video, not the looks: those come 4-10 times a second). */
+function showPreview(stream) {
+  const live = $("live");
+  live.srcObject = stream;
+  live.hidden = !stream;
+  $("view").hidden = Boolean(stream);
+  if (stream) live.play().catch(() => {});
 }
 
 function start(newSource) {
   stop();
   source = newSource;
   lastSeen = performance.now();
-  Object.assign(stats, { frames: 0, dropped: 0, ms: [], longTasks: 0, cards: 0, hovers: 0, titles: {}, mainMs: 0, pumpMs: 0, started: performance.now() });
+  Object.assign(stats, { frames: 0, dropped: 0, ms: [], grab: [], parts: [], gaps: [], longTasks: 0, cards: 0, hovers: 0, titles: {}, mainMs: 0, pumpMs: 0, started: performance.now() });
   $("start").hidden = true;
-  $("view").hidden = false;
+  showPreview(source.preview || null);
   $("meter").hidden = false;
   $("source").textContent = source.label;
   pump();
@@ -716,6 +784,7 @@ function stop() {
   source?.stop();
   source = null;
   $("start").hidden = false;
+  showPreview(null);
   $("view").hidden = true;
   $("meter").hidden = true;
   $("boxes").replaceChildren();
@@ -732,7 +801,7 @@ function stop() {
   showPanels(null);
 }
 
-/** Frames of a shared window, one ImageBitmap at a time. */
+/** Frames of a shared window, one at a time (VideoFrames where the browser has a track processor, else ImageBitmaps). */
 function windowSource(stream) {
   const track = stream.getVideoTracks()[0];
   track.addEventListener("ended", stop);
@@ -743,13 +812,8 @@ function windowSource(stream) {
       for (;;) {
         const { value: frame, done } = await reader.read();
         if (done) return null;
-        if (!due()) {
-          frame.close();
-          continue;
-        }
-        const bitmap = await createImageBitmap(frame);
+        if (due()) return frame; // handed to the engine's worker as it is: it copies the pixels out itself
         frame.close();
-        return bitmap;
       }
     };
   } else {
@@ -759,7 +823,7 @@ function windowSource(stream) {
       video.requestVideoFrameCallback(() => (due() ? createImageBitmap(video).then(resolve, () => resolve(null)) : wait(resolve)));
     });
   }
-  return { label: track.label || "shared window", scale: 0, next, stop: () => stream.getTracks().forEach(t => t.stop()) };
+  return { label: track.label || "shared window", scale: 0, next, preview: stream, stop: () => stream.getTracks().forEach(t => t.stop()) };
 }
 
 /** A recorded clip of the game (a stream's VOD, a screen recording), played in a loop: for trying MapleLens without
@@ -773,17 +837,36 @@ async function videoSource(src) {
     video.requestVideoFrameCallback(() => (due() ? createImageBitmap(video).then(resolve, () => resolve(null)) : wait(resolve)));
   });
   const label = typeof src === "string" ? src.split("/").pop() : src.name;
-  return { label, scale: 0, fullFrame: true, next, stop: () => { video.pause(); video.removeAttribute("src"); if (typeof src !== "string") URL.revokeObjectURL(url); } };
+  return { label, scale: 0, fullFrame: true, next, preview: video.captureStream(), stop: () => { video.pause(); video.removeAttribute("src"); if (typeof src !== "string") URL.revokeObjectURL(url); } };
 }
 
 /** A clip played into a media stream, which goes through exactly the code a shared window does (the track
- *  processor): for testing that path without sharing anything. `?capture=clip.mp4`. */
-async function capturedVideoSource(url) {
-  const video = Object.assign(document.createElement("video"), { src: url, muted: true, loop: true, playsInline: true });
-  await video.play();
-  const stream = video.captureStream();
+ *  processor): for testing that path without sharing anything. `?capture=clip.mp4`. `&rate=10` delivers it at a
+ *  window share's frame rate (Chrome sends a shared window at the rate asked, not the clip's), `&as=2560x1440` at
+ *  another size: both drawn through a canvas. */
+async function capturedVideoSource(url, rate = 0, size = "") {
+  // A still picture (`?capture=frame.png&rate=10`) is a game window where nothing moves: a tooltip held.
+  const still = /\.png$/i.test(url) && await createImageBitmap(await (await fetch(url)).blob());
+  const video = Object.assign(document.createElement("video"), { src: still ? "" : url, muted: true, loop: true, playsInline: true });
+  if (!still) await video.play();
+  let stream;
+  let timer = 0;
+  if (rate || size || still) {
+    const picture = still || video;
+    const [width, height] = size ? size.split("x").map(Number) : [picture.width || video.videoWidth, picture.height || video.videoHeight];
+    const canvas = Object.assign(document.createElement("canvas"), { width, height });
+    const context = canvas.getContext("2d");
+    if (still) timer = setInterval(() => context.drawImage(still, 0, 0, width, height), 1000 / (rate || FPS) / 2);
+    else {
+      video.requestVideoFrameCallback(function draw() {
+        context.drawImage(video, 0, 0, width, height);
+        video.requestVideoFrameCallback(draw);
+      });
+    }
+    stream = canvas.captureStream(rate || FPS);
+  } else stream = video.captureStream();
   const source = windowSource(stream);
-  return { ...source, label: `${url.split("/").pop()} (as a stream)`, stop: () => { source.stop(); video.pause(); } };
+  return { ...source, label: `${url.split("/").pop()} (as a stream)`, stop: () => { clearInterval(timer); source.stop(); video.pause(); } };
 }
 
 /** A folder of still frames (`list.json` names them), each held until the engine has looked at it a few times and has
@@ -839,6 +922,19 @@ async function demoSource() {
   // `&blink`: the tooltip and the Character Info window come and go, as the pointer and the player would make them.
   const hidden = params.has("blink") ? hiddenDemo(image) : null;
   const started = performance.now();
+  const rate = Number(params.get("rate")) || 0;
+  if (rate) {
+    // `&rate=10`: as a shared window delivers it, a stream at that frame rate through the track processor.
+    const canvas = Object.assign(document.createElement("canvas"), { width: image.width, height: image.height });
+    const context = canvas.getContext("2d");
+    const stream = canvas.captureStream(rate);
+    const timer = setInterval(() => {
+      const away = hidden && (performance.now() - started) % BLINK_MS > BLINK_SHOWN_MS;
+      context.drawImage(away ? hidden : image, 0, 0);
+    }, 1000 / rate / 2);
+    const source = windowSource(stream);
+    return { ...source, label: "sample screenshot (as a stream)", scale: 1, fullFrame: true, stop: () => { clearInterval(timer); source.stop(); } };
+  }
   let running = true;
   const next = async () => {
     await new Promise(r => setTimeout(r, 1000 / FPS));
@@ -851,7 +947,8 @@ async function demoSource() {
 async function share() {
   try {
     const stream = await navigator.mediaDevices.getDisplayMedia({
-      video: { displaySurface: "window", frameRate: { ideal: FPS, max: 15 } },
+      // Twice the rate looked at: a window's frames come unevenly, and with one per look a late one costs a look.
+      video: { displaySurface: "window", frameRate: { ideal: 2 * FPS, max: 30 } },
       audio: false,
       selfBrowserSurface: "exclude",
       surfaceSwitching: "include",
@@ -1091,7 +1188,7 @@ async function main() {
   if (params.get("preview") === "pip") previewFloating();
   if (params.has("demo")) start(await demoSource());
   if (params.has("video")) start(await videoSource(params.get("video")));
-  if (params.has("capture")) start(await capturedVideoSource(params.get("capture")));
+  if (params.has("capture")) start(await capturedVideoSource(params.get("capture"), Number(params.get("rate")) || 0, params.get("as") || ""));
   if (params.has("frames")) start(await framesSource(params.get("frames")));
 }
 

@@ -582,10 +582,13 @@ a worker). It measures itself: `window.maplelensStats()` gives frames,
 dropped frames, engine time (avg / p50 / p95 / max), long tasks, heap, and `?report=label` posts the same to
 `/report` of whatever served the page. Test sources, all through the code a shared window uses:
 `?demo`, `?video=/clip.mp4` (a recording played in a loop), `?capture=/clip.mp4` (the clip as a media stream: the
-track-processor path), `&scale=0.9` (the UI size by hand: the status bar's outline does not survive compression),
+track-processor path; `&rate=10` at a shared window's frame rate, `&as=2560x1440` at another size, and a `.png` is a
+still window with its tooltip held; `?demo&rate=10` too), `&scale=0.9` (the UI size by hand: the status bar's outline does not survive compression),
 `&fps=`, `?preview=pip&size=340x560` (the floating window's view inside the page, resizable), `?demo&blink` (the sample's
 tooltip and Character Info window come and go: 5 s shown in every 16). `window.maplelensCards` is the card feed. Chrome
-started with `--js-flags=--expose-gc` makes the reported heap live data.
+started with `--js-flags=--expose-gc` makes the reported heap live data. The stats also split each look: `gap` (between
+looks), `grab` (the worker getting the pixels), `parts` (the engine's own: pixels, tooltip, info, cards, shop, training)
+and `sourceFps` (the frames the source delivers).
 
 The page is deliberately bare: Share game window, the cards (Float over the game), the store log, the Discord webhook and
 the Telegram bot (kept in localStorage, shown masked with a Change button). There is no settings panel; Tesseract (tesseract.js 7.0.0, served from `docs/app/vendor/`, loaded when
@@ -642,6 +645,17 @@ What measuring taught (1080p Twitch clips, Chrome, `scripts` not needed: a local
   quarter second while nothing is followed, every 100 ms while something is (a card, or a tooltip the search sees but
   has not shown yet: `tooltip_in_view`, else an unknown item's five reads took 1.25 s), and turns a frame into a bitmap
   only when it is due (a 60 fps clip made a bitmap of every frame).
+- Looks keep a grid: a frame is taken when it is nearer its look's time than the next frame would be. "100 ms or more
+  since the last look" skipped every other frame of a shared window (Chrome sends about the rate asked, each a
+  millisecond early), so a followed tooltip was looked at 5.5 times a second and an idle window 3.3; the share asks
+  for twice the look rate. A look due while the worker is still busy waits for it instead of for the next frame, and
+  the pacing (`PACE`) takes the median of the last five looks: the Character Info bands and the shop run on their own
+  clocks and made every third look slow. The shared window's VideoFrame goes to the worker as it is and is copied
+  straight to RGBA (`copyTo`): a bitmap drawn and read back took 19 ms at 1080p and 28 at 1440p, as long as the
+  engine. The page shows the share live in a `<video>`, not the frames it looks at, which had made the preview run
+  at the look rate (4 a second idle).
+- Following a held tooltip through a 20 fps stream (`?capture=frame.png&rate=20`): 9.7 looks a second at 1080p and
+  1440p (5.5 before), the engine 18-21 ms a look (p95 37-53), the grab 6 / 9 ms.
 - wasm SIMD is on (`.cargo/config.toml`); the engine then takes 20-35 ms a frame at 1080p, p95 under 75 ms, no stalls,
   heap flat over three minutes; the whole browser spends ~30% of a core on a 1080p60 clip (about half of it decoding the
   clip), 20% on a static frame at 10 fps, 2% idle.
