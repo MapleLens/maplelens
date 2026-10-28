@@ -181,6 +181,13 @@ impl HoverDetector {
         };
         let native = screen.grab(area);
         let image = normalised(&native, scale);
+        // No bullet here but one to the left on the title row: the game slid the tooltip left (the right edge's clamp)
+        // and this is its inside, whose cut title ("ole Arm") can read close to another item's name.
+        if !elsewhere::has_bullet(&image)
+            && elsewhere::bullet_left_on_screen(screen, Point { x: area.x, y: area.y }, bounds, scale)
+        {
+            return self.clamped(screen, cursor, bounds, scale, now);
+        }
         self.reader.allow_ocr(tooltip_evidence(&image));
         let by_font = self.font_lookup(&native, &image, scale);
         let title = match &by_font {

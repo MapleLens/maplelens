@@ -248,16 +248,26 @@ impl Catalog {
     /// name fits the letters around them, each gap 1 to 3 characters. Never fuzzy, as `lookup_exact`; nothing when
     /// several names fit or a third of the read is gaps.
     pub fn lookup_gaps(&self, text: &str) -> Option<Arc<Item>> {
-        let bare = without_gender(&clean_title(&without_enhancement(text)));
-        let pattern: Vec<char> =
-            bare.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '?').map(|c| c.to_ascii_lowercase()).collect();
+        let bare = without_gender(&without_enhancement(text));
+        // A gap that is a word of its own at either end is something beside the title (scenery read from a spot a
+        // little off), not one of its letters: "? Pole Arm" must not name "Axe Pole Arm".
+        let words: Vec<&str> = bare.split_whitespace().collect();
+        let alone = |w: Option<&&str>| w.is_some_and(|w| w.chars().all(|c| c == '?'));
+        if words.len() > 1 && (alone(words.first()) || alone(words.last())) {
+            return None;
+        }
+        // Punctuation counts here: a letter read as "(r((" must not leave "rd" to fit "Board".
+        let spelled = |t: &str| -> Vec<char> {
+            t.chars().filter(|c| !c.is_whitespace()).map(|c| c.to_ascii_lowercase()).collect()
+        };
+        let pattern = spelled(&bare);
         let unknown = pattern.iter().filter(|&&c| c == '?').count();
         if unknown == 0 || pattern.len() < 3 || unknown * 3 > pattern.len() {
             return None;
         }
-        let mut fitting = self.keys.iter().filter(|k| fits(&pattern, &k.chars().collect::<Vec<_>>()));
+        let mut fitting = self.items().filter(|it| fits(&pattern, &spelled(&it.name)));
         let item = match (fitting.next(), fitting.next()) {
-            (Some(only), None) => self.by_key.get(only).cloned()?,
+            (Some(only), None) => only.clone(),
             _ => return None,
         };
         (!self.lost_gender_mark(text, &item)).then_some(item)

@@ -1,6 +1,6 @@
 //! Learn the tooltip titles' bold bitmap font from rendered scenes (`scripts/scenes.py`, whose labels give every
 //! title's exact text and box) and write `assets/glyphs/title_small.json`:
-//! `cargo run --release -p maplelens-core --example build_title_font -- SCENES_DIR [--check]`.
+//! `cargo run --release -p maplelens-core --example build_title_font -- SCENES_DIR... [--check]`.
 //! Learns from the training split (scene id not a multiple of 5) and reports how the held-out split's titles read,
 //! cut out the way the reader cuts them (`title_font::title_band`). `--check` only reads, with the bundled table.
 
@@ -36,51 +36,64 @@ struct Title {
 }
 
 fn main() {
-    let mut args = std::env::args().skip(1);
-    let dir = args.next().expect("a scenes folder");
-    let check = args.next().as_deref() == Some("--check");
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let check = args.iter().any(|a| a == "--check");
+    let dirs: Vec<&String> = args.iter().filter(|a| !a.starts_with("--")).collect();
+    assert!(!dirs.is_empty(), "a scenes folder");
     let mut titles = Vec::new();
-    for line in std::fs::read_to_string(format!("{dir}/labels.jsonl")).unwrap().lines() {
-        let Ok(label) = serde_json::from_str::<Value>(line) else { continue };
-        let Some(item) = label["item"].as_str() else { continue };
-        let scale = ui_scale(&label["display"]);
-        let Ok(frame) = decode_png(&std::fs::read(format!("{dir}/{}", label["files"][0].as_str().unwrap())).unwrap())
-        else {
-            continue;
-        };
-        let prefix: String = item.chars().take(6).collect();
-        let Some(t) = label["texts"][0].as_array().and_then(|ts| {
-            ts.iter().filter(|t| t[0].as_str().is_some_and(|s| s.starts_with(&prefix))).min_by_key(|t| t[1][1].as_i64())
-        }) else {
-            continue;
-        };
-        let b: Vec<i64> = t[1].as_array().unwrap().iter().filter_map(Value::as_i64).collect();
-        if b[2] as f64 / scale as f64 > LONGEST_WHOLE {
-            continue;
+    for dir in dirs {
+        for line in std::fs::read_to_string(format!("{dir}/labels.jsonl")).unwrap().lines() {
+            let Ok(label) = serde_json::from_str::<Value>(line) else { continue };
+            let Some(item) = label["item"].as_str() else { continue };
+            let d = &label["display"];
+            // The renderer draws Ideal Ratio at 1440 px high at 1x, where the game draws 2x.
+            if d["ui_size"] == "ideal" && d["height"].as_u64().is_some_and(|h| (1440..1536).contains(&h)) {
+                continue;
+            }
+            let scale = ui_scale(&label["display"]);
+            let Ok(frame) =
+                decode_png(&std::fs::read(format!("{dir}/{}", label["files"][0].as_str().unwrap())).unwrap())
+            else {
+                continue;
+            };
+            let prefix: String = item.chars().take(6).collect();
+            let Some(t) = label["texts"][0].as_array().and_then(|ts| {
+                ts.iter()
+                    // The title's own colour (white, or an enhanced item's orange), not a store list's black row.
+                    .filter(|t| t[0].as_str().is_some_and(|s| s.starts_with(&prefix)) && t[2] != "0xFF000000")
+                    .min_by_key(|t| t[1][1].as_i64())
+            }) else {
+                continue;
+            };
+            let b: Vec<i64> = t[1].as_array().unwrap().iter().filter_map(Value::as_i64).collect();
+            if b[2] as f64 / scale as f64 > LONGEST_WHOLE {
+                continue;
+            }
+            let m = (4.0 * scale).ceil() as i64;
+            let (x0, y0) = ((b[0] - m).max(0) as usize, (b[1] - m).max(0) as usize);
+            let (x1, y1) =
+                (((b[0] + b[2] + m) as usize).min(frame.width), ((b[1] + b[3] + m) as usize).min(frame.height));
+            let tooltip = label["mouse"].as_object().and_then(|mouse| {
+                let tx = mouse["x"].as_i64()? + (scale as f64).round() as i64;
+                let ty = mouse["y"].as_i64()? + (32.0 * scale as f64).round() as i64;
+                // Only where the game opened it: not slid by a clamp.
+                (b[0] > tx && b[1] > ty && (b[1] - ty) as f64 / (scale as f64) < 40.0).then(|| {
+                    frame.crop(
+                        tx as usize,
+                        ty as usize,
+                        frame.width,
+                        (ty as usize + (120.0 * scale) as usize).min(frame.height),
+                    )
+                })
+            });
+            titles.push(Title {
+                id: label["id"].as_u64().unwrap_or(0),
+                pixels: frame.crop(x0, y0, x1, y1),
+                scale,
+                text: t[0].as_str().unwrap().trim().to_string(),
+                tooltip,
+            });
         }
-        let m = (4.0 * scale).ceil() as i64;
-        let (x0, y0) = ((b[0] - m).max(0) as usize, (b[1] - m).max(0) as usize);
-        let (x1, y1) = (((b[0] + b[2] + m) as usize).min(frame.width), ((b[1] + b[3] + m) as usize).min(frame.height));
-        let tooltip = label["mouse"].as_object().and_then(|mouse| {
-            let tx = mouse["x"].as_i64()? + (scale as f64).round() as i64;
-            let ty = mouse["y"].as_i64()? + (32.0 * scale as f64).round() as i64;
-            // Only where the game opened it: not slid by a clamp.
-            (b[0] > tx && b[1] > ty && (b[1] - ty) as f64 / (scale as f64) < 40.0).then(|| {
-                frame.crop(
-                    tx as usize,
-                    ty as usize,
-                    frame.width,
-                    (ty as usize + (120.0 * scale) as usize).min(frame.height),
-                )
-            })
-        });
-        titles.push(Title {
-            id: label["id"].as_u64().unwrap_or(0),
-            pixels: frame.crop(x0, y0, x1, y1),
-            scale,
-            text: t[0].as_str().unwrap().trim().to_string(),
-            tooltip,
-        });
     }
     let (eval, train): (Vec<&Title>, Vec<&Title>) = titles.iter().partition(|t| t.id.is_multiple_of(5));
     let mut font = if check { title_font().clone() } else { PixelFont::default() };

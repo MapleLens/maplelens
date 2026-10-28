@@ -382,3 +382,20 @@ fn several_look_alike_misreads_in_one_name_still_find_it() {
     // Wrong letters that are not look-alikes cost full price: this is nothing, not Iron Axe.
     assert_eq!(found(&catalog, "Iron Qxz"), None);
 }
+
+#[test]
+fn a_read_with_gaps_names_the_one_item_it_fits_exactly() {
+    let item = |name: &str| Item { name: name.into(), ..maplelens_core::market::sample::sample_items()[0].clone() };
+    let catalog = Catalog::new(
+        [item("Wooden Top"), item("Wooden Wand"), item("Wooden Board"), item("Pole Arm"), item("Axe Pole Arm")],
+        None,
+    );
+    let name = |read: &str| catalog.lookup_gaps(read).map(|i| i.name.clone());
+    assert_eq!(name("?ooden Top").as_deref(), Some("Wooden Top"));
+    // Two names fit; a letter misread as punctuation leaves none.
+    assert_eq!(name("Wooden ?a?d"), None);
+    assert_eq!(name("Wooden ?a(r((d"), None);
+    // Something beside the title, not a letter of it.
+    assert_eq!(name("? Pole Arm"), None);
+    assert_eq!(name("Pole Arm"), None, "no gap: not this lookup's to decide");
+}

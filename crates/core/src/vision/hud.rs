@@ -102,6 +102,28 @@ fn side(counts: &[Vec<u16>], top: usize, around: usize, inward: isize) -> Option
     (share(x) >= SIDE_MIN_DARK).then_some(Side { x, beside_black: x != found })
 }
 
+/// The outermost pair of side outlines along a top row's run `start..end`: columns dark under `top` with the bar's
+/// light inside next to them, placed alike about `centre`.
+fn sides_along(counts: &[Vec<u16>], top: usize, start: usize, end: usize, centre: f32) -> (Option<Side>, Option<Side>) {
+    let rows = counts.len().saturating_sub(top + 2);
+    if rows == 0 || end < 2 {
+        return (None, None);
+    }
+    let share = |x: usize| counts[top + 1][x] as f32 / rows as f32;
+    let edge = |x: usize, inside: usize| share(x) >= SIDE_MIN_DARK && share(inside) <= INSIDE_MAX_DARK;
+    let lefts = (start..(centre as usize).min(end - 1)).filter(|&x| edge(x, x + 1));
+    for left in lefts {
+        let mirror = 2.0 * centre - left as f32;
+        let right = ((mirror - CENTRE_SLACK_PX).max(1.0) as usize..=(mirror + CENTRE_SLACK_PX) as usize)
+            .filter(|&x| x < end)
+            .find(|&x| edge(x, x - 1));
+        if let Some(right) = right {
+            return (Some(Side { x: left, beside_black: true }), Some(Side { x: right, beside_black: true }));
+        }
+    }
+    (None, None)
+}
+
 /// Is the area under the top outline as dark as the outline itself? Then it is a black border or letterbox, not
 /// the bar (whose inside is the chat line, gauges and buttons).
 fn solid(dark: &[Vec<bool>], top: usize, left: usize, right: usize) -> bool {
@@ -152,6 +174,11 @@ pub fn find_bar(strip: &RgbImage) -> Option<Bar> {
             } else if let Some(r) = right_side.filter(|r| mirror(r.x) > start) {
                 left_side = side(&counts, top, mirror(r.x), 1);
             }
+        }
+        // Dark scenery on both sides joins the outline from either end (a dark map with the quick slots over the
+        // bar): neither end is the bar's. Its sides are then the outline columns along the run, centred.
+        if left_side.is_none() && right_side.is_none() && off_centre {
+            (left_side, right_side) = sides_along(&counts, top, start, end, centre);
         }
         let (Some(left), Some(right)) = (left_side, right_side) else {
             continue;

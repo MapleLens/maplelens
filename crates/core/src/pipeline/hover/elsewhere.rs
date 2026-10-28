@@ -11,8 +11,22 @@ use crate::vision::reader::find_bullet;
 use crate::vision::tooltip::measure_width;
 
 /// The title's bullet, at a plain or a crafted item's title row.
-fn has_bullet(image: &crate::image::RgbImage) -> bool {
+pub(super) fn has_bullet(image: &crate::image::RgbImage) -> bool {
     find_bullet(image, 0).is_some() || find_bullet(image, config::TOOLTIP_CRAFTED_SHIFT as usize).is_some()
+}
+
+/// Is a tooltip's title bullet left of `spot` (a point of the screen) on its title row? Then a tooltip read there
+/// without a bullet of its own is that one's inside: the game slid it left of the usual spot.
+pub(super) fn bullet_left_on_screen(screen: &mut dyn Screen, spot: Point, bounds: Rect, scale: f32) -> bool {
+    let margin = scaled(BULLET_MARGIN, scale);
+    let x0 = (spot.x - scaled(config::TOOLTIP_WIDTHS[1], scale) - margin).max(bounds.x);
+    let y0 = (spot.y - margin).max(bounds.y);
+    let y1 = (spot.y + scaled(BULLET_ROWS, scale)).min(bounds.bottom());
+    if spot.x <= x0 || y1 <= y0 {
+        return false;
+    }
+    let area = screen.grab(Rect::new(x0, y0, spot.x - x0, y1 - y0));
+    bullet_left_of(&area, Point { x: spot.x - x0, y: spot.y - y0 }, scale)
 }
 
 /// Is there a title bullet left of `spot` on its title row (a plain or a crafted item's), as far as the widest
@@ -31,6 +45,9 @@ fn bullet_left_of(frame: &crate::image::RgbImage, spot: Point, scale: f32) -> bo
     let rows = (spot.y - y0)..(y1 - y0);
     find::bullet_spots(&area, scale).iter().any(|corner| rows.contains(&(corner.y + scaled(find::BULLET_AT.1, scale))))
 }
+
+/// Two corners further apart than this (UI scale 1) are two tooltips' (one found a pixel or two off is the same).
+const INSIDE_MARGIN: i32 = 8;
 
 /// Margin for `bullet_left_of`, and how far below a corner a crafted item's bullet still lies (UI scale 1).
 const BULLET_MARGIN: i32 = 60;
@@ -115,6 +132,11 @@ impl HoverDetector {
             }
             Some((_, None, _)) => return None, // read in full, and no item of the catalog
             None => {}
+        }
+        // A loose read needs the bullet where the title starts: read from a wider tooltip's spot, scenery and the
+        // title's words make a name close to another item's ("Axe Pole Arm" for "Pole Arm").
+        if !has_bullet(&image) {
+            return None;
         }
         self.reader.allow_ocr(true);
         let title = self.reader.read_title(&image, super::title_width(&image), 1);
@@ -216,14 +238,26 @@ impl HoverDetector {
             }
         };
         self.last_spot = None;
+        // Tooltips whose title bullet shows: a spot inside one of them (an icon box's edge, a body line's row) is not a
+        // tooltip of its own, however its text reads.
+        let anchored = find::bullet_spots(&frame, scale);
+        let inside = |spot: Point| {
+            anchored.iter().any(|c| {
+                (spot.x - c.x).abs().max((spot.y - c.y).abs()) > scaled(INSIDE_MARGIN, scale)
+                    && (c.x - scaled(INSIDE_MARGIN, scale)..c.x + scaled(config::TOOLTIP_WIDTHS[1], scale))
+                        .contains(&spot.x)
+                    && (c.y - scaled(INSIDE_MARGIN, scale)..c.y + scaled(config::TOOLTIP_MAX_HEIGHT, scale))
+                        .contains(&spot.y)
+            })
+        };
         for spot in spots {
             let native = frame.crop(spot.x as usize, spot.y as usize, (spot.x + w) as usize, (spot.y + h) as usize);
             let image = normalised(&native, scale);
             // A spot found inside a tooltip (its icon box's edge looks like a border) reads the end of the title, and
             // that can be an item's whole name ("...Leather") or close to one ("...ive Potion" for "Blue Potion"). Its
-            // title row has that tooltip's bullet to the left; a real corner's title starts with its own (unless the
-            // pointer is over it, as in a stream's frames).
-            if !has_bullet(&image) && bullet_left_of(&frame, spot, scale) {
+            // title row has that tooltip's bullet to the left, or (a body line's spot, "Type: Spear") above; a real
+            // corner's title starts with its own bullet (unless the pointer is over it, as in a stream's frames).
+            if !has_bullet(&image) && (inside(spot) || bullet_left_of(&frame, spot, scale)) {
                 continue;
             }
             self.reader.allow_ocr(true); // found by its fill and borders

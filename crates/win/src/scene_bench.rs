@@ -39,7 +39,7 @@ enum Path {
 fn tesseract(image: &GrayImage, psm: u8) -> String {
     let Ok(server) = std::env::var("MAPLELENS_TESSERACT") else { return String::new() };
     let mut rgb = RgbImage::new(image.width, image.height);
-    for (p, &v) in rgb.data.chunks_exact_mut(3).zip(&image.data) {
+    for (p, &v) in rgb.data.as_chunks_mut::<3>().0.iter_mut().zip(&image.data) {
         p.copy_from_slice(&[v, v, v]);
     }
     let agent = crate::net::agent(60);
@@ -119,8 +119,10 @@ fn read_item(
     // A running app has measured the UI size off the status bar for seconds before an item is hovered (a tooltip
     // over the bar then changes nothing): the vote starts settled, as it would be.
     if let Some(scale) = settled {
-        for k in 0..maplelens_core::config::SCALE_VOTE_MIN_READINGS {
-            hover.ui_scale().set(bounds, scale, -(k as f64) - 1.0);
+        // Oldest first: a reading older than the last by more than a second is a clock gone back.
+        let n = maplelens_core::config::SCALE_VOTE_MIN_READINGS;
+        for k in 0..n {
+            hover.ui_scale().set(bounds, scale, (k as f64) - n as f64);
         }
     }
     let mut screen = FrameScreen { frame: image, origin: Point::default(), cursor };
@@ -255,6 +257,9 @@ fn bench_store(
     let watching = opened && watcher.status() == ShopStatus::Watching;
     report.add(&format!("{p} store/found"), watching, false);
     report.add(&format!("{p} store/found {group}"), watching, false);
+    if !watching {
+        report.misses.push(format!("{p}	{id}	found	{group}	opened {opened}	{:?}", watcher.status()));
+    }
     let owner = label["owner"].as_str().unwrap();
     let read_owner = watcher.context().owner.unwrap_or_default();
     let same = fold(&read_owner) == fold(owner);
