@@ -1,3 +1,4 @@
-# Vendored files are checked byte for byte against their SHA256SUMS (scripts/vendor.mjs --check): never convert their
-# line endings (pwa-install's LICENSE is CRLF upstream; a Windows commit stored it as LF and CI's check failed).
-docs/**/vendor/** -text
+# Vendored files are kept byte for byte as published: scripts/vendor.mjs checks them against SHA256SUMS, and a
+# line-ending conversion (a CRLF licence turned LF) would fail that check.
+docs/app/vendor/** -text
+docs/app/phone/vendor/** -text
