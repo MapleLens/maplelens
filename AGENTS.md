@@ -37,8 +37,9 @@ cargo run --release -p maplelens-core --example chat_frames -- FRAMES_DIR   # pe
 MAPLELENS_NAMES=debug/names MAPLELENS_NAME_LABELS=<labels.tsv> cargo test --release -p maplelens name_bench -- --ignored --nocapture
                                                 # Character Info names on saved windows (--debug saves them)
 python -I scripts/scenes.py <scenes> --count 6000 [--server http://<host>:8765]   # labelled scenes from mscw-render
-MAPLELENS_SCENES=<scenes> [MAPLELENS_SCENE_SPLIT=eval] cargo test --release -p maplelens scene_bench -- --ignored --nocapture
-                                                # items, stores and names on the scenes, the app's path and the browser's
+MAPLELENS_SCENES=<scenes> [MAPLELENS_SCENE_SPLIT=eval] [MAPLELENS_TESSERACT=http://127.0.0.1:8799] [MAPLELENS_SCENE_PATHS=app,browser,floor] cargo test --release -p maplelens scene_bench -- --ignored --nocapture
+                                                # items, stores and names on the scenes: the app's path, the browser's
+                                                # (video-like frames, the page's Tesseract) and its floor (no OCR)
 cargo run --release -p maplelens-core --example scene_lines -- <scenes> LINES.tsv [--split eval]   # shop lines, labelled
 cargo run --release -p maplelens-core --example build_shop_font -- --init C:/Windows/Fonts/arial.ttf --corpus LINES.tsv
 cargo run --release -p maplelens-core --example build_title_font -- <scenes> [--check]   # the titles' bold table
@@ -453,10 +454,17 @@ mscw-render draws MapleStory Classic World scenes offline with the client's own 
 every text it drew with its box. `scripts/scenes.py` asks it for labelled scenes (item tooltips over ~335 maps at 13
 window sizes and the three UI Sizes, inventory and store hovers, pairs of owner-view store frames before and after
 visitors, chat and sales, someone else's store as a visitor); names are made up, items come from the local snapshot.
-They are synthetic, not fixtures, and stay out of git (D: or a scratch folder). `scene_bench` reads them twice: the
-app's path (mouse where the scene put it, Windows OCR behind the fonts) and the browser's floor (no mouse, bundled
-tables and atlas only: Tesseract does not run natively). Items count only by catalog id; names are compared with I/l
-folded (one bar in both fonts). Scenes with id % 5 == 0 are held out: fonts learn from the rest.
+They are synthetic, not fixtures, and stay out of git (D: or a scratch folder). Only windows of 1366x768 and up, and
+only items whose drawn name is the price list's and no other item's (the (M) and (F) vests read alike), are drawn and
+scored. `scene_bench` reads them three ways: the app's path (mouse where the scene put it, Windows OCR behind the
+fonts), the browser's (no mouse, the frame as a shared window's video gives it: colour at half resolution,
+`as_video`; Tesseract behind the fonts: the page's tesseract.js 7.0.0 and English data in a local Node process,
+`MAPLELENS_TESSERACT`, `scripts/tesseract-server.mjs`) and the browser's floor (no OCR at all).
+Items count only by catalog id; names are compared with I/l folded (one bar in both fonts). Scenes with id % 5 == 0
+are held out: fonts learn from the rest; a set nothing was tuned on is the honest last measure.
+- The UI scale is scored only where no tooltip can be over the status bar (a running app read the bar before the
+  tooltip opened); the scale vote is seeded oldest reading first (newest first is a clock gone back: the seeds were
+  dropped and some scenes were read at the client height's scale).
 - The default UI sizes draw the frame at 768 px high and scale it up, so their text is the bitmap font scaled:
   shrunk back onto its grid at the crispest phase (`pixel_font::unscaled_line_mask`) the exact tables read it. In the
   shop it only fills the drawn templates' '?' where it agrees with their sure letters (a dot can fade in the shrink).
@@ -469,7 +477,17 @@ folded (one bar in both fonts). Scenes with id % 5 == 0 are held out: fonts lear
 - The status bar's name and the plate are the shop's Arial, light on dark: read by the shop tables first. Their boxes
   hold descenders (a cut 'g' is a 'q').
 - Known differences from the game: the renderer draws Ideal Ratio at 1440 px high at 1x (the game at 2x,
-  `shop_live_1440.png`): those scenes are not scored. At 1024x768 it draws the minimap over the store window.
+  `shop_live_1440.png`): those scenes are not drawn. It draws the minimap over a store window opened in the top-left
+  corner (the game draws the store, opened last, on top): `scenes.py` keeps stores clear of it, `scene_bench` skips
+  those already drawn.
+- Every title starts with its light-blue bullet, and it decides more than reading does: a tooltip slid by a clamp or
+  found without a mouse is its bullet's corner (`find::bullet_spots`, seeded by the bullet's own colour so a sky's blue
+  specks do not use up the budget); a spot inside a tooltip with a bullet (its icon box's edge, a body line's row)
+  is never read as a title: its text is the end of the title ("...Leather") or a body line ("Type: Spear"). The
+  pointer, which the game draws into the frame, often covers the bullet of the tooltip it opened.
+- A title running into the tooltip's edge (`title_font::title_cut`) is matched only by the name it starts; a fuzzy
+  match completed cut grades of scrolls wrongly. A scroll cut before its grade is graded by its description
+  (`hover/graded.rs`: 100% Lesser, 60% Intermediate, 10% Greater, 10% with the destruction warning Chaos).
 - Measured on 1,127 held-out scenes (main at 695b591 -> this work; app path / browser floor): items 77.1 -> 89.5% /
   32.5 -> 73.9% (wrong 1.15 -> 0.14% / 0.72 -> 0.72%), owner names 65.0 -> 92.2% (wrong 25.2 -> 1.3%) / 31.2 -> 91.9%,
   visitors 87.9 -> 90.7% / 83.3 -> 90.2%, sales 80.2 -> 88.8% / 75.7 -> 87.2%, chat 63.5 -> 81.8% / 55.2 -> 81.8%,

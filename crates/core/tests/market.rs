@@ -451,3 +451,13 @@ fn a_cut_scroll_title_keeps_its_grades_and_the_description_picks_one() {
     assert_eq!(grade("Success rate: 60? Weapon Attack +2"), Some(Grade::Intermediate));
     assert_eq!(grade("Success rate: 6S%, Weapon"), None);
 }
+
+#[test]
+fn a_reading_that_lost_the_titles_last_word_is_caught() {
+    let past = Catalog::read_goes_past;
+    assert!(past("Red Moon G?oves", "Red Moon"));
+    assert!(past("?range Calaf (F) (+?)", "Orange"));
+    assert!(!past("Red Moon G?oves", "Red Moon Gloves"));
+    assert!(!past("?ctopus ILeg", "Octopus Leg"), "a stray letter is no word");
+    assert!(!past("Ink?and?Wash Painting", "Ink-and-Wash Painting Name Tag Ring"), "a wrapped title");
+}

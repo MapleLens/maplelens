@@ -135,6 +135,11 @@ impl HoverDetector {
         if measure_width(&image, &config::TOOLTIP_WIDTHS).is_some_and(|w| w != width) {
             return None;
         }
+        // The title starts with its bullet where the tooltip was assumed to start: from a wider tooltip's spot the
+        // scenery before the title reads as a word of it ("Old Steel Nordic Helm" for "Steel Nordic Helm").
+        if !has_bullet(&image) {
+            return None;
+        }
         match self.font_lookup(&native, &image, scale) {
             Some((read, Some(item), crafted)) => {
                 let at = Placement { crafted, ..Placement::default() };
@@ -142,11 +147,6 @@ impl HoverDetector {
             }
             Some((_, None, _)) => return None, // read in full, and no item of the catalog
             None => {}
-        }
-        // A loose read needs the bullet where the title starts: read from a wider tooltip's spot, scenery and the
-        // title's words make a name close to another item's ("Axe Pole Arm" for "Pole Arm").
-        if !has_bullet(&image) {
-            return None;
         }
         self.reader.allow_ocr(true);
         let title = self.reader.read_title(&image, super::title_width(&image), 1);

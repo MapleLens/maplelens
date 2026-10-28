@@ -82,6 +82,9 @@ pub fn looks_like_title(text: &str) -> bool {
     good as f64 >= 0.9 * count as f64
 }
 
+/// A font read with gaps checks other readings only when it knows this many letters.
+const MIN_FONT_LETTERS: usize = 6;
+
 pub struct HoverDetector {
     catalog: Arc<Catalog>,
     reader: TextReader,
@@ -100,6 +103,8 @@ pub struct HoverDetector {
     /// The title being read runs into the tooltip's edge (`title_font::title_cut`): its end is missing, not misread,
     /// so a loose read of it names an item only by the name it starts.
     title_cut: bool,
+    /// The title font's read of the title being read, when it had gaps: what any other reading names must fit it.
+    font_read: Option<String>,
     /// Where the tooltip was found last (no-mouse search) and how many looks since the whole frame was searched.
     last_spot: Option<Point>,
     looks_since_search: u32,
@@ -123,6 +128,7 @@ impl HoverDetector {
             unknown_title: None,
             unknown_streak: 0,
             title_cut: false,
+            font_read: None,
             last_spot: None,
             looks_since_search: 0,
             captures: None,
@@ -336,6 +342,7 @@ impl HoverDetector {
     ) -> Option<(String, Option<Arc<Item>>, bool)> {
         let width = title_width(image);
         self.title_cut = title_font::title_cut(native, scale, width, false);
+        self.font_read = None;
         if !tooltip_evidence(image) {
             return None;
         }
@@ -343,6 +350,9 @@ impl HoverDetector {
         for crafted in [false, true] {
             let Some((read, unknown)) = title_font::read_title(native, scale, width, crafted) else { continue };
             if unknown > 0 {
+                if !crafted {
+                    self.font_read = Some(read.clone());
+                }
                 // Letters the table has not learnt: their gaps fit one item's name, or the other readers decide.
                 if let Some(item) = self.catalog.lookup_gaps(&read) {
                     return Some((read, Some(item), crafted));
@@ -396,6 +406,15 @@ impl HoverDetector {
         } else {
             self.catalog.lookup(read)
         }?;
+        // The font saw more of the title than the name has ("Red Moon G?oves" is not "Red Moon"): the other reading
+        // lost a word, and what is left can be another item's whole name. Only a whole word more counts: the font
+        // misreads a letter here and there on real captures ("?ctopus ILeg").
+        let known = |r: &str| r.chars().filter(|c| c.is_ascii_alphanumeric()).count();
+        if let Some(font) = self.font_read.as_deref().filter(|f| known(f) >= MIN_FONT_LETTERS)
+            && Catalog::read_goes_past(font, &item.name)
+        {
+            return None;
+        }
         if !self.credible(image, read) {
             return None;
         }

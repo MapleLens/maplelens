@@ -171,7 +171,7 @@ fn one_spoiled_entry_is_forgiven_only_with_plenty_of_overlap() {
 
 #[test]
 fn chat_lines() {
-    let cases: [(&str, Option<ShopEvent>); 14] = [
+    let cases: [(&str, Option<ShopEvent>); 15] = [
         ("Glarfugus has entered.", Some(ShopEvent::PlayerEntered("Glarfugus".into()))),
         ("Glarfugus has left the room.", Some(ShopEvent::PlayerLeft("Glarfugus".into()))),
         ("Instant Tea has entered", Some(ShopEvent::PlayerEntered("Instant Tea".into()))), // no full stop
@@ -183,6 +183,7 @@ fn chat_lines() {
         ("Pelqulick. do you have more?", Some(ShopEvent::ChatMessage("Pelqulick : do you have more?".into()))),
         ("Cloudy  brb", Some(ShopEvent::ChatMessage("Cloudy : brb".into()))),
         ("Mimi \u{FFFD} 100k", Some(ShopEvent::ChatMessage("Mimi : 100k".into()))),
+        ("Yytitf31 6 . anyone", Some(ShopEvent::ChatMessage("Yytitf316 : anyone".into()))),
         ("", None), // redraw debris
         ("DLE", Some(ShopEvent::ChatMessage("DLE".into()))),
         ("i .", None),

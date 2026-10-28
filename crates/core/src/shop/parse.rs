@@ -52,6 +52,15 @@ fn with_separator(text: &str) -> String {
     if text.contains(" : ") {
         return text.to_string();
     }
+    // A mark standing alone between words is the separator, and all before it the name ("Yytitf31 6 . anyone"): names
+    // have no spaces, a narrow '1' leaves a gap.
+    let words: Vec<&str> = text.split(' ').collect();
+    if let Some(at) = words.iter().position(|w| w.chars().count() == 1 && w.starts_with(SEPARATORS))
+        && at > 0
+        && at + 1 < words.len()
+    {
+        return format!("{} : {}", words[..at].concat(), words[at + 1..].join(" ").trim_start());
+    }
     let Some((name, rest)) = text.split_once(' ') else { return text.to_string() };
     let glued = name.chars().count() > 1 && name.ends_with(SEPARATORS);
     let name = if glued { name.trim_end_matches(SEPARATORS) } else { name };

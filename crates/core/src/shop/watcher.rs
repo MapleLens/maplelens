@@ -288,10 +288,10 @@ impl ShopWatcher {
                 });
                 let item_id = found.as_ref().and_then(|f| f.game_id());
                 let item = found.map_or(item, |f| f.name.clone());
-                ShopEvent::Sale { item, buyer: self.names.buyer(&buyer), quantity, mesos, item_id }
+                ShopEvent::Sale { item, buyer: self.names.buyer(&joined(&buyer)), quantity, mesos, item_id }
             }
-            ShopEvent::PlayerEntered(name) => ShopEvent::PlayerEntered(self.names.entered(&name)),
-            ShopEvent::PlayerLeft(name) => ShopEvent::PlayerLeft(self.names.left(&name)),
+            ShopEvent::PlayerEntered(name) => ShopEvent::PlayerEntered(self.names.entered(&joined(&name))),
+            ShopEvent::PlayerLeft(name) => ShopEvent::PlayerLeft(self.names.left(&joined(&name))),
             // The speaker is one of the players seen, spelled as they are most often read.
             ShopEvent::ChatMessage(text) => match text.split_once(" : ") {
                 Some((name, message)) => ShopEvent::ChatMessage(format!("{} : {message}", self.names.buyer(name))),
@@ -688,6 +688,12 @@ impl ShopWatcher {
         };
         chat[chat.len() - added..].iter().filter_map(|line| self.read_chat(view, line)).collect()
     }
+}
+
+/// A name as one word: a game name has no spaces, and a narrow letter ('1', 'l') read with a gap after it split one
+/// ("gGcK1 49").
+fn joined(name: &str) -> String {
+    name.split_whitespace().collect()
 }
 
 /// Where the character's name is in the status bar: under their job, right of the level box, offsets measured on a

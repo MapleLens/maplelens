@@ -190,6 +190,9 @@ fn fits(pattern: &[char], key: &[char]) -> bool {
 /// Two letters that are one letter of the font read apart, and that letter.
 const SPLIT_LETTERS: [(&str, &str); 3] = [("cl", "d"), ("rn", "m"), ("vv", "w")];
 
+/// Known letters past a name that make a font read longer than the name by a word.
+const PAST_LETTERS: usize = 3;
+
 /// A cut graded scroll's title must leave this much of its name (key letters): enough to tell the scroll.
 const MIN_GRADED_KEY: usize = 16;
 
@@ -233,7 +236,7 @@ impl Grade {
                 _ => return None,
             }
         }
-        let warned = ["fail", "destroy", "chance"].iter().any(|w| after.contains(w));
+        let warned = ["fail", "destroy"].iter().any(|w| after.contains(w));
         match digits.trim() {
             "100" if !warned => Some(Self::Lesser),
             "60" if !warned => Some(Self::Intermediate),
@@ -378,6 +381,32 @@ impl Catalog {
             found.push((grade, item.clone()));
         }
         (found.len() >= 2).then_some(found)
+    }
+
+    /// Does a font read with gaps (`read`, '?' for up to 6 letters it did not know) go on past `name`, by a word
+    /// ("Red Moon G?oves" past "Red Moon")? Then a reading that named `name` lost the title's end. The marks and the
+    /// brackets aside, capital I and lowercase l as one.
+    pub fn read_goes_past(read: &str, name: &str) -> bool {
+        let pattern: Vec<char> = without_gender(&without_enhancement(read))
+            .replace('I', "l")
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '?')
+            .map(|c| c.to_ascii_lowercase())
+            .collect();
+        let name: Vec<char> = bar_key(name).chars().collect();
+        fn go(p: &[char], n: &[char]) -> bool {
+            if n.is_empty() {
+                return p.iter().filter(|&&c| c != '?').count() >= PAST_LETTERS;
+            }
+            match p.split_first() {
+                None => false,
+                // None to six: a mark the font did not know (a hyphen) is no letter of the key. A gap does not reach
+                // the name's end: what the font read after it is the name's own end, not a word past it.
+                Some(('?', rest)) => (0..=6.min(n.len() - 1)).any(|k| go(rest, &n[k..])),
+                Some((c, rest)) => n.first() == Some(c) && go(rest, &n[1..]),
+            }
+        }
+        go(&pattern, &name)
     }
 
     /// A name the game cut to fit its box ("Two-handed Axe Attack Scr..", the Sold Items list): the one item whose
