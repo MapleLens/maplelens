@@ -413,6 +413,9 @@ fn an_exact_read_takes_capital_i_and_lowercase_l_as_one_bar() {
     assert_eq!(name("Return Scroll to EI Nath").as_deref(), Some("Return Scroll to El Nath"));
     // A dotted i is not a bar.
     assert_eq!(name("Steel Tltans"), None);
+    // A 'd' read as "cl".
+    let catalog = Catalog::new([item("Reindeer Milk")], None);
+    assert_eq!(catalog.lookup_exact("Reincleer Milk").map(|i| i.name.clone()).as_deref(), Some("Reindeer Milk"));
 }
 
 #[test]

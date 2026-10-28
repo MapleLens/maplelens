@@ -18,15 +18,23 @@ const GLYPH_PIXELS_MIN: usize = 8;
 const TITLE_TOP_PAD: usize = 18;
 /// Rows of plain fill that must precede it (the top border itself is excluded).
 const CLEAR_ROWS: usize = 14;
+/// An enhanced item's title colour (255, 170, 51), with room for its edges: red at least, green between, blue at most.
+const ORANGE: (u8, u8, u8, u8) = (225, 140, 205, 110);
 /// Reading is the expensive step; real titles rank ahead of stray text lines.
 const MAX_CANDIDATES: usize = 8;
 
 /// Rows of `strip` (starting at the tooltip's left edge) where a tooltip could start, best first.
 pub fn candidate_tops(strip: &RgbImage) -> Vec<usize> {
-    let gray = strip.crop(TITLE_COLS.0, 0, TITLE_COLS.1, strip.height).to_gray();
-    let glyph: Vec<bool> = (0..gray.height)
+    let cols = strip.crop(TITLE_COLS.0, 0, TITLE_COLS.1, strip.height);
+    // Title ink: near white, or an enhanced item's orange (its grey, 182, falls just short of the white's threshold).
+    let ink = |p: &[u8; 3]| {
+        let [r, g, b] = *p;
+        crate::image::luma(r, g, b) > TEXT_THRESHOLD
+            || (r >= ORANGE.0 && (ORANGE.1..=ORANGE.2).contains(&g) && b <= ORANGE.3)
+    };
+    let glyph: Vec<bool> = (0..cols.height)
         .map(|y| {
-            gray.data[y * gray.width..(y + 1) * gray.width].iter().filter(|&&v| v > TEXT_THRESHOLD).count()
+            cols.data[y * cols.width * 3..(y + 1) * cols.width * 3].as_chunks::<3>().0.iter().filter(|p| ink(p)).count()
                 >= GLYPH_PIXELS_MIN
         })
         .collect();

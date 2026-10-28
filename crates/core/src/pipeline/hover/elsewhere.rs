@@ -53,6 +53,13 @@ const INSIDE_MARGIN: i32 = 8;
 const BULLET_MARGIN: i32 = 60;
 const BULLET_ROWS: i32 = 75;
 
+/// The pointer's glove from its hot spot (UI scale 1, measured on rendered scenes), and the dark fill it is painted over
+/// with.
+const POINTER: (i32, i32) = (30, 32);
+/// The glove reaches this far left of the hot spot.
+const POINTER_LEFT: i32 = 6;
+const POINTER_FILL: [u8; 3] = [40, 40, 90];
+
 /// A pushed-up tooltip's bullet stands at most this far (UI scale 1) from where the tooltip's left edge was expected.
 const BULLET_COLUMN: i32 = 4;
 
@@ -199,7 +206,17 @@ impl HoverDetector {
                 Placement { pushed_up_height: Some(bounds.bottom() - screen_top), crafted, ..Placement::default() };
             return Some(self.hover(&image, &read, Some(item), bounds, scale, now, at));
         }
-        let strip = normalised(&native_strip, scale);
+        // The game draws its pointer into the frame, here over the tooltip it opened: its white glove reads as title
+        // ink on the rows above the title. It is painted over with fill before rows are looked at.
+        let mut strip = normalised(&native_strip, scale);
+        let (px, py) =
+            (((cursor.x - x) as f32 / scale).round() as i32, ((cursor.y - top) as f32 / scale).round() as i32);
+        for y in py.max(0)..(py + POINTER.1).min(strip.height as i32) {
+            for x in (px - POINTER_LEFT).max(0)..(px + POINTER.0).min(strip.width as i32) {
+                let i = (y as usize * strip.width + x as usize) * 3;
+                strip.data[i..i + 3].copy_from_slice(&POINTER_FILL);
+            }
+        }
         for row in candidate_tops(&strip) {
             let screen_top = top + scaled(row as i32, scale);
             if screen_top > usual_top {

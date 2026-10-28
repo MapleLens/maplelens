@@ -187,6 +187,9 @@ fn fits(pattern: &[char], key: &[char]) -> bool {
     }
 }
 
+/// Two letters that are one letter of the font read apart, and that letter.
+const SPLIT_LETTERS: [(&str, &str); 3] = [("cl", "d"), ("rn", "m"), ("vv", "w")];
+
 /// A cut graded scroll's title must leave this much of its name (key letters): enough to tell the scroll.
 const MIN_GRADED_KEY: usize = 16;
 
@@ -306,11 +309,19 @@ impl Catalog {
     /// font, where the closest other name would be another item.
     pub fn lookup_exact(&self, text: &str) -> Option<Arc<Item>> {
         let bare = without_gender(&clean_title(&without_enhancement(text)));
-        let item = [text, bare.as_str()].into_iter().find_map(|candidate| {
-            let item =
-                self.by_key.get(&key(candidate)).or_else(|| self.by_bar_key.get(&bar_key(candidate))?.as_ref())?;
-            (!has_number(&item.name) || same_numbers(candidate, &item.name)).then(|| item.clone())
-        })?;
+        // Letters a bitmap font draws as two others ('d' as "cl" where its bowl meets the stem, 'm' as "rn", 'w' as
+        // "vv"): tried only when the read as it is names nothing.
+        let joined: Vec<String> = SPLIT_LETTERS
+            .iter()
+            .filter(|(pair, _)| bare.contains(pair))
+            .map(|(pair, letter)| bare.replace(pair, letter))
+            .collect();
+        let item =
+            [text, bare.as_str()].into_iter().chain(joined.iter().map(String::as_str)).find_map(|candidate| {
+                let item =
+                    self.by_key.get(&key(candidate)).or_else(|| self.by_bar_key.get(&bar_key(candidate))?.as_ref())?;
+                (!has_number(&item.name) || same_numbers(candidate, &item.name)).then(|| item.clone())
+            })?;
         (!self.lost_gender_mark(text, &item)).then_some(item)
     }
 
