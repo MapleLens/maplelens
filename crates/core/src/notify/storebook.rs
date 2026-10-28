@@ -14,8 +14,13 @@ use crate::shop::{ShopContext, ShopEvent, ShopStatus};
 const KEEP_SALES: usize = 150;
 const KEEP_CHAT: usize = 80;
 const KEEP_VISITS: usize = 80;
+/// Past stores kept: a week of a player who opens a few a day.
+const KEEP_SESSIONS: usize = 30;
 /// History older than this is dropped (the phone shows today and yesterday apart, and a week's totals).
 const MAX_AGE_MS: f64 = 7.0 * 24.0 * 3600.0 * 1000.0;
+/// A store seen opening while the book still has one open continues it when that one was busy this recently:
+/// MapleLens restarted (a page reload) over the same store, whose watcher reports it opening again.
+const RESUME_WITHIN_MS: f64 = 30.0 * 60.0 * 1000.0;
 
 /// The status line, as the Windows pill words it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,6 +64,20 @@ pub struct VisitEntry {
     pub came_in: bool,
 }
 
+/// A store from opening to closing. Its numbers are counted at closing from the history kept, so they are what its
+/// page lists (until older entries are dropped).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Session {
+    pub from: f64,
+    pub to: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+    pub sold: u64,
+    pub earned: i64,
+    /// Players who came in, each once.
+    pub visitors: u64,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Book {
@@ -71,6 +90,37 @@ pub struct Book {
     pub sales: Vec<SaleEntry>,
     pub chat: Vec<ChatEntry>,
     pub visits: Vec<VisitEntry>,
+    /// Stores that closed, newest first.
+    pub sessions: Vec<Session>,
+}
+
+impl Book {
+    /// The newest moment the open store was known busy: its opening or its latest entry.
+    fn last_activity(&self) -> Option<f64> {
+        let latest =
+            [self.sales.first().map(|e| e.t), self.chat.first().map(|e| e.t), self.visits.first().map(|e| e.t)];
+        latest.into_iter().flatten().chain(self.opened_at).reduce(f64::max)
+    }
+
+    /// The open store, ended at `to`, into the past stores.
+    fn end_session(&mut self, to: f64) {
+        let Some(from) = self.opened_at.take() else { return };
+        let within = |t: f64| (from..=to).contains(&t);
+        let sales = self.sales.iter().filter(|e| within(e.t));
+        let mut visitors: Vec<&str> =
+            self.visits.iter().filter(|e| e.came_in && within(e.t)).map(|e| e.name.as_str()).collect();
+        visitors.sort_unstable();
+        visitors.dedup();
+        let session = Session {
+            from,
+            to,
+            owner: self.owner.clone(),
+            sold: sales.clone().count() as u64,
+            earned: sales.filter_map(|e| e.mesos).sum(),
+            visitors: visitors.len() as u64,
+        };
+        self.sessions.insert(0, session);
+    }
 }
 
 /// The book and whether the phones have seen its latest state.
@@ -162,9 +212,20 @@ impl StoreBook {
                 };
                 book.chat.insert(0, entry);
             }
-            ShopEvent::StoreOpened => (book.open, book.opened_at) = (true, Some(t)),
+            ShopEvent::StoreOpened => {
+                let last = book.last_activity();
+                let resumed = book.open && book.opened_at.is_some() && last.is_some_and(|l| t - l <= RESUME_WITHIN_MS);
+                if !resumed {
+                    // One the book still has open was not seen closing (MapleLens was off): it ended when last busy.
+                    if book.open {
+                        book.end_session(last.unwrap_or(t));
+                    }
+                    (book.open, book.opened_at) = (true, Some(t));
+                }
+            }
             ShopEvent::StoreClosed => {
-                (book.open, book.opened_at) = (false, None);
+                book.end_session(t);
+                book.open = false;
                 book.in_store.clear();
             }
             ShopEvent::AmbiguousSale | ShopEvent::LostSync(_) => return,
@@ -182,6 +243,8 @@ impl StoreBook {
         book.chat.truncate(KEEP_CHAT);
         book.visits.retain(|e| fresh(e.t));
         book.visits.truncate(KEEP_VISITS);
+        book.sessions.retain(|s| fresh(s.to));
+        book.sessions.truncate(KEEP_SESSIONS);
     }
 
     /// The picture of an item of this name, for its sales without one.
@@ -332,13 +395,75 @@ mod tests {
         assert_eq!(StoreBook::from_json("not json").book, Book::default());
     }
 
+    fn entered(name: &str) -> ShopEvent {
+        ShopEvent::PlayerEntered(name.into())
+    }
+
+    #[test]
+    fn a_closed_store_becomes_a_past_store_with_its_own_numbers() {
+        let mut book = StoreBook::default();
+        let shop = context("ShopOwner", 0);
+        let mut at = |events: &[ShopEvent], t: f64| {
+            book.update(ShopStatus::Watching, &shop, events, t);
+            book.book.sessions.len()
+        };
+        at(&[sale("Before", None)], 500.0);
+        at(&[ShopEvent::StoreOpened], 1_000.0);
+        at(&[entered("Wina")], 2_000.0);
+        at(&[sale("Arrow", None)], 3_000.0);
+        at(&[ShopEvent::PlayerLeft("Wina".into()), entered("Wina"), entered("Tikko")], 3_500.0);
+        at(&[ShopEvent::SaleUnseen { mesos: Some(100) }], 4_000.0);
+        at(&[ShopEvent::StoreClosed], 5_000.0);
+        at(&[ShopEvent::StoreOpened], 9_000.0);
+        assert_eq!(at(&[sale("Pet Food", None)], 9_500.0), 1, "the open store is not a past one yet");
+        at(&[ShopEvent::StoreClosed], 10_000.0);
+        let owner = Some("ShopOwner".to_string());
+        assert_eq!(
+            book.book.sessions,
+            [
+                Session { from: 9_000.0, to: 10_000.0, owner: owner.clone(), sold: 1, earned: 2_900, visitors: 0 },
+                Session { from: 1_000.0, to: 5_000.0, owner, sold: 2, earned: 3_000, visitors: 2 },
+            ]
+        );
+        assert!(!book.book.open);
+        assert_eq!(book.book.opened_at, None);
+        let snap = book.snapshot(true, 11_000.0);
+        assert_eq!(
+            snap["sessions"][1],
+            json!({"from": 1_000.0, "to": 5_000.0, "owner": "ShopOwner", "sold": 2, "earned": 3_000, "visitors": 2})
+        );
+        assert_eq!(StoreBook::from_json(&book.to_json()).book.sessions, book.book.sessions, "kept over a restart");
+    }
+
+    #[test]
+    fn a_store_seen_opening_again_soon_after_is_the_same_store() {
+        const MIN: f64 = 60_000.0;
+        let mut book = StoreBook::default();
+        let mut at = |events: &[ShopEvent], t: f64| {
+            book.update(ShopStatus::Watching, &ShopContext::default(), events, t);
+            (book.book.opened_at, book.book.sessions.clone())
+        };
+        at(&[ShopEvent::StoreOpened], 0.0);
+        at(&[sale("Arrow", None)], 20.0 * MIN);
+        // MapleLens restarted: its watcher sees the open store as opening.
+        assert_eq!(at(&[ShopEvent::StoreOpened], 45.0 * MIN), (Some(0.0), vec![]));
+        // Gone for hours: the store it had open ended when last busy, and this is another.
+        let (opened_at, sessions) = at(&[ShopEvent::StoreOpened], 300.0 * MIN);
+        assert_eq!(opened_at, Some(300.0 * MIN));
+        assert_eq!((sessions[0].from, sessions[0].to, sessions[0].sold), (0.0, 20.0 * MIN, 1));
+    }
+
     #[test]
     fn old_and_excess_history_is_dropped() {
         let mut book = StoreBook::default();
         let chat: Vec<ShopEvent> = (0..100).map(|i| ShopEvent::ChatMessage(format!("line {i}"))).collect();
         book.update(ShopStatus::Watching, &ShopContext::default(), &chat, 0.0);
         assert_eq!(book.book.chat.len(), KEEP_CHAT);
+        let stores: Vec<ShopEvent> = (0..40).flat_map(|_| [ShopEvent::StoreOpened, ShopEvent::StoreClosed]).collect();
+        book.update(ShopStatus::Watching, &ShopContext::default(), &stores, 1.0);
+        assert_eq!(book.book.sessions.len(), KEEP_SESSIONS);
         book.update(ShopStatus::Watching, &ShopContext::default(), &[ShopEvent::StoreClosed], MAX_AGE_MS + 1.0);
         assert!(book.book.chat.is_empty(), "a week old");
+        assert!(book.book.sessions.is_empty(), "a week old");
     }
 }

@@ -42,7 +42,8 @@
 /* The browser's pull to refresh and rubber band are off (pull.js draws its own); the sky shows wherever it peeks. */
 html{overscroll-behavior-y:none;background:var(--sky-1)}
 body{min-height:100vh;min-height:100dvh;padding:0 0 max(24px,env(safe-area-inset-bottom));background:linear-gradient(var(--sky-1),var(--sky-2) 420px,var(--sky-3) 900px,#eaf7ff)}
-main{max-width:480px;margin:0 auto;padding:0 14px;display:grid;gap:14px}
+/* One column no wider than the screen: a long one-line title shortens with an ellipsis instead of widening the page. */
+main{max-width:480px;margin:0 auto;padding:0 14px;display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
 button{font:inherit}
 .bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;padding:max(10px,env(safe-area-inset-top)) 16px 10px;
   background:linear-gradient(#4b5878,#2c3247);border-bottom:2px solid #11152a;box-shadow:0 2px 0 #7f8db0 inset;color:#fff}
@@ -108,10 +109,10 @@ button{font:inherit}
 .slot{flex:none;display:grid;place-items:center;width:44px;height:44px;border-radius:9px;background:linear-gradient(#f4f6fb,#dde3ef);border:1px solid #b9c2d6;box-shadow:0 1px 0 #fff inset}
 .slot img{width:32px;height:32px;object-fit:contain;image-rendering:pixelated}
 .slot.q{font:22px "Lilita One",Tahoma,sans-serif;color:var(--idle)}
-.row .what{flex:1;min-width:0}
-.row .what b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.row .what span{font-size:12px;color:var(--muted)}
-.row .gain{flex:none;font:bold 15px Tahoma,sans-serif;color:var(--gold);font-variant-numeric:tabular-nums}
+.row .what,.session .what{flex:1;min-width:0}
+.row .what b,.session .what b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .what span,.session .what span{font-size:12px;color:var(--muted)}
+.row .gain,.session .gain{flex:none;font:bold 15px Tahoma,sans-serif;color:var(--gold);font-variant-numeric:tabular-nums}
 .bubble{background:var(--card);border:1px solid var(--line);border-radius:4px 14px 14px 14px;padding:8px 12px;max-width:92%}
 .bubble b{font-size:13px;color:var(--title-2)}
 .bubble p{margin:2px 0 0;overflow-wrap:anywhere}
@@ -128,6 +129,34 @@ button{font:inherit}
 @media (prefers-reduced-motion:reduce){.waiting img{animation:none}}
 .waiting h2{font:24px "Lilita One",Tahoma,sans-serif;margin:10px 0 6px}
 .waiting p{margin:0 0 6px;color:var(--muted);font-size:14px}
+
+/* the store closed: a shuttered stall while MapleLens waits for the next one, then the stores before it */
+.closed-card{display:grid;justify-items:center;gap:4px;text-align:center;padding:4px 4px 2px}
+.closed-card svg{width:150px;height:104px;overflow:visible}
+.closed-card .sign{transform-box:fill-box;transform-origin:50% 0;animation:swing 3.2s ease-in-out infinite}
+@keyframes swing{25%{transform:rotate(3deg)}75%{transform:rotate(-3deg)}}
+.closed-card .z{animation:snooze 3.2s ease-in-out infinite;opacity:0}
+.closed-card .z+.z{animation-delay:1.1s}
+@keyframes snooze{30%{opacity:.9}100%{opacity:0;transform:translate(8px,-14px)}}
+@media (prefers-reduced-motion:reduce){.closed-card .sign,.closed-card .z{animation:none}.closed-card .z{opacity:.7}}
+.closed-card b{font:22px/1.15 "Lilita One",Tahoma,sans-serif;color:var(--ink)}
+.closed-card p{margin:0;font-size:13px;color:var(--muted);max-width:28em}
+.caption{font:bold 11px Tahoma,sans-serif;color:var(--win-dark);text-transform:uppercase;letter-spacing:.06em;margin:14px 4px 6px}
+.past .win-b{padding:10px}
+.sessions{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
+.session{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:10px;color:inherit;cursor:pointer;box-shadow:0 6px 14px -12px rgba(20,40,80,.5)}
+.session:active{background:#f3f6fc}
+.session:focus-visible{outline:3px solid #1d5bb8;outline-offset:2px}
+.cal{flex:none;display:grid;width:44px;border-radius:9px;overflow:hidden;border:1px solid #b9c2d6;text-align:center;background:#fff}
+.cal span{font:bold 10px/17px Tahoma,sans-serif;color:#fff;background:var(--title-2);text-transform:uppercase;letter-spacing:.05em}
+.cal b{font:20px/27px "Lilita One",Tahoma,sans-serif;color:var(--ink)}
+.session .gain.none{color:var(--idle);font-weight:normal;font-size:13px}
+.session .chev{flex:none;width:16px;height:16px;color:var(--idle)}
+.sheet .when{margin:-4px 0 0;font-size:13px;color:var(--muted)}
+.sheet .tabs{top:0}
+.sheet .list{min-height:180px}
+.kept{text-align:center;font-size:12px;color:var(--muted);margin:4px 0 0}
 
 /* pull to refresh: a meso comes out from under the bar and spins while the store is asked again */
 .ptr{position:fixed;left:50%;top:0;z-index:4;display:flex;align-items:center;gap:8px;padding:6px 14px 6px 6px;border-radius:999px;
@@ -195,7 +224,7 @@ dialog.sheet[open]{animation:up .22s ease-out}
         <p>On your computer, open <b>MapleLens Web</b> and press <b>Connect</b> next to Phone under Store Permit. Then scan the code it shows:</p>
         <button class="btn big" id="scan-btn" type="button">Scan the code</button>
         <p class="note" id="scan-note">Or scan it with the phone's camera app.</p>
-        <p class="note">MapleLens Web is at <b>maplelens.github.io/maplelens/app</b> on your computer.</p>
+        <p class="note">MapleLens Web is at <b>maple.observer/app</b> on your computer.</p>
       </div>
 
       <div class="win-b" id="removed" hidden>
@@ -252,15 +281,35 @@ dialog.sheet[open]{animation:up .22s ease-out}
           <span class="state" id="status">…</span>
         </div>
         <div class="hint-line" id="hint" hidden></div>
-        <div class="till">
+        <div class="till" id="till">
           <img class="px" src="../../assets/meso.png" alt="">
           <div><span>Current mesos</span><b id="balance">–</b></div>
         </div>
+        <div class="closed-card" id="closed-card" hidden>
+          <svg viewBox="0 0 150 104" aria-hidden="true">
+            <path d="M22 44h106v52H22z" fill="#c98b4a" stroke="#6b4320" stroke-width="2"/>
+            <path d="M22 66h106" stroke="#6b4320" stroke-width="2"/>
+            <path d="M30 50h90v12H30z" fill="#a8703a"/>
+            <path d="M14 22h122l-6 22H20z" fill="#fff" stroke="#9a5200" stroke-width="2" stroke-linejoin="round"/>
+            <path d="M28 22h14l-2 22H24zM56 22h14l-1 22H55zM84 22h14l1 22H85zM112 22h14l4 22h-16z" fill="#ffad1f"/>
+            <path d="M20 44q6.5 8 13 0q6.5 8 13 0q6.5 8 13 0q6.5 8 13 0q6.5 8 13 0q6.5 8 13 0q6.5 8 13 0q6.5 8 13 0" fill="#ffad1f" stroke="#9a5200" stroke-width="2" stroke-linejoin="round"/>
+            <g class="sign">
+              <path d="M58 58l17-8 17 8" fill="none" stroke="#6b4320" stroke-width="1.5"/>
+              <rect x="50" y="58" width="50" height="20" rx="4" fill="#2c3247" stroke="#11152a" stroke-width="2"/>
+              <text x="75" y="72.5" text-anchor="middle" font-family="Tahoma,sans-serif" font-weight="bold" font-size="11" fill="#fff" letter-spacing=".5">CLOSED</text>
+            </g>
+            <text class="z" x="122" y="16" font-family="Lilita One,Tahoma,sans-serif" font-size="14" fill="#5b6f9f">z</text>
+            <text class="z" x="132" y="8" font-family="Lilita One,Tahoma,sans-serif" font-size="11" fill="#5b6f9f">z</text>
+          </svg>
+          <b>Waiting for your store</b>
+          <p>Open your Store Permit in the game. This page switches to it as soon as MapleLens sees it open.</p>
+        </div>
       </div>
 
+      <div id="open-view">
       <div class="stats" style="margin-top:14px">
-        <div class="stat"><b id="stat-sold">0</b><span>Sold today</span></div>
-        <div class="stat"><b id="stat-earned">0</b><span>Earned today</span></div>
+        <div class="stat"><b id="stat-sold">0</b><span>Sold</span></div>
+        <div class="stat"><b id="stat-earned">0</b><span>Earned</span></div>
         <div class="stat"><b id="stat-visitors">0</b><span>Visitors</span></div>
       </div>
 
@@ -275,11 +324,50 @@ dialog.sheet[open]{animation:up .22s ease-out}
         <button type="button" role="tab" id="tab-visits" aria-selected="false" aria-controls="list">Visitors<span class="n" id="n-visits">0</span></button>
       </div>
       <div class="list" id="list" role="tabpanel" aria-live="polite" style="margin-top:10px"></div>
+      </div>
+
+      <div id="week" hidden>
+        <p class="caption">Last 7 days</p>
+        <div class="stats">
+          <div class="stat"><b id="week-stores">0</b><span>Stores</span></div>
+          <div class="stat"><b id="week-sold">0</b><span>Sold</span></div>
+          <div class="stat"><b id="week-earned">0</b><span>Earned</span></div>
+        </div>
+      </div>
+
+      <div class="win past" id="past" style="margin-top:14px" hidden>
+        <div class="win-h">Past stores<span class="tag" id="past-count">0</span></div>
+        <div class="win-b"><div class="sessions" id="sessions"></div></div>
+      </div>
     </div>
   </div>
 </main>
 
 <template id="share-icon"><svg class="share" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5M5 12v8h14v-8"/></svg></template>
+
+<dialog class="sheet" id="session" aria-labelledby="session-title">
+  <div class="grab"></div>
+  <header>
+    <h2 id="session-title">Store</h2>
+    <button class="icon-btn close" id="session-close" type="button" aria-label="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </header>
+  <div class="body">
+    <p class="when" id="session-when"></p>
+    <div class="stats">
+      <div class="stat"><b id="session-sold">0</b><span>Sold</span></div>
+      <div class="stat"><b id="session-earned">0</b><span>Earned</span></div>
+      <div class="stat"><b id="session-visitors">0</b><span>Visitors</span></div>
+    </div>
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" id="session-tab-sales" aria-selected="true" aria-controls="session-list">Sales<span class="n" id="session-n-sales">0</span></button>
+      <button type="button" role="tab" id="session-tab-chat" aria-selected="false" aria-controls="session-list">Chat<span class="n" id="session-n-chat">0</span></button>
+      <button type="button" role="tab" id="session-tab-visits" aria-selected="false" aria-controls="session-list">Visitors<span class="n" id="session-n-visits">0</span></button>
+    </div>
+    <div class="list" id="session-list" role="tabpanel"></div>
+  </div>
+</dialog>
 
 <dialog class="sheet" id="settings" aria-labelledby="settings-title">
   <div class="grab"></div>
@@ -322,6 +410,6 @@ dialog.sheet[open]{animation:up .22s ease-out}
 </dialog>
 
 <div class="toast" id="toast" role="status" hidden></div>
-<script type="module" src="phone.js?v=349056720992"></script>
+<script type="module" src="phone.js?v=278fbc46ebfc"></script>
 </body>
 </html>

@@ -5,13 +5,18 @@
 const STORAGE_KEY = "maplelens.web.storebook";
 /** History kept, newest first: a day of a busy store, and a snapshot well under the relay's size limit. */
 const KEEP = { sales: 150, chat: 80, visits: 80 };
+/** Past stores kept: a week of a player who opens a few a day. */
+const KEEP_SESSIONS = 30;
 /** History older than this is dropped (the phone shows today and yesterday apart, and a week's totals). */
 const MAX_AGE_MS = 7 * 24 * 3600 * 1000;
+/** A store seen opening while the book still has one open continues it when that one was busy this recently: the
+ *  page reloaded over the same store, whose watcher reports it opening again. */
+const RESUME_WITHIN_MS = 30 * 60 * 1000;
 
 export class StoreBook {
   constructor(storage) {
     this.storage = storage;
-    this.book = { owner: null, open: false, openedAt: null, balance: null, status: null, inStore: [], sales: [], chat: [], visits: [] };
+    this.book = { owner: null, open: false, openedAt: null, balance: null, status: null, inStore: [], sales: [], chat: [], visits: [], sessions: [] };
     try {
       Object.assign(this.book, JSON.parse(storage(s => s.getItem(STORAGE_KEY)) || "{}"));
     } catch { /* damaged: start over */ }
@@ -79,13 +84,18 @@ export class StoreBook {
         book.chat.unshift(at > 0 ? { t, name: event.text.slice(0, at), text: event.text.slice(at + 3) } : { t, name: null, text: event.text });
         break;
       }
-      case "opened":
+      case "opened": {
+        const last = this.lastActivity();
+        if (book.open && book.openedAt && last !== null && t - last <= RESUME_WITHIN_MS) break;
+        // One the book still has open was not seen closing (the page was closed): it ended when last busy.
+        if (book.open) this.endSession(last ?? t);
         book.open = true;
         book.openedAt = t;
         break;
+      }
       case "closed":
+        this.endSession(t);
         book.open = false;
-        book.openedAt = null;
         book.inStore = [];
         break;
       default:
@@ -94,6 +104,32 @@ export class StoreBook {
     this.trim(t);
     this.changed = true;
     this.save();
+  }
+
+  /** The newest moment the open store was known busy: its opening or its latest entry. */
+  lastActivity() {
+    const book = this.book;
+    const times = [book.openedAt, book.sales[0]?.t, book.chat[0]?.t, book.visits[0]?.t].filter(Number.isFinite);
+    return times.length ? Math.max(...times) : null;
+  }
+
+  /** The open store, ended at `to`, into the past stores. Its numbers are counted from the history kept, so they are
+   *  what its page lists. */
+  endSession(to) {
+    const book = this.book;
+    const from = book.openedAt;
+    book.openedAt = null;
+    if (!Number.isFinite(from)) return;
+    const within = entry => entry.t >= from && entry.t <= to;
+    const sales = book.sales.filter(within);
+    book.sessions.unshift({
+      from,
+      to,
+      ...(book.owner ? { owner: book.owner } : {}),
+      sold: sales.length,
+      earned: sales.reduce((sum, sale) => sum + (sale.mesos || 0), 0),
+      visitors: new Set(book.visits.filter(visit => visit.in && within(visit)).map(visit => visit.name)).size,
+    });
   }
 
   set(field, value) {
@@ -106,6 +142,7 @@ export class StoreBook {
     for (const [list, keep] of Object.entries(KEEP)) {
       this.book[list] = this.book[list].filter(entry => now - entry.t < MAX_AGE_MS).slice(0, keep);
     }
+    this.book.sessions = this.book.sessions.filter(session => now - session.to < MAX_AGE_MS).slice(0, KEEP_SESSIONS);
   }
 
   save() {

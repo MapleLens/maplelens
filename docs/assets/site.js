@@ -47,7 +47,7 @@ if (connect) {
   // The computer needs MapleLens too: the phone's share sheet sends it there (mail, a chat), else the link is copied.
   const share = document.getElementById("connect-share");
   share.addEventListener("click", async () => {
-    const url = "https://maplelens.github.io/maplelens/";
+    const url = "https://maple.observer/";
     try {
       if (navigator.share) await navigator.share({title: "MapleLens", url});
       else {
