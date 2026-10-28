@@ -5,8 +5,8 @@
 // Fastest path per phone: Android receives push in the browser tab itself (scan, tap, done; installing is optional).
 // iPhone only lets home-screen apps receive push, so the page is installed once, and the app can pair by scanning.
 
-import { pullToRefresh } from "./pull.js?v=088810e6a9ca";
-import { KEY_SHAPE, PAIR_CACHE, PAIR_REQUEST, relay, RELAY_URL, unseal } from "./relay.js?v=088810e6a9ca";
+import { pullToRefresh } from "./pull.js?v=19fc04e8ae46";
+import { KEY_SHAPE, PAIR_CACHE, PAIR_REQUEST, relay, RELAY_URL, unseal } from "./relay.js?v=19fc04e8ae46";
 
 const $ = id => document.getElementById(id);
 const STORED_KEY = "maplelens.phone.key";
@@ -486,6 +486,74 @@ function visitRow(visit) {
   );
 }
 
+// ---------- installing on iPhone ----------
+
+/** Set once the install sheet was shown in this tab, so it does not come back on every pull to refresh. */
+const SHEET_SEEN_KEY = "maplelens.phone.install-sheet";
+const b = text => el("b", { textContent: text });
+const SHARE = "share";
+const FINISH = ["Tap ", b("Add"), ", then open ", b("MapleLens"), " from your home screen."];
+
+/** Which iPhone browser this is. Every one of them can add a page to the home screen since iOS 16.4, and what it adds
+ *  is a Safari web app, so push works whichever added it; an app's own web view (Instagram, the Google app) cannot. */
+function iosBrowser() {
+  const ua = navigator.userAgent;
+  if (/CriOS\//.test(ua)) return "chrome";
+  if (/EdgiOS\//.test(ua)) return "edge";
+  if (/FxiOS\//.test(ua)) return "firefox";
+  if (/FBAN|FBAV|Instagram|Line\/|Snapchat|GSA\/|LinkedInApp/.test(ua) || !/Safari\//.test(ua)) return "in-app";
+  return "safari";
+}
+
+/** Each browser keeps Add to Home Screen somewhere else: Safari behind Share in its toolbar, Chrome behind Share in
+ *  its address bar. Steps written for Safari sent Chrome users looking for a button that is not there. */
+const INSTALL_STEPS = {
+  safari: [
+    ["Tap ", b("Share"), " ", SHARE, " in Safari's toolbar. On iOS 26, tap ", b("•••"), " first."],
+    ["Tap ", b("Add to Home Screen"), " (scroll down, or look under ", b("More"), "). Leave ", b("Open as Web App"), " on."],
+    FINISH,
+  ],
+  chrome: [
+    ["Tap ", b("Share"), " ", SHARE, " in Chrome's address bar (or ", b("•••"), ", then ", b("Share"), ")."],
+    ["Tap ", b("Add to Home Screen"), " (scroll down, or look under ", b("More"), ")."],
+    FINISH,
+  ],
+  edge: [
+    ["Tap ", b("•••"), " in Edge, then ", b("Share"), " ", SHARE, "."],
+    ["Tap ", b("Add to Home Screen"), " (scroll down, or look under ", b("More"), ")."],
+    FINISH,
+  ],
+  firefox: [
+    ["Tap the menu ", b("☰"), " in Firefox, then ", b("Share"), " ", SHARE, "."],
+    ["Tap ", b("Add to Home Screen"), "."],
+    FINISH,
+  ],
+  "in-app": [
+    ["Open this page in ", b("Safari"), ": tap ", b("•••"), " or ", SHARE, " and choose ", b("Open in Safari"), " (or copy the address there). Apps' own browsers cannot add it."],
+    ["In Safari, tap ", b("Share"), " ", SHARE, ", then ", b("Add to Home Screen"), "."],
+    FINISH,
+  ],
+};
+
+function installSteps(list) {
+  list.replaceChildren(
+    ...INSTALL_STEPS[iosBrowser()].map(step =>
+      el("li", {}, ...step.map(part =>
+        part === SHARE ? $("share-icon").content.cloneNode(true) : typeof part === "string" ? part : part.cloneNode(true)))),
+  );
+}
+
+/** iPhone has no install prompt a page can call, so the page offers its own, once a visit, over the steps in the card. */
+function offerInstall() {
+  installSteps($("install-steps"));
+  installSteps($("install-sheet-steps"));
+  try {
+    if (sessionStorage.getItem(SHEET_SEEN_KEY)) return;
+    sessionStorage.setItem(SHEET_SEEN_KEY, "1");
+  } catch {}
+  if (!$("install-sheet").open) $("install-sheet").showModal();
+}
+
 // ---------- settings ----------
 
 function openSettings() {
@@ -563,7 +631,10 @@ function demo() {
 async function start() {
   if (new URLSearchParams(location.search).has("demo")) return demo();
   // iPhone allows push only to home-screen apps, whatever the Safari tab exposes.
-  if (ios && !standalone) return show("install", "add to home screen");
+  if (ios && !standalone) {
+    show("install", "add to home screen");
+    return offerInstall();
+  }
   if (!pushable) return show("unsupported", "not available");
   // Registered before pairing too: Chrome's install prompt waits for a service worker that handles fetches. Not
   // awaited yet: a phone that cannot register still sees how to pair, and learns why only when it tries.
@@ -637,6 +708,8 @@ $("scan-cancel").addEventListener("click", () => {
   show(key ? "enable" : "no-key", "not paired");
 });
 $("settings-btn").addEventListener("click", openSettings);
+for (const id of ["install-sheet-close", "install-sheet-ok"]) $(id).addEventListener("click", () => $("install-sheet").close());
+$("install-sheet").addEventListener("click", event => { if (event.target === $("install-sheet")) $("install-sheet").close(); });
 $("settings-close").addEventListener("click", () => $("settings").close());
 // A tap on the dimmed backdrop closes the sheet, as on every phone.
 $("settings").addEventListener("click", event => { if (event.target === $("settings")) $("settings").close(); });
@@ -657,7 +730,7 @@ pullToRefresh(document.querySelector("main"), $("ptr"), async () => {
     return;
   }
   await start();
-}, () => !scanning && !$("settings").open);
+}, () => !scanning && !$("settings").open && !$("install-sheet").open);
 start().catch(error => {
   show("unsupported", "error");
   $("unsupported").querySelector("p").textContent = `Something went wrong: ${error.message || error}`;
