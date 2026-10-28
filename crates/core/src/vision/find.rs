@@ -447,6 +447,91 @@ fn true_top(lifts: &Lifts, spot: Point) -> Point {
     Point { x: spot.x, y: border_y - BORDER_INSET }
 }
 
+/// Where a tooltip title's bullet is, at UI scale 1 from the tooltip's corner (`reader`'s usual spot), and its size.
+const BULLET_AT: (i32, i32) = (14, 23);
+const BULLET_SPAN: (i32, i32) = (5, 10);
+/// Around a bullet: the tooltip's dark fill, this far out (UI scale 1) left, above and below.
+const BULLET_CLEARANCE: i32 = 6;
+const FILL_DARK: u8 = 120;
+/// Bullets looked at in one frame, at most: a busy frame's light-blue specks must not cost a look its budget.
+const MAX_BULLETS: usize = 96;
+/// The bullet's own light blue: 85-119, 204, 255 drawn, 77-137, 185-214, 222-250 in 1080p video. A sky's or water's
+/// blue specks are darker in green.
+const BULLET_GREEN: (u8, u8) = (185, 225);
+const BULLET_BLUE_MIN: u8 = 222;
+const BULLET_RED: (u8, u8) = (60, 145);
+
+/// Tooltip corners (frame pixels) inferred from title bullets: light-blue dots of the bullet's size on dark fill, the
+/// one mark every item title has wherever it is. Over a busy backdrop (inventory icons, a stall, another window) the
+/// fill band and borders `find_tooltips` looks for are not there to be found, and a live session had 29 of 166
+/// tooltips found by nothing else. For a crafted item the corner is higher by the maker line, so both corners are
+/// given. Cheap enough for every look: a sparse scan, and a dot is only followed where its surroundings are dark.
+pub fn bullet_spots(frame: &RgbImage, scale: f32) -> Vec<Point> {
+    let s = |v: i32| (v as f32 * scale).round() as i32;
+    let core = |x: usize, y: usize| {
+        let [r, g, b] = frame.pixel(x, y);
+        (BULLET_GREEN.0..=BULLET_GREEN.1).contains(&g)
+            && b >= BULLET_BLUE_MIN
+            && (BULLET_RED.0..=BULLET_RED.1).contains(&r)
+    };
+    // A video's blur takes the bullet's own colour from its edges; its extent is then the broader light blue.
+    let blue = |x: usize, y: usize| {
+        let [r, g, b] = frame.pixel(x, y);
+        b > 200 && g > 150 && r < 150
+    };
+    let inside = |x: i32, y: i32| x >= 0 && y >= 0 && (x as usize) < frame.width && (y as usize) < frame.height;
+    let dark = |x: i32, y: i32| {
+        inside(x, y) && {
+            let [r, g, b] = frame.pixel(x as usize, y as usize);
+            crate::image::luma(r, g, b) < FILL_DARK
+        }
+    };
+    let step = (s(BULLET_SPAN.0) / 2).max(1) as usize;
+    let (lo, hi) = (s(BULLET_SPAN.0).max(2) - 1, s(BULLET_SPAN.1) + 1);
+    let clear = s(BULLET_CLEARANCE);
+    let mut found: Vec<Point> = Vec::new();
+    let mut corners = Vec::new();
+    for y in (0..frame.height).step_by(step) {
+        for x in (0..frame.width).step_by(step) {
+            if !core(x, y) || found.iter().any(|p| (p.x - x as i32).abs() <= hi && (p.y - y as i32).abs() <= hi) {
+                continue;
+            }
+            let (xi, yi) = (x as i32, y as i32);
+            if !(dark(xi - clear, yi) && dark(xi, yi - clear) && dark(xi, yi + clear)) {
+                continue;
+            }
+            let run = |dx: i32, dy: i32, test: &dyn Fn(usize, usize) -> bool| {
+                let mut n = 0;
+                while n <= hi && {
+                    let (px, py) = (xi + dx * (n + 1), yi + dy * (n + 1));
+                    inside(px, py) && test(px as usize, py as usize)
+                } {
+                    n += 1;
+                }
+                n
+            };
+            let extent = |test: &dyn Fn(usize, usize) -> bool| {
+                let (left, right, up, down) = (run(-1, 0, test), run(1, 0, test), run(0, -1, test), run(0, 1, test));
+                let (w, h) = (left + right + 1, up + down + 1);
+                ((lo..=hi).contains(&w) && (lo..=hi).contains(&h)).then_some((left, up))
+            };
+            let Some((left, up)) = extent(&core).or_else(|| extent(&blue)) else { continue };
+            let (x0, y0) = (xi - left, yi - up);
+            found.push(Point { x: x0, y: y0 });
+            for shift in [0, config::TOOLTIP_CRAFTED_SHIFT] {
+                let corner = Point { x: x0 - s(BULLET_AT.0), y: y0 - s(BULLET_AT.1 + shift) };
+                if corner.x >= 0 && corner.y >= 0 {
+                    corners.push(corner);
+                }
+            }
+            if found.len() >= MAX_BULLETS {
+                return corners;
+            }
+        }
+    }
+    corners
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
