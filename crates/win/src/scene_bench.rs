@@ -38,6 +38,10 @@ enum Path {
 /// The page's Tesseract, asked synchronously: `psm` 6 for titles (a block of one or two lines), 7 for a shop line.
 fn tesseract(image: &GrayImage, psm: u8) -> String {
     let Ok(server) = std::env::var("MAPLELENS_TESSERACT") else { return String::new() };
+    // Tesseract refuses images under 3 px a side (and its worker had taken the server down with it).
+    if image.width < 3 || image.height < 3 {
+        return String::new();
+    }
     let mut rgb = RgbImage::new(image.width, image.height);
     for (p, &v) in rgb.data.as_chunks_mut::<3>().0.iter_mut().zip(&image.data) {
         p.copy_from_slice(&[v, v, v]);

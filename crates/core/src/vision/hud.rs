@@ -175,10 +175,19 @@ pub fn find_bar(strip: &RgbImage) -> Option<Bar> {
                 left_side = side(&counts, top, mirror(r.x), 1);
             }
         }
-        // Dark scenery on both sides joins the outline from either end (a dark map with the quick slots over the
-        // bar): neither end is the bar's. Its sides are then the outline columns along the run, centred.
-        if left_side.is_none() && right_side.is_none() && off_centre {
-            (left_side, right_side) = sides_along(&counts, top, start, end, centre);
+        // Dark scenery joins the outline from an end, or both (a dark map with the quick slots over the bar): that end
+        // is not the bar's, and what was found there is not centred. The sides are then the outline columns along the
+        // run, centred.
+        let centred_pair = |l: Option<Side>, r: Option<Side>| {
+            let (Some(l), Some(r)) = (l, r) else { return false };
+            let (from, to) = if l.beside_black || r.beside_black || off_centre { (l.x, r.x + 1) } else { (start, end) };
+            ((from + to) as f32 / 2.0 - centre).abs() <= CENTRE_SLACK_PX
+        };
+        if !centred_pair(left_side, right_side) {
+            let (l, r) = sides_along(&counts, top, start, end, centre);
+            if l.is_some() {
+                (left_side, right_side) = (l, r);
+            }
         }
         let (Some(left), Some(right)) = (left_side, right_side) else {
             continue;

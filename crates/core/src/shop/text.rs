@@ -81,6 +81,16 @@ pub fn read_pixels(pixels: &RgbImage, scale: f32, light_text: bool) -> Option<Te
             // The default sizes scale the bitmap font up with the whole frame: shrunk back it is read exactly, but a
             // dot can fade away in the shrink. So it only fills the drawn templates' gaps, where it agrees with every
             // letter they are sure of.
+            // A name (light on dark: the status bar's, the plate's) is read exactly when the shrunk read knows every
+            // shape: the templates take a kerned "yy" or "vv" for 'w', and names are letters only, nothing a shrink loses.
+            if light_text
+                && let Some((text, 0)) =
+                    unscaled_line_mask(pixels, scale / BITMAP_SCALE, true).map(|m| bitmap_font().read_line(&m))
+                && !text.trim().is_empty()
+            {
+                let text = settle(text.trim());
+                return Some(Text { text, unknown: 0 });
+            }
             let reading = read(&Line::new(pixels, scale, light_text)?, shop_font())?;
             let exact = (reading.unknown > 0)
                 .then(|| unscaled_line_mask(pixels, scale / BITMAP_SCALE, light_text))
