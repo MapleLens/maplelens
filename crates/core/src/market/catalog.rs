@@ -359,7 +359,7 @@ impl Catalog {
     }
 
     /// The grades of the scroll a cut title starts ("Two-handed Blunt Weapon Attack Scr", the grade past the
-    /// tooltip's edge): every name it starts is that one scroll's "<name>: <grade>", one item a grade. None when it
+    /// tooltip's edge): every name it starts is that one scroll's "`<name>: <grade>`", one item a grade. None when it
     /// starts anything else too, or fewer than two grades, or too little is left to tell the scroll.
     pub fn grades(&self, read: &str) -> Option<Vec<(Grade, Arc<Item>)>> {
         let stem = read.trim_end().trim_end_matches('.');
