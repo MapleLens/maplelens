@@ -21,6 +21,8 @@ mod game;
 #[cfg(windows)]
 mod icon;
 #[cfg(windows)]
+mod instance;
+#[cfg(windows)]
 mod layered;
 #[cfg(windows)]
 #[macro_use]
@@ -75,7 +77,6 @@ mod training_tests;
 mod tray;
 #[cfg(windows)]
 mod update;
-#[cfg(windows)]
 #[cfg(windows)]
 mod wgc;
 #[cfg(windows)]
@@ -165,18 +166,6 @@ fn attach_console() {
     }
 }
 
-/// Two copies would draw two cards: the second one quits. The mutex lives as long as the process.
-#[cfg(windows)]
-fn already_running() -> bool {
-    use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError};
-    use windows::Win32::System::Threading::CreateMutexW;
-    // SAFETY: a named mutex owned by this process until it exits.
-    unsafe {
-        CreateMutexW(None, false, windows::core::w!("Local\\MapleLens.SingleInstance")).is_ok()
-            && GetLastError() == ERROR_ALREADY_EXISTS
-    }
-}
-
 #[cfg(windows)]
 fn main() -> std::process::ExitCode {
     attach_console();
@@ -219,16 +208,23 @@ fn main() -> std::process::ExitCode {
             }
         };
     }
+    // `--shop` is a read-only diagnostic (no tray, hotkey or windows): it may run beside the app, for comparing.
+    // An update's new version starts while the old one is leaving, so only it waits for the old one's mutex.
+    if !args.shop && args.updated_from.is_none() && instance::another_is_running() {
+        return already_running();
+    }
     // Presses on the cards need administrator while the game runs as one (see `elevate`): asked once, here.
     if !args.shop && elevate::relaunch_elevated() {
         return std::process::ExitCode::SUCCESS;
     }
-    // `--shop` is a read-only diagnostic (no tray, hotkey or windows): it may run beside the app, for comparing.
-    if !args.shop && already_running() {
-        println!("MapleLens is already running (see the tray icon).");
-        return std::process::ExitCode::SUCCESS;
+    let handover = if args.updated_from.is_some() { instance::UPDATE_HANDOVER } else { std::time::Duration::ZERO };
+    if !args.shop && !instance::claim(handover) {
+        return already_running();
     }
-    if let Some(path) = log::init(args.debug) {
+    // Nothing of ours on this computer yet: the first start, which says where MapleLens went (the tray).
+    let first_start = !paths::data_dir().exists();
+    let log_path = log::init(args.debug);
+    if let Some(path) = &log_path {
         println!("Logging to {}", path.display());
     }
     if args.shop {
@@ -243,7 +239,7 @@ fn main() -> std::process::ExitCode {
     std::thread::spawn(move || update::install::cleanup_leftovers(&exe, 20, std::time::Duration::from_millis(500)));
     let path = args.snapshot.clone().unwrap_or_else(paths::snapshot_file);
     let catalog = app::build_catalog(&path);
-    match app::App::new(catalog, args.snapshot.is_none(), args.debug) {
+    match app::App::new(catalog, args.snapshot.is_none(), args.debug, first_start) {
         Ok(mut app) => {
             info!("running");
             let relaunch = app.run();
@@ -256,8 +252,19 @@ fn main() -> std::process::ExitCode {
         }
         Err(error) => {
             error!("could not start: {error}");
-            println!("MapleLens could not start: {error}");
+            let log =
+                log_path.map(|p| format!("\n\nPlease send {} with your report.", p.display())).unwrap_or_default();
+            let text = format!("MapleLens could not start: {error}{log}");
+            println!("{text}");
+            instance::message(&text, true);
             std::process::ExitCode::FAILURE
         }
     }
+}
+
+#[cfg(windows)]
+fn already_running() -> std::process::ExitCode {
+    println!("MapleLens is already running (see the tray icon).");
+    instance::message(instance::ALREADY_RUNNING, false);
+    std::process::ExitCode::SUCCESS
 }

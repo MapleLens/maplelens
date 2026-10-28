@@ -160,7 +160,9 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(catalog: Catalog, auto_refresh: bool, debug: bool) -> windows::core::Result<Self> {
+    /// `first_start`: say where MapleLens went. It shows nothing until the game is in front, and Windows 11 keeps a
+    /// new tray icon out of sight, so a first start otherwise looks like nothing happened.
+    pub fn new(catalog: Catalog, auto_refresh: bool, debug: bool, first_start: bool) -> windows::core::Result<Self> {
         let settings = Settings::from_json(&std::fs::read_to_string(paths::settings_file()).unwrap_or_default());
         settings::sync_startup(settings.launch_at_startup); // also repairs the entry if the exe was moved
         let fonts =
@@ -278,6 +280,13 @@ impl App {
         };
         app.apply_overlay_enabled(settings.overlay_enabled);
         app.register_hotkey(settings.toggle_hotkey);
+        if first_start {
+            app.tray.announce(
+                "MapleLens is running",
+                "Its meso coin is in the tray, by the clock (Windows may tuck it under the ^ arrow). Hover an item \
+                 in MapleStory to see its price; right-click the coin for Settings.",
+            );
+        }
         Ok(app)
     }
 

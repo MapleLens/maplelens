@@ -4,6 +4,25 @@ What the automated suite cannot do: move the mouse in the real game, open window
 looks. Work through this together: one person plays, the other watches `maplelens.log` / `debug\` and ticks boxes.
 Every failure gets a capture (`--debug` saves them) so it can become a fixture.
 
+## Before every public release (about 15 minutes)
+
+What a new player meets first, on the published files (not a local build), on a Windows account that never ran
+MapleLens (or with `%LOCALAPPDATA%\MapleLens` renamed aside for the test):
+
+- [ ] The website's Download button gets this version's setup; Windows' "protected your PC" box: More info → Run anyway.
+- [ ] The installer asks for no administrator rights, installs to `%LOCALAPPDATA%\Programs\MapleLens`, adds a Start
+      menu entry and starts MapleLens at the end.
+- [ ] One administrator prompt; then the "MapleLens is running" notification, and the meso coin in the tray (or under ^).
+- [ ] Start it again from the Start menu: no administrator prompt, a box says it is already running.
+- [ ] Exit, start it and say No to the prompt: price cards still show on hover.
+- [ ] Game in front: a price card on hover, the rank panel beside Character Info, a map card on the world map.
+- [ ] Settings → Check now: "You have the latest version."
+- [ ] The previous release, installed the same way, offers this one in the tray; Update now restarts it as this version.
+- [ ] Apps → Installed apps → MapleLens → Uninstall: the files, Start menu entry and "start with Windows" entry go;
+      `%LOCALAPPDATA%\MapleLens` stays.
+- [ ] `maple.observer/app` in Chrome: Share game window, hover an item, the card shows in the page.
+- [ ] Phone: Connect, scan, Send a test arrives.
+
 ## 0. Setup
 
 - [ ] Close any other MapleLens (the Python 0.1.x build `python -m maplelens` holds the same hotkey and draws its own
@@ -92,7 +111,7 @@ Run the console view in a second terminal if wanted: `maplelens --shop` (prints 
 - [ ] Settings window looks like a game window: drag it by the title bar, hover/press states on every control, the
       slider drags and takes arrow keys, Tab shows a blue focus ring, Esc or the close box hides it; sharp at 150%
       Windows scaling and after moving it to a monitor with another scale.
-- [ ] Second `maplelens.exe` says "already running" and quits.
+- [ ] Second `maplelens.exe` shows no administrator prompt; a box says it is already running, and it quits.
 - [ ] OBS / Discord screen share of the game does **not** show the cards (excluded from capture).
 
 ## 7. Updates

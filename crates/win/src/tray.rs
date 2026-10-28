@@ -11,7 +11,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     HOT_KEY_MODIFIERS, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, RegisterHotKey, UnregisterHotKey,
 };
 use windows::Win32::UI::Shell::{
-    NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW, Shell_NotifyIconW,
+    NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_USER, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
+    Shell_NotifyIconW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, DestroyMenu, DestroyWindow, GetCursorPos, HICON, MF_CHECKED, MF_SEPARATOR, MF_STRING,
@@ -169,6 +170,25 @@ impl Tray {
         }
     }
 
+    /// A notification from the icon (a toast on Windows 10 and 11).
+    pub fn announce(&self, title: &str, text: &str) {
+        let mut data = NOTIFYICONDATAW {
+            cbSize: size_of::<NOTIFYICONDATAW>() as u32,
+            hWnd: self.hwnd,
+            uID: 1,
+            uFlags: NIF_INFO,
+            dwInfoFlags: NIIF_USER,
+            hBalloonIcon: self.icon,
+            ..Default::default()
+        };
+        copy_text(&mut data.szInfoTitle, title);
+        copy_text(&mut data.szInfo, text);
+        // SAFETY: valid struct for our own icon, which NIM_ADD made in `new`.
+        unsafe {
+            let _ = Shell_NotifyIconW(NIM_MODIFY, &data);
+        }
+    }
+
     pub fn take_commands(&self) -> Vec<TrayCommand> {
         std::mem::take(&mut self.state.borrow_mut().commands)
     }
@@ -229,13 +249,18 @@ fn notify(action: windows::Win32::UI::Shell::NOTIFY_ICON_MESSAGE, hwnd: HWND, ic
         hIcon: icon,
         ..Default::default()
     };
-    // The last slot stays 0: the tip is a NUL-terminated string.
-    for (slot, unit) in data.szTip.iter_mut().take(127).zip(tip.encode_utf16()) {
-        *slot = unit;
-    }
+    copy_text(&mut data.szTip, tip);
     // SAFETY: valid struct for our own window.
     unsafe {
         let _ = Shell_NotifyIconW(action, &data);
+    }
+}
+
+/// Into one of the shell's fixed text fields, cut to fit; the last slot stays 0 (a NUL-terminated string).
+fn copy_text(field: &mut [u16], text: &str) {
+    let room = field.len().saturating_sub(1);
+    for (slot, unit) in field.iter_mut().take(room).zip(text.encode_utf16()) {
+        *slot = unit;
     }
 }
 

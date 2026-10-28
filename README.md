@@ -32,7 +32,7 @@ Hover an item, see what it is worth. No injection, no memory reading, no game fi
 | 💎 **Map drops** | On a field, a panel beside the EXP card (as tall as it) shows every monster on the map and the map's ten most valuable drops, framed in their rarity's colour (by market price). Point at a drop for its price card; click a monster for its page with every drop it is known for. Drag the panel or the EXP card anywhere in the game (pick a corner in **Settings → Training** to put them back). Windows app only. Drop lists are the ones players confirmed in Classic on [NiaDB](https://meowdb.com/msclassic/monsters), used with its permission; they are kept in `%LOCALAPPDATA%\MapleLens\cache\meowdb`, so a map seen once shows at once. Switch it off with **Map drops** in the settings or the tray. |
 | 🏆 **Player rank panel** | Open a player's **Character Info** window and a panel in the game's own style (pink labels, beige boxes) appears beside it with their world, job and fame rank from the public [classicrank.com API](https://classicrank.com/developer) (no key; cached, rate‑limit friendly). Hides if there is no room inside the game. |
 | 🔤 **Reads the game's own letters** | Titles are read by matching the game font's glyphs, so names come out exactly and the same every frame. Letters it has not seen yet fall back to OCR once and are learnt for next time. |
-| 🌐 **Two ways to run it** | A 5 MB Windows app that draws the card right beside the tooltip, or the same engine compiled to WebAssembly in your browser, with nothing to install. |
+| 🌐 **Two ways to run it** | A small Windows app that draws the card right beside the tooltip, or the same engine compiled to WebAssembly in your browser, with nothing to install. |
 | 🧭 **Smart placement** | Right of the tooltip; left near the screen edge; below for equipment compare (two tooltips). |
 | 🎨 **Truly translucent** | Per‑pixel alpha like the game's own box (see‑through fill, solid text), Tahoma font, same borders and bullet, drawn sharp at the game's size. |
 | 👀 **Glance first, details on dwell** | Hover and you get the answer at once: price, trend, week sparkline, where the price sits in its range, how it sells. Keep the pointer on the item for ~1 s and the card grows into the full view. |
@@ -134,12 +134,25 @@ Prices come from MesoWatch (with their permission: fetched at most once every 30
 
 | Problem | What to do |
 |---|---|
-| Nothing appears when I hover | The game must be the **front window** (click on it). Run both the game and MapleLens the normal way (not one "as administrator" and the other not). |
+| I started it and nothing happened | MapleLens lives in the tray: look for the meso coin by the clock (Windows 11 may tuck it under the **^** arrow). Its cards only show while MapleStory is the front window. |
+| Nothing appears when I hover | The game must be the **front window** (click on it). If you said No to the administrator prompt, prices still work; restart MapleLens and say Yes if they don't. |
 | The card says "No price data" | That item has no sales on MesoWatch yet, or the name was misread. Hover again; send `maplelens.log` if it keeps happening. |
 | Only Emerald Ore and Tree Branch show prices | That is demo mode: the price list could not be loaded (no internet?). The web version asks MesoWatch at most every 30 minutes, so give it that long. |
 | A new item's name reads with `?` | MapleLens has not seen one of its letters yet. With an OCR language installed (Windows: **Settings → Time & language → Language & region**, English), it reads it once and learns it. |
 | The card is in the wrong place | Only the default UI layout is calibrated. Tooltips flipped to the other side of the mouse (near the right/bottom screen edge) are not supported yet. |
-| Browser: no card | Choose the game's own window in the share dialog, and try **Settings → Game window** (full screen vs windowed). |
+| Browser: no card | In the share dialog choose the game's own **window** (not the whole screen or a tab). The cards' header says whether it is watching the game, and what to do if not. |
+
+### Why does it ask to run as administrator?
+
+MapleStory's launcher starts the game as administrator, and while such a window is in front Windows hides its mouse
+clicks from programs that are not (it still shows where the pointer is). MapleLens never hooks the mouse and its cards
+let every click through to the game, so the only way it can see you click a monster in the map drops panel or drag a
+card is to run the same way. So it asks once when it starts.
+
+Say **No** and everything else still works: price cards, the map helper, ranks, the store watcher, the EXP tracker.
+Only clicking and dragging its cards needs it. Running as administrator changes nothing about what MapleLens does
+(it still only reads screen pixels), and it is why updates are only ever installed from a release signed by this
+project and checked before they run.
 
 ## ⚠️ Can I get banned?
 
@@ -194,8 +207,9 @@ crates/
 ├── win/     the Windows app: GDI capture, layered overlay window, tray, settings window, Windows OCR, updates
 └── web/     the WebAssembly engine behind the browser version
 docs/        the website (GitHub Pages) and the web app (docs/app), including the compiled engine (docs/app/pkg)
-tests/       real game captures (fixtures) and the old Python version's answers on them (golden)
-scripts/     bump-version.ps1, build-web.ps1
+relay/       the phone notification relay (Cloudflare Worker) and maple.observer's redirect to the site
+tests/       the old Python version's answers on the fixtures (golden; the captures stay local) and the manual test plan
+scripts/     bump-version.ps1, build-web.ps1 (+ stamp-web.ps1), vendor.mjs, stream-bench.ps1
 ```
 
 See [AGENTS.md](AGENTS.md) for architecture rules and how to extend it.

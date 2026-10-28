@@ -1,9 +1,9 @@
 //! The map drops panel's data: NiaDB's monster list and each monster's confirmed drops (meowdb.com, used with the
 //! site's permission), and the dropped items' icons (maplestory.io's Classic data, like the sale pictures;
 //! cache\icons\item). Everything is kept in cache\meowdb and shown from there at once, a copy older than a week too
-//! (it is refreshed behind it). A map's monsters missing from it are fetched together; while nothing is asked, the
-//! site thread gathers every listed monster's drops ahead, one request every two seconds, so a map met later needs
-//! no request at all.
+//! (it is refreshed behind it). A map's monsters missing from it are fetched together; once the panel has shown in a
+//! run, while nothing is asked, the site thread gathers every listed monster's drops ahead, one request every two
+//! seconds, so a map met later needs no request at all. Before it shows, nothing is fetched.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -34,6 +34,7 @@ const RETRY: Duration = Duration::from_secs(5 * 60);
 /// What the panel asks the site thread for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Want {
+    /// The panel's first ask of the run: the list, if missing or over a week old, and the work behind it may start.
     List,
     /// A map's monsters (the site's IDs) not known yet: fetched together.
     Drops(Vec<u32>),
@@ -83,12 +84,14 @@ impl DropBook {
     /// What `info`'s monsters drop, as far as it is known; the monsters not known yet are asked for together (once:
     /// the site thread tries a failure again while gathering).
     pub fn table_for(&self, info: &MapInfo) -> DropTable {
+        // The first ask of the run, whatever is on disk: the site thread starts its work with it (the list's weekly
+        // refresh, gathering ahead).
+        if self.asked.borrow_mut().insert(None) {
+            self.send(Want::List);
+        }
         let known = lock(&self.known);
         let mut table = DropTable::new(&meowdb::panel_credit());
         if known.monsters.is_empty() {
-            if self.asked.borrow_mut().insert(None) {
-                self.send(Want::List);
-            }
             return table;
         }
         let mut missing = Vec::new();
@@ -137,7 +140,8 @@ fn lock(known: &Mutex<Known>) -> MutexGuard<'_, Known> {
 
 fn spawn_site(known: Arc<Mutex<Known>>, generation: Arc<AtomicU64>) -> Option<Sender<Want>> {
     let (tx, rx) = mpsc::channel();
-    let site = Site { known, generation, last_request: None, failed: HashMap::new(), gathered: HashSet::new() };
+    let site =
+        Site { known, generation, last_request: None, failed: HashMap::new(), gathered: HashSet::new(), in_use: false };
     match std::thread::Builder::new().name("map-drops".into()).spawn(move || site.run(&rx)) {
         Ok(_) => Some(tx),
         Err(error) => {
@@ -156,6 +160,9 @@ struct Site {
     failed: HashMap<u32, Instant>,
     /// Monsters fetched (or found fresh on disk) in this run: gathering is done with them.
     gathered: HashSet<u32>,
+    /// The panel has asked for something in this run. Until then nothing is fetched: most runs never show it (map
+    /// drops off, never on a field), and every new install gathering at its first start would flood the site.
+    in_use: bool,
 }
 
 impl Site {
@@ -163,9 +170,16 @@ impl Site {
         self.load_disk();
         loop {
             match wants.recv_timeout(REQUEST_GAP) {
-                Ok(Want::List) => self.ensure_list(),
-                Ok(Want::Drops(ids)) => self.fetch_together(&ids),
-                Err(RecvTimeoutError::Timeout) => self.gather_one(),
+                Ok(Want::List) => {
+                    self.in_use = true;
+                    self.ensure_list();
+                }
+                Ok(Want::Drops(ids)) => {
+                    self.in_use = true;
+                    self.fetch_together(&ids);
+                }
+                Err(RecvTimeoutError::Timeout) if self.in_use => self.gather_one(),
+                Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => return,
             }
         }
@@ -191,7 +205,6 @@ impl Site {
         crate::info!("map drops: {} monsters and {} drop lists on disk", monsters.len(), drops.len());
         *lock(&self.known) = Known { monsters, drops };
         self.learnt();
-        self.ensure_list();
     }
 
     fn learnt(&self) {

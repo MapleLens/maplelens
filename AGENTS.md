@@ -140,7 +140,8 @@ crates/core/src/          platform-free; everything here is unit-testable
                           Cloto's answers, combinations, QuestTracker), watcher (TrainingWatcher: frames in, Training out)
   placement.rs, settings.rs, hotkey.rs (naming and building the show/hide combo)
 crates/win/src/           the Windows app (only this crate talks to Win32)
-  main.rs                 CLI, single instance, --screenshot
+  main.rs                 CLI, --screenshot; instance.rs: one copy at a time (checked before the elevation
+                          prompt) and the message boxes a start can end with
   app/                    UI loop: tray/settings events; follow.rs: card cache, placement from the live cursor
   workers.rs              hover / info / rank threads; refresh.rs: hourly validated snapshot updates
   game.rs                 game window, client rect, foreground, cursor, DPI awareness
@@ -236,9 +237,11 @@ is not shown), only on a field. Setting `map_drops` (settings window and tray). 
   matched by name and level (`meowdb::find`; two Stirges share both: the closer EXP wins). It has no drop chances,
   so rarity comes from the market price (`Rarity::of`); a source with chances would colour by them.
 - Requests: everything is kept in `cache\meowdb` and shown from there at once, even when over a week old (then
-  refreshed behind it). A map's monsters not on disk are fetched together, in parallel (the player is waiting); while
-  nothing is asked, the site thread gathers every listed monster's drops ahead, one request every 2 s (about seven
-  minutes, weekly), so a map met later needs no request. A failure waits 5 minutes. Never bundle or commit its data
+  refreshed behind it). A map's monsters not on disk are fetched together, in parallel (the player is waiting); once
+  the panel has shown in a run, while nothing is asked, the site thread gathers every listed monster's drops ahead,
+  one request every 2 s (about seven minutes, weekly), so a map met later needs no request. Before the panel shows,
+  nothing is fetched (not even the list): every new install gathering at its first start, map drops used or not,
+  would flood the site after a public launch. A failure waits 5 minutes. Never bundle or commit its data
   (tests use hand-written stand-ins); `live_meowdb` checks the real pages.
 - **Credit, as the site asks:** "NiaDB" with the exact page used, written out where it cannot be a link: the panel's
   foot names `meowdb.com/msclassic/monsters`, a monster's page and a hovered drop's card its own page.
