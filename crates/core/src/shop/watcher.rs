@@ -10,7 +10,7 @@ use super::observation::balance_same;
 use super::parse::{NO_NAME, parse_chat, parse_sale};
 use super::scrollbar::{Thumb, thumb_position};
 use super::soldlist::{self, Row};
-use super::text::{self, bitmap_block};
+use super::text;
 use super::{ListKind, ShopContext, ShopEvent, ShopStatus, chatlog};
 use crate::geometry::scaled;
 use crate::image::RgbImage;
@@ -43,8 +43,9 @@ const OWNER_VOTES: usize = 3;
 /// The status bar's name, relative to its outline's top-left: (dx, dy, width, height). The job stands above it. The
 /// name's panel is blank up to a divider 330 px from the outline at every scale, and the box reaches most of the way
 /// there: the pixel font draws names wide ("Goodsdealer" is 111 px at 1366x768, and as wide in a capture of that
-/// client resized to UI scale 0.9), and a box 110 px wide cut their last letters.
-const HUD_NAME: (i32, i32, i32, i32) = (128, 78, 190, 20);
+/// client resized to UI scale 0.9), and a box 110 px wide cut their last letters. Descenders reach row 98.2 (rendered
+/// scenes): a box ending at 98 cut the hook off every 'g', which read as 'q'.
+const HUD_NAME: (i32, i32, i32, i32) = (128, 78, 190, 24);
 /// Its letters are crisp light grey on dark: these ink levels all keep them whole.
 /// Looks at the chat log's first lines, and how many looks, for the owner's name in a larger font.
 const OWNER_SPELLING_LINES: usize = 12;
@@ -531,13 +532,22 @@ impl ShopWatcher {
         if self.owner.is_some() || self.owner_tries >= OWNER_TRIES {
             return;
         }
-        // At Ideal Ratio the plate is the bitmap font, read exactly: no vote needed.
-        if bitmap_block(view.scale).is_some()
-            && let Some(read) = self.texts.read_area(view, layout::owner_name(enter), true)
-            && read.unknown == 0
-            && read.text.chars().filter(|c| c.is_alphanumeric()).count() >= MIN_OWNER_LETTERS
-        {
-            self.owner = Some(read.text);
+        // The status bar's name and the plate are the shop's own font, light on dark: read exactly by its tables
+        // (shrunk back at the default sizes), no vote needed. The bar first: its letters stand clear of any blue.
+        let exact = |area: Option<layout::Area>| {
+            let read = self.texts.read_area(view, area?, true)?;
+            (read.unknown == 0 && read.text.chars().filter(|c| c.is_alphanumeric()).count() >= MIN_OWNER_LETTERS)
+                .then_some(read.text)
+        };
+        if let Some(name) = exact(hud_name_area(view)) {
+            self.hud_reads.push(name.clone());
+            self.owner = Some(name);
+            self.owner_spelled = true;
+            return;
+        }
+        if let Some(name) = exact(Some(layout::owner_name(enter))) {
+            self.owner_reads.push(name.clone());
+            self.owner = Some(name);
             self.owner_spelled = true;
             return;
         }
@@ -679,7 +689,7 @@ impl ShopWatcher {
 /// real 1920x1200 capture from the bar's outline (reference pixels). The outline is found on the frame as captured, as
 /// the hover thread finds it: resampled to reference pixels first, its 1 px line came out too light to count as the
 /// outline (a 1366x768 client, a browser's capture of a Retina window scaled down), and the name was never read.
-pub(super) fn hud_name_area(view: &View<'_>) -> Option<layout::Area> {
+pub fn hud_name_area(view: &View<'_>) -> Option<layout::Area> {
     let frame = view.frame;
     let strip = frame.height.min(scaled(crate::config::STATUS_BAR_STRIP_HEIGHT, view.scale).max(0) as usize);
     let top = frame.height - strip;

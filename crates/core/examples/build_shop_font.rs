@@ -8,7 +8,8 @@
 //! name (from fold K), names the font never saw, which is what a new visitor is. `--check` reads every line and
 //! writes nothing (with `--rounds 0`: how the bundled font reads its corpus). `--corpus LINES.tsv` (repeatable) adds
 //! lines whose first column is a whole frame's path, as `examples/scene_lines` writes them from rendered scenes;
-//! `--no-fixtures` leaves the fixtures' corpus out (to score a held-out corpus alone).
+//! `--no-fixtures` leaves the fixtures' corpus out (to score a held-out corpus alone); `--bitmap-only` relearns only
+//! the bitmap table (`shop_small.json`).
 
 use std::collections::HashMap;
 
@@ -16,6 +17,9 @@ use maplelens_core::image::{RgbImage, decode_png};
 use maplelens_core::shop::text::settle_bars;
 use maplelens_core::vision::pixel_font::{line_mask, small_name_font};
 use maplelens_core::vision::vector_font::{Line, Sample, VectorFont, fit_report, read, shop_font, train};
+
+/// Lines of one text at one scale the templates learn from, at most.
+const MAX_REPEATS: usize = 2;
 
 /// UI scales the game draws its bitmap font at (Ideal Ratio and its whole multiples): not this font.
 fn bitmap_scale(scale: f32) -> bool {
@@ -38,6 +42,7 @@ fn main() {
     let (mut init, mut rounds, mut holdout, mut fold, mut check) = (None, 6usize, None, None, false);
     let mut extra: Vec<String> = Vec::new();
     let mut no_fixtures = false;
+    let mut bitmap_only = false;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--init" => init = args.next(),
@@ -46,6 +51,7 @@ fn main() {
             "--check" => check = true,
             "--corpus" => extra.push(args.next().expect("--corpus LINES.tsv")),
             "--no-fixtures" => no_fixtures = true,
+            "--bitmap-only" => bitmap_only = true,
             "--fold" => {
                 fold = args.next().and_then(|v| {
                     v.split_once('/').map(|(k, n)| (k.parse::<u64>().unwrap(), n.parse::<u64>().unwrap()))
@@ -65,6 +71,7 @@ fn main() {
     }
     let mut images: HashMap<String, RgbImage> = HashMap::new();
     let mut samples = Vec::new();
+    let mut repeats: HashMap<(String, i32), usize> = HashMap::new();
     let mut bitmap = Vec::new();
     for row in corpus.lines().filter(|l| !l.starts_with('#') && !l.is_empty()) {
         let f: Vec<&str> = row.split('\t').collect();
@@ -86,13 +93,23 @@ fn main() {
         let (x, y, w, h) = (n(3), n(4), n(5), n(6));
         if bitmap_scale(scale) {
             let block = (scale / 0.641).round() as usize;
-            bitmap.push((line_mask(&image.crop(x, y, x + w, y + h), block, f[1] == "plate"), f[7].to_string()));
+            bitmap.push((
+                line_mask(&image.crop(x, y, x + w, y + h), block, matches!(f[1], "plate" | "hud")),
+                f[7].to_string(),
+            ));
+            continue;
+        }
+        // The meso counter is another font (Tahoma): its shapes go to the exact table above, not to these templates.
+        // A text seen twice at a scale teaches the templates little a third time ("Number purchased: 1").
+        let seen = repeats.entry((f[7].to_string(), (scale * 20.0).round() as i32)).or_insert(0);
+        *seen += 1;
+        if f[1] == "counter" || *seen > MAX_REPEATS {
             continue;
         }
         samples.push(Sample {
             pixels: image.crop(x, y, x + w, y + h),
             scale,
-            light_text: f[1] == "plate",
+            light_text: matches!(f[1], "plate" | "hud"),
             text: f[7].to_string(),
         });
     }
@@ -102,23 +119,20 @@ fn main() {
         key.bytes().fold(1469598103934665603u64, |h, b| (h ^ b as u64).wrapping_mul(1099511628211))
     };
     // The bitmap font (Ideal Ratio): read with the name table as it is, then learn the letters these lines add.
-    let mut table = small_name_font();
+    // Learnt on top of the shipped table, by vote: one line whose pieces happen to number its letters must not teach a
+    // wrong shape (first come, first kept had read worse than the table it replaced).
+    let mut table = maplelens_core::vision::pixel_font::shop_small_font();
     let before = table.len();
     let read_all = |table: &maplelens_core::vision::pixel_font::PixelFont| {
         bitmap.iter().filter(|(m, t)| m.as_ref().is_some_and(|m| table.read_line(m).0 == *t)).count()
     };
     let exact_before = read_all(&table);
-    let shipped = maplelens_core::vision::pixel_font::shop_small_font();
-    println!("bitmap font: {} of {} lines read exactly by the shipped table", read_all(&shipped), bitmap.len());
+    let voters: Vec<_> = bitmap.iter().filter_map(|(m, t)| Some((m.clone()?, t.replace(' ', "")))).collect();
     for _ in 0..3 {
-        for (mask, text) in &bitmap {
-            if let Some(mask) = mask {
-                table.learn(mask, &text.replace(' ', ""));
-            }
-        }
+        table.learn_by_vote(&voters, 2);
     }
     println!(
-        "bitmap font: {} lines, {exact_before} read exactly with the name table ({before} shapes), {} after learning ({} shapes)",
+        "bitmap font: {} lines, {exact_before} read exactly with the shipped table ({before} shapes), {} after learning ({} shapes)",
         bitmap.len(),
         read_all(&table),
         table.len()
@@ -128,6 +142,12 @@ fn main() {
         if got != *text {
             println!("  bitmap {text:?} -> {got:?}");
         }
+    }
+    if bitmap_only {
+        let added = table.added_since(&small_name_font());
+        std::fs::write(format!("{root}/crates/core/assets/glyphs/shop_small.json"), added.to_json()).unwrap();
+        println!("written shop_small.json ({} shapes)", added.len());
+        return;
     }
     let held = |s: &Sample| {
         holdout.is_some_and(|h| (s.scale - h).abs() < 0.01) || fold.is_some_and(|(k, n)| group(&s.text) % n == k)

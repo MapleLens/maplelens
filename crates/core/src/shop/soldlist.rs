@@ -71,6 +71,43 @@ fn line_starts(list: &RgbImage) -> Vec<usize> {
     starts
 }
 
+/// A pixel of the white line between two text lines.
+const SEPARATOR_MIN: u8 = 240;
+const SEPARATOR_SHARE: f32 = 0.5;
+
+/// Top of each text line, the lines told apart by the white rows between them rather than by fill: "Default Ratio
+/// (Filter Applied)" sharpens a line of text into halos that leave a row of it with too little plain fill, and the
+/// line fell apart into pieces.
+fn line_starts_by_separators(list: &RgbImage) -> Vec<usize> {
+    let (x0, x1) = (FILL_X.0.min(list.width), FILL_X.1.min(list.width));
+    if x1 <= x0 {
+        return Vec::new();
+    }
+    let share = |y: usize, test: &dyn Fn([u8; 3]) -> bool| {
+        (x0..x1).filter(|&x| test(list.pixel(x, y))).count() as f32 / (x1 - x0) as f32
+    };
+    let separator = |y: usize| share(y, &|p| p[0].min(p[1]).min(p[2]) > SEPARATOR_MIN) >= SEPARATOR_SHARE;
+    let filled = |y: usize| {
+        share(y, &|p| (0..3).map(|c| (p[c] as i32 - CELL_FILL[c]).abs()).sum::<i32>() < FILL_TOL) > LINE_MIN_FILL
+    };
+    let mut starts = Vec::new();
+    let mut span: Option<(usize, usize)> = None; // first and last filled row since the last separator
+    for y in 0..=list.height {
+        if y == list.height || separator(y) {
+            if let Some((first, last)) = span.take()
+                && last + 1 - first >= LINE_MIN_H
+            {
+                starts.push(first);
+            }
+            continue;
+        }
+        if filled(y) {
+            span = Some(span.map_or((y, y), |(first, _)| (first, y)));
+        }
+    }
+    starts
+}
+
 /// True when a Sold Items list (even an empty one: its slots still show their cell lines) hangs below `anchor`.
 pub fn has_list(view: &View<'_>, anchor: Point) -> bool {
     let (x, y, w, h) = sold_list(anchor);
@@ -85,7 +122,10 @@ pub fn has_list(view: &View<'_>, anchor: Point) -> bool {
 pub fn read_rows(view: &View<'_>, anchor: Point) -> Option<Vec<Row>> {
     let (x, y, w, h) = sold_list(anchor);
     let list = view.crop((x, y, w, h));
-    let starts = line_starts(&list);
+    let mut starts = line_starts(&list);
+    if !starts.len().is_multiple_of(LINES_PER_ROW) {
+        starts = line_starts_by_separators(&list);
+    }
     if !starts.len().is_multiple_of(LINES_PER_ROW) {
         return None;
     }

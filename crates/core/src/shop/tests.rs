@@ -884,7 +884,13 @@ fn the_owner_is_read_off_the_name_plate_and_the_balance_off_the_counter() {
     }
     let context = watcher.context();
     assert_eq!(context.owner.as_deref(), Some(owner.as_str()), "{:?}", widths.lock().unwrap());
-    assert!(widths.lock().unwrap().iter().any(|&(w, _)| (20..=64).contains(&w)), "{:?}", widths.lock().unwrap());
+    // Read off the plate: by the shop's own font, or by OCR given a mask a few letters wide (not the plate's edge).
+    assert!(watcher.owner_reads().iter().any(|r| r.starts_with("plate:")));
+    assert!(
+        widths.lock().unwrap().iter().all(|&(w, h)| h <= 12 || (20..=64).contains(&w)),
+        "{:?}",
+        widths.lock().unwrap()
+    );
 }
 
 /// A whole 1366x768 client drawn by the game's own engine (mscw-render), not a capture: an open store whose owner's name

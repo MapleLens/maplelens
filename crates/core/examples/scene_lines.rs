@@ -56,6 +56,7 @@ fn main() {
             }
             areas.push(("counter", layout::balance(enter)));
             areas.push(("plate", layout::owner_name(enter)));
+            areas.extend(maplelens_core::shop::watcher::hud_name_area(&view).map(|area| ("hud", area)));
             let texts = label["texts"][k].as_array().cloned().unwrap_or_default();
             for (kind, area) in areas {
                 let (x0, y0, x1, y1) = view.frame_area(area);

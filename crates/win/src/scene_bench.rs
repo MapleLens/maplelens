@@ -166,7 +166,7 @@ fn same_event(kind: &str, got: &str, want: &str, catalog: &Catalog) -> bool {
         && g[1..] == w[1..]
         && g[0].ends_with("..")
         && key(w[0]).starts_with(&key(g[0]))
-        && catalog.lookup_truncated(g[0]).is_none()
+        && catalog.items().filter(|it| key(&it.name).starts_with(&key(g[0]))).count() > 1
 }
 
 /// Capital I and lowercase l are one bar in both of the game's fonts: no reader can tell them apart, so names are
