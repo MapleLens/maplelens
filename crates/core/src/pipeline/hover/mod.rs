@@ -5,7 +5,7 @@ mod elsewhere;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::{Screen, grab_normalised};
+use super::{Screen, normalised};
 use crate::config;
 use crate::geometry::{Point, Rect, UiScale, scaled, ui_scale};
 use crate::image::RgbImage;
@@ -13,6 +13,7 @@ use crate::market::catalog::{Catalog, clean_title};
 use crate::market::models::Item;
 use crate::vision::hud::find_bar;
 use crate::vision::reader::{TextReader, find_bullet};
+use crate::vision::title_font;
 use crate::vision::tooltip::{measure_width, tooltip_present};
 
 /// Titles whose measured tooltip width is remembered.
@@ -178,9 +179,14 @@ impl HoverDetector {
             // No room below the mouse for even the top of a tooltip: it can only have been pushed up.
             return self.clamped(screen, cursor, bounds, scale, now);
         };
-        let image = grab_normalised(screen, area, scale);
+        let native = screen.grab(area);
+        let image = normalised(&native, scale);
         self.reader.allow_ocr(tooltip_evidence(&image));
-        let title = self.reader.read_title(&image, title_width(&image), 1);
+        let by_font = self.font_lookup(&native, &image, scale);
+        let title = match &by_font {
+            Some((read, _, _)) => read.clone(),
+            None => self.reader.read_title(&image, title_width(&image), 1),
+        };
         let same_title = self.last_title.as_deref() == Some(title.as_str());
         let unchanged = same_title
             && match self.last_reads.clone() {
@@ -189,9 +195,14 @@ impl HoverDetector {
             };
         if !unchanged {
             self.compare_seen_at = f64::NEG_INFINITY; // a new item: forget the old item's compare tooltip
-            (self.last_item, self.last_crafted) = self.lookup(&image, &title);
+            let exact = by_font.is_some();
+            (self.last_item, self.last_crafted) = match by_font {
+                Some((_, item, crafted)) => (Some(item), crafted),
+                None => self.lookup(&image, &title),
+            };
             // The one-line read decided unless the match (or no match) came from the other reads.
-            let decided_by_title = self.last_item.is_some() && !self.last_crafted && self.match_title_only(&title);
+            let decided_by_title =
+                self.last_item.is_some() && (exact || !self.last_crafted && self.match_title_only(&title));
             self.last_reads = (!decided_by_title).then(|| self.other_reads(&image));
             self.last_title = Some(title.clone());
             if let Some(item) = self.last_item.clone() {
@@ -294,6 +305,33 @@ impl HoverDetector {
             return (self.match_read(image, &second), false);
         }
         (None, false)
+    }
+
+    /// The item the game's own font names, read exactly off the tooltip's own pixels (`native`, at UI `scale`;
+    /// `image` the same at scale 1): the title, or below a crafted item's maker line. A cut title ("...") names the
+    /// one item it starts. Needs the tooltip's look (bullet or fill), as any read does.
+    pub(super) fn font_lookup(
+        &mut self,
+        native: &RgbImage,
+        image: &RgbImage,
+        scale: f32,
+    ) -> Option<(String, Arc<Item>, bool)> {
+        if !tooltip_evidence(image) {
+            return None;
+        }
+        let width = title_width(image);
+        for crafted in [false, true] {
+            let Some((read, 0)) = title_font::read_title(native, scale, width, crafted) else { continue };
+            let item = if read.trim_end().ends_with("..") {
+                self.catalog.lookup_truncated(&read)
+            } else {
+                self.catalog.lookup_exact(&read)
+            };
+            if let Some(item) = item {
+                return Some((read, item, crafted));
+            }
+        }
+        None
     }
 
     /// The crafted-row and two-line reads of `image` (cached by mask in the reader, so cheap to repeat).

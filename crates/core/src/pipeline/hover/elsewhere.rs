@@ -4,10 +4,13 @@
 use super::{Hover, HoverDetector, Placement, looks_like_title};
 use crate::config;
 use crate::geometry::{Point, Rect, scaled};
-use crate::pipeline::{Screen, grab_normalised};
+use crate::pipeline::{Screen, normalised};
 use crate::vision::find;
 use crate::vision::locate::candidate_tops;
 use crate::vision::reader::find_bullet;
+
+/// A pushed-up tooltip's bullet stands at most this far (UI scale 1) from where the tooltip's left edge was expected.
+const BULLET_COLUMN: i32 = 4;
 
 impl HoverDetector {
     /// Look for a known item's tooltip the game slid up to fit on screen.
@@ -63,9 +66,14 @@ impl HoverDetector {
         if y < bounds.y || y + h > bounds.bottom() {
             return None;
         }
-        let image = grab_normalised(screen, Rect::new(x, y, w, h), scale);
+        let native = screen.grab(Rect::new(x, y, w, h));
+        let image = normalised(&native, scale);
         if !super::tooltip_evidence(&image) {
             return None; // nothing tooltip-like there: no read, so an idle pointer by the edge costs one grab
+        }
+        if let Some((read, item, crafted)) = self.font_lookup(&native, &image, scale) {
+            let at = Placement { crafted, ..Placement::default() };
+            return Some(self.hover(&image, &read, Some(item), bounds, scale, now, at));
         }
         self.reader.allow_ocr(true);
         let title = self.reader.read_title(&image, super::title_width(&image), 1);
@@ -93,16 +101,53 @@ impl HoverDetector {
         if w < scaled(config::TOOLTIP_TITLE_WIDTH, scale) || top >= bounds.bottom() {
             return None;
         }
-        let strip = grab_normalised(screen, Rect::new(x, top, w, bounds.bottom() - top), scale);
+        let native_strip = screen.grab(Rect::new(x, top, w, bounds.bottom() - top));
+        // The title's bullet pins the tooltip's top exactly where its border cannot be told from the scenery.
+        let column = scaled(BULLET_COLUMN, scale);
+        for corner in find::bullet_spots(&native_strip, scale) {
+            if corner.x.abs() > column || top + corner.y > usual_top {
+                continue;
+            }
+            let (cx, cy) = (corner.x.max(0) as usize, corner.y as usize);
+            let native = native_strip.crop(
+                cx,
+                cy,
+                native_strip.width,
+                cy + scaled(config::TOOLTIP_CAPTURE_SIZE.1, scale) as usize,
+            );
+            let image = normalised(&native, scale);
+            if let Some((read, item, crafted)) = self.font_lookup(&native, &image, scale) {
+                let screen_top = top + corner.y;
+                let at =
+                    Placement { pushed_up_height: Some(bounds.bottom() - screen_top), crafted, ..Placement::default() };
+                return Some(self.hover(&image, &read, Some(item), bounds, scale, now, at));
+            }
+        }
+        let strip = normalised(&native_strip, scale);
         for row in candidate_tops(&strip) {
             let screen_top = top + scaled(row as i32, scale);
             if screen_top > usual_top {
                 continue; // only ever pushed up, never down
             }
             let image = strip.crop(0, row, strip.width, row + config::TOOLTIP_CAPTURE_SIZE.1 as usize);
+            let native_top = scaled(row as i32, scale) as usize;
+            let native = native_strip.crop(
+                0,
+                native_top,
+                native_strip.width,
+                native_top + scaled(config::TOOLTIP_CAPTURE_SIZE.1, scale) as usize,
+            );
+            let by_font = self.font_lookup(&native, &image, scale);
             self.reader.allow_ocr(super::tooltip_evidence(&image));
-            let title = self.reader.read_title(&image, super::title_width(&image), 1);
-            let (Some(item), crafted) = self.lookup(&image, &title) else { continue };
+            let (title, item, crafted) = match by_font {
+                Some((read, item, crafted)) => (read, Some(item), crafted),
+                None => {
+                    let title = self.reader.read_title(&image, super::title_width(&image), 1);
+                    let (item, crafted) = self.lookup(&image, &title);
+                    (title, item, crafted)
+                }
+            };
+            let Some(item) = item else { continue };
             let at =
                 Placement { pushed_up_height: Some(bounds.bottom() - screen_top), crafted, ..Placement::default() };
             return Some(self.hover(&image, &title, Some(item), bounds, scale, now, at));
@@ -132,13 +177,19 @@ impl HoverDetector {
         self.last_spot = None;
         for spot in spots {
             let native = frame.crop(spot.x as usize, spot.y as usize, (spot.x + w) as usize, (spot.y + h) as usize);
-            let image = if (scale - 1.0).abs() > 0.01 { native.resized(1.0 / scale) } else { native };
+            let image = normalised(&native, scale);
             self.reader.allow_ocr(true); // found by its fill and borders
-            let title = self.reader.read_title(&image, super::title_width(&image), 1);
-            let (item, crafted) = if self.last_title.as_deref() == Some(title.as_str()) {
-                (self.last_item.clone(), self.last_crafted)
-            } else {
-                self.lookup(&image, &title)
+            let by_font = self.font_lookup(&native, &image, scale);
+            let title = match &by_font {
+                Some((read, _, _)) => read.clone(),
+                None => self.reader.read_title(&image, super::title_width(&image), 1),
+            };
+            let (item, crafted) = match by_font {
+                Some((_, item, crafted)) => (Some(item), crafted),
+                None if self.last_title.as_deref() == Some(title.as_str()) => {
+                    (self.last_item.clone(), self.last_crafted)
+                }
+                None => self.lookup(&image, &title),
             };
             if item.is_none() {
                 // As with a mouse: a title that names nothing shows a "no data" card only once it has read the same
@@ -167,6 +218,23 @@ impl HoverDetector {
             let found_at = Some(Point { x: bounds.x + spot.x, y: bounds.y + spot.y });
             let at = Placement { found_at, crafted, ..Placement::default() };
             return Some(self.hover(&image, &title, item, bounds, scale, now, at));
+        }
+        // Over dark scenery the tooltip's border is as dark as its fill and the search above can settle on the icon's
+        // box inside it. Every title starts with its light-blue bullet at a fixed spot: a tooltip is also looked for
+        // there, and counts only when the game's own font names a catalog item at its title.
+        if self.last_spot.is_none() {
+            for spot in find::bullet_spots(&frame, scale) {
+                let native = frame.crop(spot.x as usize, spot.y as usize, (spot.x + w) as usize, (spot.y + h) as usize);
+                let image = normalised(&native, scale);
+                let Some((title, item, crafted)) = self.font_lookup(&native, &image, scale) else { continue };
+                self.last_title = Some(title.clone());
+                self.last_item = Some(item.clone());
+                self.last_crafted = crafted;
+                self.last_spot = Some(spot);
+                let found_at = Some(Point { x: bounds.x + spot.x, y: bounds.y + spot.y });
+                let at = Placement { found_at, crafted, ..Placement::default() };
+                return Some(self.hover(&image, &title, Some(item), bounds, scale, now, at));
+            }
         }
         None
     }

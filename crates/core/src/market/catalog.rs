@@ -229,6 +229,18 @@ impl Catalog {
         (!self.lost_gender_mark(text, &item)).then_some(item)
     }
 
+    /// The item a read names letter for letter (case, spaces and punctuation aside; a gender or enhancement mark
+    /// may be on the read and not on the name). Never fuzzy: for reads known to be exact, such as the game's own
+    /// font, where the closest other name would be another item.
+    pub fn lookup_exact(&self, text: &str) -> Option<Arc<Item>> {
+        let bare = without_gender(&clean_title(&without_enhancement(text)));
+        let item = [text, bare.as_str()].into_iter().find_map(|candidate| {
+            let item = self.by_key.get(&key(candidate))?;
+            (!has_number(&item.name) || same_numbers(candidate, &item.name)).then(|| item.clone())
+        })?;
+        (!self.lost_gender_mark(text, &item)).then_some(item)
+    }
+
     /// A name the game cut to fit its box ("Two-handed Axe Attack Scr..", the Sold Items list): the one item whose
     /// name starts with what is left. None when it was not cut, when several names start so (the scroll's grade is
     /// what was cut off) and when too little is left. Never fuzzy: the cut part is unknown, not misread.

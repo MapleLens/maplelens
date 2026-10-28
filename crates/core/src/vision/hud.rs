@@ -141,19 +141,31 @@ pub fn find_bar(strip: &RgbImage) -> Option<Bar> {
         if ((end - start) as f32) < min_width {
             continue;
         }
-        let (Some(left), Some(right)) = (side(&counts, top, start, 1), side(&counts, top, end, -1)) else {
+        let (mut left_side, mut right_side) = (side(&counts, top, start, 1), side(&counts, top, end, -1));
+        // Another window's dark edge can run on from the outline (the quick slots' bottom joins its top row): then
+        // the run's far end is not the bar's, and the side found at the near end, mirrored about the centre, is.
+        let off_centre = ((start + end) as f32 / 2.0 - centre).abs() > CENTRE_SLACK_PX;
+        if off_centre {
+            let mirror = |x: usize| (2.0 * centre - x as f32).round().max(0.0) as usize;
+            if let Some(l) = left_side.filter(|l| mirror(l.x) < end) {
+                right_side = side(&counts, top, mirror(l.x), -1);
+            } else if let Some(r) = right_side.filter(|r| mirror(r.x) > start) {
+                left_side = side(&counts, top, mirror(r.x), 1);
+            }
+        }
+        let (Some(left), Some(right)) = (left_side, right_side) else {
             continue;
         };
         let beside_black = left.beside_black || right.beside_black;
         let (left, right) = (left.x, right.x);
         // Black beside the bar makes the top row dark from edge to edge: then the sides, not the run, say where the bar
         // is (a row of a black area walks them past each other).
-        let (from, to) = if beside_black { (left, right + 1) } else { (start, end) };
+        let (from, to) = if beside_black || off_centre { (left, right + 1) } else { (start, end) };
         let centred = ((from + to) as f32 / 2.0 - centre).abs() <= CENTRE_SLACK_PX;
         if right < left || (to.saturating_sub(from) as f32) < min_width || !centred {
             continue;
         }
-        if !solid(&dark, top, left, right) && !(beside_black && black_under(&dark, top, left, right)) {
+        if !solid(&dark, top, left, right) && !((beside_black || off_centre) && black_under(&dark, top, left, right)) {
             return Some(Bar { x: left, top, width: right - left + 1 });
         }
     }

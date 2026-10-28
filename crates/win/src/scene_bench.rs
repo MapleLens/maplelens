@@ -79,9 +79,22 @@ fn reader(path: Path) -> TextReader {
 }
 
 /// The item a fresh detector names after a few looks at `image`, and the title it read.
-fn read_item(catalog: &Arc<Catalog>, image: &RgbImage, cursor: Option<Point>, path: Path) -> (Option<u64>, String) {
+fn read_item(
+    catalog: &Arc<Catalog>,
+    image: &RgbImage,
+    cursor: Option<Point>,
+    path: Path,
+    settled: Option<f32>,
+) -> (Option<u64>, String, f32) {
     let mut hover = HoverDetector::new(catalog.clone(), reader(path));
     let bounds = Rect::new(0, 0, image.width as i32, image.height as i32);
+    // A running app has measured the UI size off the status bar for seconds before an item is hovered (a tooltip
+    // over the bar then changes nothing): the vote starts settled, as it would be.
+    if let Some(scale) = settled {
+        for k in 0..maplelens_core::config::SCALE_VOTE_MIN_READINGS {
+            hover.ui_scale().set(bounds, scale, -(k as f64) - 1.0);
+        }
+    }
     let mut screen = FrameScreen { frame: image, origin: Point::default(), cursor };
     let mut last = None;
     for k in 0..LOOKS {
@@ -94,9 +107,10 @@ fn read_item(catalog: &Arc<Catalog>, image: &RgbImage, cursor: Option<Point>, pa
             last = Some(found);
         }
     }
+    let measured = hover.ui_scale().of(bounds);
     match last {
-        Some(h) => (h.item.as_ref().and_then(|it| digits(&it.item_id)), h.title),
-        None => (None, String::new()),
+        Some(h) => (h.item.as_ref().and_then(|it| digits(&it.item_id)), h.title, measured),
+        None => (None, String::new(), measured),
     }
 }
 
@@ -313,6 +327,13 @@ fn scene_bench() {
     println!("misses: {out}");
 }
 
+/// The UI scale the game draws a scene's window at: the bitmap UI (0.641) below 1080p and at Ideal Ratio, else the
+/// client height over 1200.
+fn expected_scale(d: &Value) -> f32 {
+    let (w, h) = (d["width"].as_u64().unwrap_or(0), d["height"].as_u64().unwrap_or(0));
+    if w < 1920 || h < 1080 || d["ui_size"] == "ideal" { 0.641 } else { h as f32 / 1200.0 }
+}
+
 fn bench_one(folder: &str, label: &Value, catalog: &Arc<Catalog>, names: &BTreeMap<u64, String>, report: &mut Report) {
     let kind = label["kind"].as_str().unwrap_or_default();
     let d = &label["display"];
@@ -332,7 +353,15 @@ fn bench_one(folder: &str, label: &Value, catalog: &Arc<Catalog>, names: &BTreeM
         if path == Path::App && cursor.is_none() {
             continue;
         }
-        let (got, title) = read_item(catalog, &image, cursor, path);
+        let expected = expected_scale(d);
+        // The bar itself, from this frame alone (where no tooltip covers it).
+        let (_, _, measured) = read_item(catalog, &image, cursor, path, None);
+        let (got, title, _) = read_item(catalog, &image, cursor, path, Some(expected));
+        let scale_ok = (measured - expected).abs() < 0.02;
+        report.add(&format!("{path:?} ui-scale"), scale_ok, !scale_ok);
+        if !scale_ok {
+            report.misses.push(format!("{path:?}	{}	scale	{group}	{expected:.3}	{measured:.3}", label["id"]));
+        }
         let known = names.contains_key(&want);
         let p = format!("{path:?}");
         // An item the price list has only under its plain name ('Red Bennis Chainmail' for the (F) one): the card

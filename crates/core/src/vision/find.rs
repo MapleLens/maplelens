@@ -511,3 +511,77 @@ mod tests {
         }
     }
 }
+
+/// Where a tooltip title's bullet is, at UI scale 1 from the tooltip's corner (`reader`'s usual spot), its size, and
+/// how far down a crafted item's maker line pushes it.
+const BULLET_AT: (i32, i32) = (14, 23);
+const BULLET_SPAN: (i32, i32) = (5, 10);
+/// Around a bullet: the tooltip's dark fill, this far out (UI scale 1) left, above and below.
+const BULLET_CLEARANCE: i32 = 6;
+const FILL_DARK: u8 = 120;
+/// Bullets looked at in one frame, at most: a busy frame's light-blue specks must not cost a look its budget.
+const MAX_BULLETS: usize = 24;
+
+/// Tooltip corners (frame pixels) inferred from title bullets: light-blue dots of the bullet's size on dark fill. For
+/// a crafted item the corner is higher by the maker line, so both corners are given. Cheap enough for every look:
+/// a sparse scan, and a dot is only followed where its surroundings are dark.
+pub fn bullet_spots(frame: &RgbImage, scale: f32) -> Vec<Point> {
+    let s = |v: i32| (v as f32 * scale).round() as i32;
+    let blue = |x: usize, y: usize| {
+        let [r, g, b] = frame.pixel(x, y);
+        b > 200 && g > 150 && r < 150
+    };
+    let dark = |x: i32, y: i32| {
+        x >= 0 && y >= 0 && (x as usize) < frame.width && (y as usize) < frame.height && {
+            let [r, g, b] = frame.pixel(x as usize, y as usize);
+            crate::image::luma(r, g, b) < FILL_DARK
+        }
+    };
+    let step = (s(BULLET_SPAN.0) / 2).max(1) as usize;
+    let (lo, hi) = (s(BULLET_SPAN.0).max(2) - 1, s(BULLET_SPAN.1) + 1);
+    let clear = s(BULLET_CLEARANCE);
+    let mut found: Vec<Point> = Vec::new();
+    let mut corners = Vec::new();
+    for y in (0..frame.height).step_by(step) {
+        for x in (0..frame.width).step_by(step) {
+            if !blue(x, y) || found.iter().any(|p| (p.x - x as i32).abs() <= hi && (p.y - y as i32).abs() <= hi) {
+                continue;
+            }
+            let (xi, yi) = (x as i32, y as i32);
+            if !(dark(xi - clear, yi) && dark(xi, yi - clear) && dark(xi, yi + clear)) {
+                continue;
+            }
+            // The dot's extent along its row and column through this pixel.
+            let run = |dx: i32, dy: i32| {
+                let mut n = 0;
+                while n <= hi
+                    && (xi + dx * (n + 1)) >= 0
+                    && (yi + dy * (n + 1)) >= 0
+                    && ((xi + dx * (n + 1)) as usize) < frame.width
+                    && ((yi + dy * (n + 1)) as usize) < frame.height
+                    && blue((xi + dx * (n + 1)) as usize, (yi + dy * (n + 1)) as usize)
+                {
+                    n += 1;
+                }
+                n
+            };
+            let (left, right, up, down) = (run(-1, 0), run(1, 0), run(0, -1), run(0, 1));
+            let (w, h) = (left + right + 1, up + down + 1);
+            if !(lo..=hi).contains(&w) || !(lo..=hi).contains(&h) {
+                continue;
+            }
+            let (x0, y0) = (xi - left, yi - up);
+            found.push(Point { x: x0, y: y0 });
+            for shift in [0, config::TOOLTIP_CRAFTED_SHIFT] {
+                let corner = Point { x: x0 - s(BULLET_AT.0), y: y0 - s(BULLET_AT.1 + shift) };
+                if corner.x >= 0 && corner.y >= 0 {
+                    corners.push(corner);
+                }
+            }
+            if found.len() >= MAX_BULLETS {
+                return corners;
+            }
+        }
+    }
+    corners
+}
