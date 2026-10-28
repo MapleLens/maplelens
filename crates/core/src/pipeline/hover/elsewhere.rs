@@ -5,7 +5,7 @@ use super::{Hover, HoverDetector, Placement, looks_like_title};
 use crate::config;
 use crate::geometry::{Point, Rect, scaled, ui_scale};
 use crate::image::RgbImage;
-use crate::market::catalog::Catalog;
+use crate::market::catalog::{Catalog, ratio};
 use crate::pipeline::{Screen, grab_normalised};
 use crate::vision::find;
 use crate::vision::locate::candidate_tops;
@@ -17,6 +17,11 @@ const INSIDE_MARGIN: i32 = 8;
 /// "UI Size: Ideal Ratio" draws the UI at this scale whatever the window's size (from 1440 px high, at twice it).
 const IDEAL_RATIO_SCALE: f32 = 0.641;
 const IDEAL_RATIO_DOUBLED_FROM: i32 = 1440;
+/// Letters a title beside a bullet has at least (the shortest item names, "Saw", "Fan").
+const MIN_TITLE_LETTERS: usize = 3;
+/// A read at the other UI size names an item fuzzily only this close to its name, and as long as it.
+const OTHER_SCALE_MIN_RATIO: f64 = 90.0;
+const LENGTH_SLACK: usize = 1;
 /// How often (seconds) the search looks at the window's other UI size.
 const OTHER_SCALE_EVERY_S: f64 = 1.0;
 /// Two scales this close are the same UI size.
@@ -153,7 +158,12 @@ impl HoverDetector {
             }
             self.reader.allow_ocr(true); // found by its fill and borders, or by its bullet
             let title = self.reader.read_title(&image, super::title_width(&image), 1);
-            let (item, crafted) = if self.last_title.as_deref() == Some(title.as_str()) {
+            // A bullet-like mark with no title beside it is not a title's bullet: the lookup's other reads (the crafted
+            // row lower down) had named a store list's row there, and every later empty read kept that item.
+            if bullet_only && title.chars().filter(|c| c.is_alphanumeric()).count() < MIN_TITLE_LETTERS {
+                continue;
+            }
+            let (item, crafted) = if !title.is_empty() && self.last_title.as_deref() == Some(title.as_str()) {
                 (self.last_item.clone(), self.last_crafted)
             } else {
                 self.lookup(&image, &title)
@@ -162,11 +172,18 @@ impl HoverDetector {
             if bullet_only && item.is_none() {
                 continue;
             }
-            // At a scale the tooltip may not be drawn at, the read must be the item's very name, or the tooltip's right
-            // border must stand where one of the game's widths puts it at that scale (it does not at a wrong one).
-            let named_exactly = || item.as_ref().is_some_and(|it| Catalog::reads_as(&title, &it.name));
-            if matches!(at, AtScale::Other(_))
-                && !(named_exactly() || measure_width(&image, &config::TOOLTIP_WIDTHS).is_some())
+            // At a scale the tooltip may not be drawn at, the read must be the item's very name, a misread of it as long
+            // as it (a letter or two off: "Satety Charm"), or the tooltip's right border must stand where one of the
+            // game's widths puts it at that scale (it does not at a wrong one). A read shorter than the name is what a
+            // wrong scale gives: the end cut off, and a fuzzy match completing it with another grade.
+            let named = || {
+                item.as_ref().is_some_and(|it| {
+                    Catalog::reads_as(&title, &it.name)
+                        || (title.chars().count().abs_diff(it.name.chars().count()) <= LENGTH_SLACK
+                            && ratio(&title, &it.name) >= OTHER_SCALE_MIN_RATIO)
+                })
+            };
+            if matches!(at, AtScale::Other(_)) && !(named() || measure_width(&image, &config::TOOLTIP_WIDTHS).is_some())
             {
                 continue;
             }
