@@ -470,7 +470,12 @@ folded (one bar in both fonts). Scenes with id % 5 == 0 are held out: fonts lear
   hold descenders (a cut 'g' is a 'q').
 - Known differences from the game: the renderer draws Ideal Ratio at 1440 px high at 1x (the game at 2x,
   `shop_live_1440.png`): those scenes are not scored. At 1024x768 it draws the minimap over the store window.
-- Measured (held-out scenes, before -> after this work): see the pull request; `scene_bench` prints the table.
+- Measured on 1,127 held-out scenes (main at 695b591 -> this work; app path / browser floor): items 77.1 -> 89.5% /
+  32.5 -> 73.9% (wrong 1.15 -> 0.14% / 0.72 -> 0.72%), owner names 65.0 -> 92.2% (wrong 25.2 -> 1.3%) / 31.2 -> 91.9%,
+  visitors 87.9 -> 90.7% / 83.3 -> 90.2%, sales 80.2 -> 88.8% / 75.7 -> 87.2%, chat 63.5 -> 81.8% / 55.2 -> 81.8%,
+  stores found 86.9 -> 92.2%. Held-out shop lines read by the fonts alone: 84.8 -> 90.4% exact. On the live game (a
+  store at Ideal Ratio, 1,805 frames) both read 316/315 of 319 lines checked by eye and the same 110 visitors and 2
+  sales; on six 1080p YouTube videos the same items plus 6 frames over dark scenery.
 
 ## Stream footage
 
