@@ -303,12 +303,24 @@ impl HoverDetector {
         }
         // Over dark scenery the tooltip's border is as dark as its fill and the search above can settle on the icon's
         // box inside it. Every title starts with its light-blue bullet at a fixed spot: a tooltip is also looked for
-        // there, and counts only when the game's own font names a catalog item at its title.
+        // there.
         if self.last_spot.is_none() {
             for spot in find::bullet_spots(&frame, scale) {
                 let native = frame.crop(spot.x as usize, spot.y as usize, (spot.x + w) as usize, (spot.y + h) as usize);
                 let image = normalised(&native, scale);
-                let Some((title, Some(item), crafted)) = self.font_lookup(&native, &image, scale) else { continue };
+                let (title, item, crafted) = match self.font_lookup(&native, &image, scale) {
+                    Some((title, Some(item), crafted)) => (title, item, crafted),
+                    // The bullet pins the corner as a mouse does: the title is read as at the usual spot (an enhanced
+                    // item's orange title is seldom read in full by the font). Only at a plain title's row: a crafted
+                    // item's corner, above the maker line, reads the scenery there as its first line.
+                    _ if find_bullet(&image, 0).is_some() => {
+                        self.reader.allow_ocr(true);
+                        let title = self.reader.read_title(&image, super::title_width(&image), 1);
+                        let (Some(item), crafted) = self.lookup(&image, &title) else { continue };
+                        (title, item, crafted)
+                    }
+                    _ => continue,
+                };
                 self.last_title = Some(title.clone());
                 self.last_item = Some(item.clone());
                 self.last_crafted = crafted;
