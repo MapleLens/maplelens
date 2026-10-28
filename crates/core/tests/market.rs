@@ -400,6 +400,7 @@ fn a_read_with_gaps_names_the_one_item_it_fits_exactly() {
     assert_eq!(name("Wooden ?a(r((d"), None);
     // Something beside the title, not a letter of it.
     assert_eq!(name("? Pole Arm"), None);
+    assert_eq!(name("?ooden Top (?)"), None, "a gender mark's letter unread");
     assert_eq!(name("Pole Arm"), None, "no gap: not this lookup's to decide");
 }
 

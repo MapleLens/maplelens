@@ -453,13 +453,26 @@ const BULLET_SPAN: (i32, i32) = (5, 10);
 const BULLET_CLEARANCE: i32 = 6;
 const FILL_DARK: u8 = 120;
 /// Bullets looked at in one frame, at most: a busy frame's light-blue specks must not cost a look its budget.
-const MAX_BULLETS: usize = 24;
+const MAX_BULLETS: usize = 96;
+/// The bullet's colour.
+const BULLET_GREEN: (u8, u8) = (185, 225);
+const BULLET_BLUE_MIN: u8 = 222;
+const BULLET_RED: (u8, u8) = (60, 145);
 
 /// Tooltip corners (frame pixels) inferred from title bullets: light-blue dots of the bullet's size on dark fill. For
 /// a crafted item the corner is higher by the maker line, so both corners are given. Cheap enough for every look:
 /// a sparse scan, and a dot is only followed where its surroundings are dark.
 pub fn bullet_spots(frame: &RgbImage, scale: f32) -> Vec<Point> {
     let s = |v: i32| (v as f32 * scale).round() as i32;
+    // The bullet's own light blue (measured 85-119, 204, 255 in rendered scenes, 77-137, 185-214, 222-250 in 1080p
+    // videos): a sky's or water's blue specks, darker in green, had used up the frame's budget before the bullet.
+    // A dot is followed only from a pixel of that colour.
+    let core = |x: usize, y: usize| {
+        let [r, g, b] = frame.pixel(x, y);
+        (BULLET_GREEN.0..=BULLET_GREEN.1).contains(&g)
+            && b >= BULLET_BLUE_MIN
+            && (BULLET_RED.0..=BULLET_RED.1).contains(&r)
+    };
     let blue = |x: usize, y: usize| {
         let [r, g, b] = frame.pixel(x, y);
         b > 200 && g > 150 && r < 150
@@ -477,32 +490,34 @@ pub fn bullet_spots(frame: &RgbImage, scale: f32) -> Vec<Point> {
     let mut corners = Vec::new();
     for y in (0..frame.height).step_by(step) {
         for x in (0..frame.width).step_by(step) {
-            if !blue(x, y) || found.iter().any(|p| (p.x - x as i32).abs() <= hi && (p.y - y as i32).abs() <= hi) {
+            if !core(x, y) || found.iter().any(|p| (p.x - x as i32).abs() <= hi && (p.y - y as i32).abs() <= hi) {
                 continue;
             }
             let (xi, yi) = (x as i32, y as i32);
             if !(dark(xi - clear, yi) && dark(xi, yi - clear) && dark(xi, yi + clear)) {
                 continue;
             }
-            // The dot's extent along its row and column through this pixel.
-            let run = |dx: i32, dy: i32| {
+            // The dot's extent along its row and column through this pixel: by its own colour, or where a video's
+            // blur has taken that from its edges, by the broader light blue.
+            let run = |dx: i32, dy: i32, test: &dyn Fn(usize, usize) -> bool| {
                 let mut n = 0;
                 while n <= hi
                     && (xi + dx * (n + 1)) >= 0
                     && (yi + dy * (n + 1)) >= 0
                     && ((xi + dx * (n + 1)) as usize) < frame.width
                     && ((yi + dy * (n + 1)) as usize) < frame.height
-                    && blue((xi + dx * (n + 1)) as usize, (yi + dy * (n + 1)) as usize)
+                    && test((xi + dx * (n + 1)) as usize, (yi + dy * (n + 1)) as usize)
                 {
                     n += 1;
                 }
                 n
             };
-            let (left, right, up, down) = (run(-1, 0), run(1, 0), run(0, -1), run(0, 1));
-            let (w, h) = (left + right + 1, up + down + 1);
-            if !(lo..=hi).contains(&w) || !(lo..=hi).contains(&h) {
-                continue;
-            }
+            let extent = |test: &dyn Fn(usize, usize) -> bool| {
+                let (left, right, up, down) = (run(-1, 0, test), run(1, 0, test), run(0, -1, test), run(0, 1, test));
+                let (w, h) = (left + right + 1, up + down + 1);
+                ((lo..=hi).contains(&w) && (lo..=hi).contains(&h)).then_some((left, up))
+            };
+            let Some((left, up)) = extent(&core).or_else(|| extent(&blue)) else { continue };
             let (x0, y0) = (xi - left, yi - up);
             found.push(Point { x: x0, y: y0 });
             for shift in [0, config::TOOLTIP_CRAFTED_SHIFT] {

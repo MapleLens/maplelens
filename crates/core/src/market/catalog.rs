@@ -319,6 +319,10 @@ impl Catalog {
     /// several names fit or a third of the read is gaps.
     pub fn lookup_gaps(&self, text: &str) -> Option<Arc<Item>> {
         let bare = without_gender(&without_enhancement(text));
+        // A gap in a gender mark is the letter that tells the two variants apart: "Red Cloth Vest (?)" names neither.
+        if bare.trim_end().ends_with("(?)") {
+            return None;
+        }
         // A gap that is a word of its own at either end is something beside the title (scenery read from a spot a
         // little off), not one of its letters: "? Pole Arm" must not name "Axe Pole Arm".
         let words: Vec<&str> = bare.split_whitespace().collect();

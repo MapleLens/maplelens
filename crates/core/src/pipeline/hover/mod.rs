@@ -97,6 +97,9 @@ pub struct HoverDetector {
     widths: HashMap<String, i32>,
     unknown_title: Option<String>,
     unknown_streak: u32,
+    /// The title being read runs into the tooltip's edge (`title_font::title_cut`): its end is missing, not misread,
+    /// so a loose read of it names an item only by the name it starts.
+    title_cut: bool,
     /// Where the tooltip was found last (no-mouse search) and how many looks since the whole frame was searched.
     last_spot: Option<Point>,
     looks_since_search: u32,
@@ -119,6 +122,7 @@ impl HoverDetector {
             widths: HashMap::new(),
             unknown_title: None,
             unknown_streak: 0,
+            title_cut: false,
             last_spot: None,
             looks_since_search: 0,
             captures: None,
@@ -330,10 +334,11 @@ impl HoverDetector {
         image: &RgbImage,
         scale: f32,
     ) -> Option<(String, Option<Arc<Item>>, bool)> {
+        let width = title_width(image);
+        self.title_cut = title_font::title_cut(native, scale, width, false);
         if !tooltip_evidence(image) {
             return None;
         }
-        let width = title_width(image);
         let mut unmatched = None;
         for crafted in [false, true] {
             let Some((read, unknown)) = title_font::read_title(native, scale, width, crafted) else { continue };
@@ -381,7 +386,16 @@ impl HoverDetector {
     /// it read as '?'.
     fn match_read(&mut self, image: &RgbImage, read: &str) -> Option<Arc<Item>> {
         // Longer than a title = misread (title + description), not worth matching.
-        let item = (read.chars().count() <= config::MAX_TITLE_CHARS).then(|| self.catalog.lookup(read)).flatten()?;
+        if read.chars().count() > config::MAX_TITLE_CHARS {
+            return None;
+        }
+        // A cut title fuzzily matched is completed by a guess ("...Scroll: Inler" as Greater).
+        let stem = read.trim_end().trim_end_matches('.');
+        let item = if self.title_cut {
+            self.catalog.lookup_exact(read).or_else(|| self.catalog.lookup_truncated(&format!("{stem}..")))
+        } else {
+            self.catalog.lookup(read)
+        }?;
         if !self.credible(image, read) {
             return None;
         }

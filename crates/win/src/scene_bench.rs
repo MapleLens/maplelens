@@ -3,7 +3,7 @@
 //! [MAPLELENS_SCENE_LIMIT=N] cargo test --release -p maplelens scene_bench -- --ignored --nocapture`.
 //!
 //! Every scene is read three ways: the app's path (the mouse where the scene put it, Windows OCR behind the glyphs),
-//! the browser's (no mouse, Tesseract behind the fonts: the page's tesseract.js 7.0.0 and English data, served by a
+//! the browser's (no mouse, the frame as video gives it (`as_video`), Tesseract behind the fonts: the page's tesseract.js 7.0.0 and English data, served by a
 //! local Node process at `MAPLELENS_TESSERACT`, e.g. `http://127.0.0.1:8799`, answering at once where the page
 //! answers a look or two later) and the browser's floor (no mouse, the bundled fonts alone). `MAPLELENS_SCENE_PATHS`
 //! picks some of `app,browser,floor`; the browser's is skipped when no Tesseract is given. Items count as right only when the catalog item's id is the scene's; stores by their events
@@ -96,6 +96,42 @@ fn digits(item_id: &str) -> Option<u64> {
 
 fn frame(folder: &str, file: &str) -> Option<RgbImage> {
     decode_png(&std::fs::read(format!("{folder}/{file}")).ok()?).ok()
+}
+
+/// The frame as a browser's shared window gives it: video, its colour kept at half resolution (4:2:0), brightness in
+/// full. Small coloured marks (a title's bullet, a button's edge) blur by a pixel; text, mostly brightness, does not.
+fn as_video(image: &RgbImage) -> RgbImage {
+    let (w, h) = (image.width, image.height);
+    let ycc = |p: [u8; 3]| {
+        let [r, g, b] = p.map(f32::from);
+        let y = 0.299 * r + 0.587 * g + 0.114 * b;
+        (y, b - y, r - y)
+    };
+    let mut out = image.clone();
+    for by in (0..h).step_by(2) {
+        for bx in (0..w).step_by(2) {
+            let block: Vec<(usize, usize)> = [(0, 0), (1, 0), (0, 1), (1, 1)]
+                .iter()
+                .map(|&(dx, dy)| (bx + dx, by + dy))
+                .filter(|&(x, y)| x < w && y < h)
+                .collect();
+            let (mut cb, mut cr) = (0.0, 0.0);
+            for &(x, y) in &block {
+                let (_, b, r) = ycc(image.pixel(x, y));
+                (cb, cr) = (cb + b, cr + r);
+            }
+            let n = block.len() as f32;
+            let (cb, cr) = (cb / n, cr / n);
+            for &(x, y) in &block {
+                let (luma, _, _) = ycc(image.pixel(x, y));
+                let (r, b) = (luma + cr, luma + cb);
+                let g = (luma - 0.299 * r - 0.114 * b) / 0.587;
+                let i = (y * w + x) * 3;
+                out.data[i..i + 3].copy_from_slice(&[r, g, b].map(|v| v.round().clamp(0.0, 255.0) as u8));
+            }
+        }
+    }
+    out
 }
 
 fn reader(path: Path) -> TextReader {
@@ -221,7 +257,11 @@ fn bench_store(
     group: &str,
 ) {
     let files: Vec<&str> = label["files"].as_array().unwrap().iter().map(|f| f.as_str().unwrap()).collect();
-    let frames: Vec<RgbImage> = files.iter().filter_map(|f| frame(folder, f)).collect();
+    let frames: Vec<RgbImage> = files
+        .iter()
+        .filter_map(|f| frame(folder, f))
+        .map(|f| if path == Path::App { f } else { as_video(&f) })
+        .collect();
     if frames.len() != files.len() {
         return;
     }
@@ -428,6 +468,7 @@ fn bench_one(folder: &str, label: &Value, catalog: &Arc<Catalog>, names: &BTreeM
         }
         let Some(want) = label["item_id"].as_u64() else { continue };
         let Some(image) = frame(folder, label["files"][0].as_str().unwrap()) else { continue };
+        let image = if path == Path::App { image } else { as_video(&image) };
         let cursor = match path {
             Path::App => label["mouse"]
                 .as_object()
