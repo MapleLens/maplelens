@@ -322,7 +322,10 @@ impl Catalog {
             // The start of names (the game cut a long title at the tooltip's edge): the one name it starts, or none
             // when it starts several. A fuzzy match would name the closest of them ('...Scroll: Interme' as Greater).
             if k.len() >= MIN_CUT_KEY {
-                let mut starting = self.keys.iter().filter(|c| c.len() > k.len() && c.starts_with(&k));
+                // The bars folded: a cut "...Attack ScroI" starts every grade as much as "...Scrol" does.
+                let bars = |t: &str| t.replace(['i', '1'], "l");
+                let folded = bars(&k);
+                let mut starting = self.keys.iter().filter(|c| c.len() > k.len() && bars(c).starts_with(&folded));
                 match (starting.next(), starting.next()) {
                     (Some(only), None) => return self.by_key.get(only).cloned(),
                     (Some(_), Some(_)) => return None,

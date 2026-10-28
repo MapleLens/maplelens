@@ -179,12 +179,22 @@ impl HoverDetector {
             let native =
                 wide_strip.crop(cx, cy, cx + w as usize, cy + scaled(config::TOOLTIP_CAPTURE_SIZE.1, scale) as usize);
             let image = normalised(&native, scale);
-            if let Some((read, Some(item), crafted)) = self.font_lookup(&native, &image, scale) {
-                let screen_top = top + corner.y;
-                let at =
-                    Placement { pushed_up_height: Some(bounds.bottom() - screen_top), crafted, ..Placement::default() };
-                return Some(self.hover(&image, &read, Some(item), bounds, scale, now, at));
-            }
+            let (read, item, crafted) = match self.font_lookup(&native, &image, scale) {
+                Some((read, Some(item), crafted)) => (read, item, crafted),
+                // As at the usual spot, the corner being pinned by the bullet in the cursor's column: an enhanced
+                // item's orange title is seldom read in full by the font. A plain title's row only (see `search`).
+                _ if find_bullet(&image, 0).is_some() => {
+                    self.reader.allow_ocr(true);
+                    let title = self.reader.read_title(&image, super::title_width(&image), 1);
+                    let (Some(item), crafted) = self.lookup(&image, &title) else { continue };
+                    (title, item, crafted)
+                }
+                _ => continue,
+            };
+            let screen_top = top + corner.y;
+            let at =
+                Placement { pushed_up_height: Some(bounds.bottom() - screen_top), crafted, ..Placement::default() };
+            return Some(self.hover(&image, &read, Some(item), bounds, scale, now, at));
         }
         let strip = normalised(&native_strip, scale);
         for row in candidate_tops(&strip) {

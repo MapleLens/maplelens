@@ -69,6 +69,8 @@ fn a_cut_name_names_the_one_item_it_starts() {
     assert_eq!(cut("Two-handed Axe Attack Scr.."), None, "two grades start so");
     assert_eq!(cut("MapleStory Fest Gift Box"), None, "not cut");
     assert_eq!(cut("Map.."), None, "too little left");
+    // Cut at the tooltip's edge with no "..", its last bar read as a capital: still every grade.
+    assert_eq!(found(&catalog, "Two-handed Axe Attack ScroI"), None);
 }
 
 #[test]
