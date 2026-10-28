@@ -1,20 +1,20 @@
 // The MapleLens engine (Rust compiled to WebAssembly) in a worker, so reading frames never stutters the page.
 //
-// Messages in:  {type: "init", fonts, glyphs, cardScale, training} · {type: "frame", bitmap, inset, scale} ·
+// Messages in:  {type: "init", fonts, glyphs, cardScale, training} · {type: "frame", bitmap (an ImageBitmap or a VideoFrame), inset, scale} ·
 //               {type: "ocr-answer", id, text} · {type: "ocr-enabled", enabled} · {type: "shop", enabled} ·
 //               {type: "notify", webhook, telegramWebhook, phone, sales, store} ·
 //               {type: "notify-test", service, webhook, telegramWebhook, phone} · {type: "phone-qr", url} ·
 //               {type: "catalog", id, json, unpictured (item names whose sales have no picture)} ·
 //               {type: "training-pause", paused} · {type: "training-new"} · {type: "training-show", exp}
-// Messages out: {type: "ready", version, items} · {type: "state", state, fps, ms} · {type: "card", which,
-//               version, width, height, pixels, about (the item card's {name, price, trend}; the rank panel's {read,
+// Messages out: {type: "ready", version, items} · {type: "state", state, fps, ms, grab (ms making the pixels)} ·
+//               {type: "card", which, version, width, height, pixels, about (the item card's {name, price, trend}; the rank panel's {read,
 //               status, rank}; the training card's {})} · {type: "ocr-job", id, font, width, height, pixels} ·
 //               {type: "glyphs", font, json} · {type: "idle"} (ready for the next frame) · {type: "notify-status", text} ·
 //               {type: "notify-test-result", ok, text, telegramWebhook?} · {type: "phone-qr", modules} ·
 //               {type: "picture", name, url} (a sold item's picture, once found) · {type: "catalog-loaded", id, items | error} ·
 //               {type: "training-save", json, history} · {type: "error", message}
 
-import init, { Engine } from "./pkg/maplelens_web.js?v=278fbc46ebfc";
+import init, { Engine } from "./pkg/maplelens_web.js?v=832ca1c0ab00";
 
 /** One rank lookup every two seconds stays under classicrank.com's 30 requests a minute. */
 const RANK_GAP_MS = 2000;
@@ -22,6 +22,7 @@ const RANK_GAP_MS = 2000;
 let engine = null;
 let canvas = null;
 let context = null;
+let rgba = null;
 let lastCard = 0;
 let lastRank = 0;
 let lastTraining = 0;
@@ -43,7 +44,7 @@ const post = (message, transfer = []) => self.postMessage(message, transfer);
 
 async function start({ fonts, glyphs, cardScale, ocr, training }) {
   // Named explicitly so scripts/stamp-web.ps1 can version it together with the glue.
-  await init({ module_or_path: new URL("./pkg/maplelens_web_bg.wasm?v=278fbc46ebfc", import.meta.url) });
+  await init({ module_or_path: new URL("./pkg/maplelens_web_bg.wasm?v=832ca1c0ab00", import.meta.url) });
   const [regular, bold] = await Promise.all(fonts.map(url => fetch(url).then(r => r.arrayBuffer())));
   engine = new Engine(new Uint8Array(regular), new Uint8Array(bold));
   engine.card_scale = cardScale || 1;
@@ -205,16 +206,37 @@ async function lookUpRanks() {
   }
 }
 
-function frame({ bitmap, inset, scale }) {
-  if (!canvas || canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
-    canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+/** A frame's RGBA pixels and size. A shared window's frame (a VideoFrame) is copied straight into a buffer kept from
+ *  frame to frame; drawing it on a canvas to read it back took 19 ms at 1080p, 28 at 1440p, as much as the engine. */
+async function pixelsOf(image) {
+  if (typeof VideoFrame !== "undefined" && image instanceof VideoFrame) {
+    const { width, height } = image.visibleRect;
+    try {
+      if (rgba?.length !== width * height * 4) rgba = new Uint8Array(width * height * 4);
+      await image.copyTo(rgba, { format: "RGBA" });
+      return [rgba, width, height];
+    } catch { /* a browser without the conversion: the canvas below */ }
+  }
+  const [width, height] = [image.displayWidth ?? image.width, image.displayHeight ?? image.height];
+  if (!canvas || canvas.width !== width || canvas.height !== height) {
+    canvas = new OffscreenCanvas(width, height);
     context = canvas.getContext("2d", { willReadFrequently: true });
   }
-  context.drawImage(bitmap, 0, 0);
-  bitmap.close();
-  const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+  context.drawImage(image, 0, 0, width, height);
+  return [context.getImageData(0, 0, width, height).data, width, height];
+}
+
+async function frame({ bitmap, inset, scale }) {
+  const grabbed = performance.now();
+  let pixels, width, height;
+  try {
+    [pixels, width, height] = await pixelsOf(bitmap);
+  } finally {
+    bitmap.close();
+  }
   const started = performance.now();
-  const state = JSON.parse(engine.process(pixels, canvas.width, canvas.height, inset, scale, performance.now() / 1000, Date.now() / 1000));
+  const grab = started - grabbed;
+  const state = JSON.parse(engine.process(pixels, width, height, inset, scale, performance.now() / 1000, Date.now() / 1000));
   const ms = performance.now() - started;
   frameTimes.push(performance.now());
   while (frameTimes.length > 20) frameTimes.shift();
@@ -224,7 +246,7 @@ function frame({ bitmap, inset, scale }) {
   if (state.rank && state.rank !== lastRank) sendCard("rank", (lastRank = state.rank));
   if (state.training_card && state.training_card !== lastTraining) sendCard("training", (lastTraining = state.training_card));
   if (performance.now() - lastTrainingSave > TRAINING_SAVE_MS) saveTraining();
-  post({ type: "state", state, fps, ms });
+  post({ type: "state", state, fps, ms, grab });
   if (state.ocr > 0) {
     const jobs = JSON.parse(engine.ocr_jobs()).filter(job => !askedOcr.has(job.id));
     for (const job of jobs) {
@@ -251,7 +273,7 @@ function saveTraining() {
 self.onmessage = async ({ data }) => {
   try {
     if (data.type === "init") await start(data);
-    else if (data.type === "frame" && engine) frame(data);
+    else if (data.type === "frame" && engine) await frame(data);
     else if (data.type === "ocr-answer" && engine) engine.ocr_answer(data.id, data.text);
     else if (data.type === "ocr-enabled" && engine) engine.set_ocr(data.enabled);
     else if (data.type === "catalog" && engine) {
