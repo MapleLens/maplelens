@@ -281,7 +281,10 @@ impl ShopWatcher {
     fn settle_names(&mut self, event: ShopEvent) -> ShopEvent {
         match event {
             ShopEvent::Sale { item, buyer, quantity, mesos, .. } => {
-                let found = self.catalog.as_ref().and_then(|c| c.lookup(&item));
+                // A cut name is a prefix: matched as one, never fuzzily (that named the wrong grade of a scroll).
+                let found = self.catalog.as_ref().and_then(|c| {
+                    if item.trim_end().ends_with("..") { c.lookup_truncated(&item) } else { c.lookup(&item) }
+                });
                 let item_id = found.as_ref().and_then(|f| f.game_id());
                 let item = found.map_or(item, |f| f.name.clone());
                 ShopEvent::Sale { item, buyer: self.names.buyer(&buyer), quantity, mesos, item_id }

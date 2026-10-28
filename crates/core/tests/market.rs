@@ -58,6 +58,20 @@ fn equipment_is_recognised_by_item_id_not_category() {
 }
 
 #[test]
+fn a_cut_name_names_the_one_item_it_starts() {
+    let catalog = Catalog::new(
+        ["Two-handed Axe Attack Scroll: Greater", "Two-handed Axe Attack Scroll: Lesser", "MapleStory Fest Gift Box"]
+            .map(|n| make(n, 1)),
+        None,
+    );
+    let cut = |t: &str| catalog.lookup_truncated(t).map(|i| i.name.clone());
+    assert_eq!(cut("MapleStory Fest Gi.."), Some("MapleStory Fest Gift Box".into()));
+    assert_eq!(cut("Two-handed Axe Attack Scr.."), None, "two grades start so");
+    assert_eq!(cut("MapleStory Fest Gift Box"), None, "not cut");
+    assert_eq!(cut("Map.."), None, "too little left");
+}
+
+#[test]
 fn trailing_read_junk_is_ignored() {
     assert_eq!(found(&catalog(), "Emerald Ore ii").as_deref(), Some("Emerald Ore"));
     assert_eq!(clean_title("Kitty Camping Hat ii"), "Kitty Camping Hat");

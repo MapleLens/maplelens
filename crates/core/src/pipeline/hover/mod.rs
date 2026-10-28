@@ -176,11 +176,11 @@ impl HoverDetector {
         let Some(cursor) = screen.cursor() else { return self.search(screen, bounds, scale, now) };
         let Some(area) = tooltip_area(cursor, bounds, scale) else {
             // No room below the mouse for even the top of a tooltip: it can only have been pushed up.
-            return self.pushed_up(screen, cursor, bounds, scale, now);
+            return self.clamped(screen, cursor, bounds, scale, now);
         };
         let image = grab_normalised(screen, area, scale);
         self.reader.allow_ocr(tooltip_evidence(&image));
-        let title = self.reader.read_title(&image, config::TOOLTIP_TITLE_WIDTH as usize, 1);
+        let title = self.reader.read_title(&image, title_width(&image), 1);
         let same_title = self.last_title.as_deref() == Some(title.as_str());
         let unchanged = same_title
             && match self.last_reads.clone() {
@@ -203,7 +203,7 @@ impl HoverDetector {
         // check only has to carry unknown items. Other blue-ish UI (friend list, menus) passes the colour check
         // and has text on it, so an unknown title must also have the tooltip border at one of the game's widths.
         if self.last_item.is_none()
-            && let Some(hover) = self.pushed_up(screen, cursor, bounds, scale, now)
+            && let Some(hover) = self.clamped(screen, cursor, bounds, scale, now)
         {
             return Some(hover);
         }
@@ -263,7 +263,7 @@ impl HoverDetector {
 
     /// The item named by `title` (the one-line read of the tooltip in `image`), and whether it is player-crafted.
     fn lookup(&mut self, image: &RgbImage, title: &str) -> (Option<Arc<Item>>, bool) {
-        let width = config::TOOLTIP_TITLE_WIDTH as usize;
+        let width = title_width(image);
         let shift = config::TOOLTIP_CRAFTED_SHIFT as usize;
         // Crafted before wrapped: the wrapped read's two rows reach down into a crafted item's title and would
         // match it without knowing the tooltip is taller.
@@ -298,7 +298,7 @@ impl HoverDetector {
 
     /// The crafted-row and two-line reads of `image` (cached by mask in the reader, so cheap to repeat).
     fn other_reads(&mut self, image: &RgbImage) -> (String, String) {
-        let width = config::TOOLTIP_TITLE_WIDTH as usize;
+        let width = title_width(image);
         let crafted = self.reader.read_title_at(image, width, 1, config::TOOLTIP_CRAFTED_SHIFT as usize);
         (crafted, self.reader.read_title(image, width, 2))
     }
@@ -363,6 +363,20 @@ impl HoverDetector {
         if let Some(captures) = &mut self.captures {
             captures.push((name.to_string(), image.clone()));
         }
+    }
+}
+
+/// A wide tooltip has no compare tooltip beside it (only equipment, the narrow kind, does), so its title is read
+/// across the whole tooltip: a long scroll name runs past the narrow width, and its cut read had named another grade
+/// of the scroll.
+const WIDE_TITLE_MARGIN: i32 = 8;
+
+/// How much of `image` (a tooltip's top, at UI scale 1) its title may span.
+pub(crate) fn title_width(image: &RgbImage) -> usize {
+    let wide = config::TOOLTIP_WIDTHS[1];
+    match measure_width(image, &config::TOOLTIP_WIDTHS) {
+        Some(w) if w == wide && image.width as i32 >= wide => (wide - WIDE_TITLE_MARGIN) as usize,
+        _ => config::TOOLTIP_TITLE_WIDTH as usize,
     }
 }
 

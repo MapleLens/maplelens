@@ -22,6 +22,8 @@ mod layered;
 #[macro_use]
 mod log;
 #[cfg(all(windows, test))]
+mod live_frames;
+#[cfg(all(windows, test))]
 mod map_tests;
 #[cfg(windows)]
 mod maps;
@@ -39,6 +41,8 @@ mod phone;
 mod reading_bench;
 #[cfg(windows)]
 mod refresh;
+#[cfg(all(windows, test))]
+mod scene_bench;
 #[cfg(windows)]
 mod screenshot;
 #[cfg(windows)]

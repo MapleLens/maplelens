@@ -78,6 +78,9 @@ fn same_numbers(read: &str, name: &str) -> bool {
 }
 
 /// Lowercase letters and digits only: what two spellings of one name have in common.
+/// A cut name must keep this many letters and digits to name an item.
+const MIN_TRUNCATED_KEY: usize = 8;
+
 fn key(name: &str) -> String {
     name.chars().filter(|c| c.is_ascii_alphanumeric()).map(|c| c.to_ascii_lowercase()).collect()
 }
@@ -224,6 +227,22 @@ impl Catalog {
             (bare != text.trim()).then(|| self.lookup_read(&bare)).flatten()
         })?;
         (!self.lost_gender_mark(text, &item)).then_some(item)
+    }
+
+    /// A name the game cut to fit its box ("Two-handed Axe Attack Scr..", the Sold Items list): the one item whose
+    /// name starts with what is left. None when it was not cut, when several names start so (the scroll's grade is
+    /// what was cut off) and when too little is left. Never fuzzy: the cut part is unknown, not misread.
+    pub fn lookup_truncated(&self, text: &str) -> Option<Arc<Item>> {
+        let stem = text.trim_end().strip_suffix("..")?.trim_end_matches('.');
+        let k = key(stem);
+        if k.len() < MIN_TRUNCATED_KEY {
+            return None;
+        }
+        let mut starting = self.keys.iter().filter(|c| c.starts_with(&k));
+        match (starting.next(), starting.next()) {
+            (Some(only), None) => self.by_key.get(only).cloned(),
+            _ => None,
+        }
     }
 
     /// A read with brackets but no gender letter ('Red Cloth Pants ()') for an item that exists with and without

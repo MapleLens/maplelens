@@ -238,6 +238,74 @@ pub fn line_mask(pixels: &RgbImage, block: usize, light_text: bool) -> Option<Ma
     Some(mask)
 }
 
+/// Phases tried per axis when undoing a scale: quarter steps of a font pixel.
+const PHASES: usize = 4;
+
+/// One axis of an area-weighted shrink by `factor` starting `phase` font pixels in: for each output cell, the source
+/// indices it covers and how much of each.
+fn shrink_weights(len: usize, factor: f32, phase: f32) -> Vec<Vec<(usize, f32)>> {
+    let start = phase * factor;
+    let cells = ((len as f32 - start) / factor).floor().max(0.0) as usize;
+    (0..cells)
+        .map(|u| {
+            let (a, b) = (start + u as f32 * factor, start + (u + 1) as f32 * factor);
+            (a.floor() as usize..(b.ceil() as usize).min(len))
+                .filter_map(|x| {
+                    let w = (b.min(x as f32 + 1.0) - a.max(x as f32)).max(0.0);
+                    (w > 0.0).then_some((x, w / factor))
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// A line drawn in the bitmap font and then scaled up smoothly with the whole frame by `factor` (the default UI sizes
+/// draw the game at 768 px high and scale it to the window: 1.40625 at 1080p), shrunk back onto the font's own grid
+/// and read as `line_mask` reads a line drawn 1:1. The grid's phase is unknown (the frame is scaled as a whole), so
+/// every quarter step is tried and the one leaving the fewest half-tone pixels wins.
+pub fn unscaled_line_mask(pixels: &RgbImage, factor: f32, light_text: bool) -> Option<Mask> {
+    if factor < 1.0 || pixels.is_empty() {
+        return None;
+    }
+    let gray: Vec<f32> = pixels.data.as_chunks::<3>().0.iter().map(|p| f32::from(luma(p[0], p[1], p[2]))).collect();
+    let shrink = |px: f32, py: f32| {
+        let (xs, ys) = (shrink_weights(pixels.width, factor, px), shrink_weights(pixels.height, factor, py));
+        let mut out = RgbImage::new(xs.len(), ys.len());
+        for (v, row) in ys.iter().enumerate() {
+            for (u, col) in xs.iter().enumerate() {
+                let mut sum = 0.0;
+                for &(y, wy) in row {
+                    for &(x, wx) in col {
+                        sum += gray[y * pixels.width + x] * wx * wy;
+                    }
+                }
+                let g = f32::round(sum).clamp(0.0, 255.0) as u8;
+                out.set_pixel(u, v, [g, g, g]);
+            }
+        }
+        out
+    };
+    // Half-tone: neither paper nor ink, by more than a quarter of the contrast.
+    let blur = |image: &RgbImage| {
+        let values: Vec<i32> = image.data.iter().step_by(3).map(|&v| i32::from(v)).collect();
+        let (lo, hi) = (values.iter().min().copied().unwrap_or(0), values.iter().max().copied().unwrap_or(0));
+        let quarter = (hi - lo) / 4;
+        values.iter().filter(|&&v| v > lo + quarter && v < hi - quarter).count()
+    };
+    let mut best: Option<(usize, RgbImage)> = None;
+    for py in 0..PHASES {
+        for px in 0..PHASES {
+            let image = shrink(px as f32 / PHASES as f32, py as f32 / PHASES as f32);
+            let score = blur(&image);
+            if !image.is_empty() && best.as_ref().is_none_or(|(b, _)| score < *b) {
+                best = Some((score, image));
+            }
+        }
+    }
+    let (_, best) = best?;
+    line_mask(&best, 1, light_text)
+}
+
 impl PixelFont {
     /// Like `read`, for a whole line: a gap of `SPACE_GAP` blank columns or more is a space.
     pub fn read_line(&self, mask: &Mask) -> (String, usize) {

@@ -1,5 +1,5 @@
-//! Tooltips that are not at mouse + offset: pushed up by the game's bottom clamp, or searched for when there is
-//! no mouse position (the browser).
+//! Tooltips that are not at mouse + offset: pushed up by the game's bottom clamp or left by its right-edge clamp, or
+//! searched for when there is no mouse position (the browser).
 
 use super::{Hover, HoverDetector, Placement, looks_like_title};
 use crate::config;
@@ -15,7 +15,10 @@ impl HoverDetector {
     /// The game keeps a tooltip inside the client area, so one taller than the room under the mouse has its
     /// bottom on the client's bottom edge and its top somewhere above the usual spot. Only a recognised item
     /// counts here: stray UI text must never be mistaken for a tooltip we had to go looking for.
-    pub(super) fn pushed_up(
+    ///
+    /// Near the right edge the game also slides a tooltip left until its right border is the client's: then it is
+    /// looked for at each of the game's widths from that edge, in place and pushed up.
+    pub(super) fn clamped(
         &mut self,
         screen: &mut dyn Screen,
         cursor: Point,
@@ -23,7 +26,64 @@ impl HoverDetector {
         scale: f32,
         now: f64,
     ) -> Option<Hover> {
-        let x = cursor.x + scaled(config::TOOLTIP_OFFSET.0, scale);
+        let usual_x = cursor.x + scaled(config::TOOLTIP_OFFSET.0, scale);
+        if let Some(hover) = self.pushed_up(screen, usual_x, cursor, bounds, scale, now) {
+            return Some(hover);
+        }
+        for width in config::TOOLTIP_WIDTHS {
+            let x = bounds.right() - scaled(width, scale);
+            if usual_x + scaled(width, scale) <= bounds.right() || x < bounds.x {
+                continue; // a tooltip this wide fits where it opens: not slid
+            }
+            if let Some(hover) = self.pushed_left(screen, x, cursor, bounds, scale, now) {
+                return Some(hover);
+            }
+            if let Some(hover) = self.pushed_up(screen, x, cursor, bounds, scale, now) {
+                return Some(hover);
+            }
+        }
+        None
+    }
+
+    /// A known item's tooltip at the usual height but slid left to `x` by the game's right-edge clamp.
+    fn pushed_left(
+        &mut self,
+        screen: &mut dyn Screen,
+        x: i32,
+        cursor: Point,
+        bounds: Rect,
+        scale: f32,
+        now: f64,
+    ) -> Option<Hover> {
+        let y = cursor.y + scaled(config::TOOLTIP_OFFSET.1, scale);
+        let (w, h) = (
+            scaled(config::TOOLTIP_CAPTURE_SIZE.0, scale).min(bounds.right() - x),
+            scaled(config::TOOLTIP_CAPTURE_SIZE.1, scale),
+        );
+        if y < bounds.y || y + h > bounds.bottom() {
+            return None;
+        }
+        let image = grab_normalised(screen, Rect::new(x, y, w, h), scale);
+        if !super::tooltip_evidence(&image) {
+            return None; // nothing tooltip-like there: no read, so an idle pointer by the edge costs one grab
+        }
+        self.reader.allow_ocr(true);
+        let title = self.reader.read_title(&image, super::title_width(&image), 1);
+        let (Some(item), crafted) = self.lookup(&image, &title) else { return None };
+        let at = Placement { crafted, ..Placement::default() };
+        Some(self.hover(&image, &title, Some(item), bounds, scale, now, at))
+    }
+
+    /// A known item's tooltip with its left edge at `x`, slid up from the usual spot by the bottom clamp.
+    fn pushed_up(
+        &mut self,
+        screen: &mut dyn Screen,
+        x: i32,
+        cursor: Point,
+        bounds: Rect,
+        scale: f32,
+        now: f64,
+    ) -> Option<Hover> {
         let usual_top = cursor.y + scaled(config::TOOLTIP_OFFSET.1, scale);
         if usual_top + scaled(config::TOOLTIP_MAX_HEIGHT, scale) <= bounds.bottom() || x < bounds.x {
             return None; // even the tallest tooltip fits below the mouse: nothing was pushed
@@ -41,7 +101,7 @@ impl HoverDetector {
             }
             let image = strip.crop(0, row, strip.width, row + config::TOOLTIP_CAPTURE_SIZE.1 as usize);
             self.reader.allow_ocr(super::tooltip_evidence(&image));
-            let title = self.reader.read_title(&image, config::TOOLTIP_TITLE_WIDTH as usize, 1);
+            let title = self.reader.read_title(&image, super::title_width(&image), 1);
             let (Some(item), crafted) = self.lookup(&image, &title) else { continue };
             let at =
                 Placement { pushed_up_height: Some(bounds.bottom() - screen_top), crafted, ..Placement::default() };
@@ -74,7 +134,7 @@ impl HoverDetector {
             let native = frame.crop(spot.x as usize, spot.y as usize, (spot.x + w) as usize, (spot.y + h) as usize);
             let image = if (scale - 1.0).abs() > 0.01 { native.resized(1.0 / scale) } else { native };
             self.reader.allow_ocr(true); // found by its fill and borders
-            let title = self.reader.read_title(&image, config::TOOLTIP_TITLE_WIDTH as usize, 1);
+            let title = self.reader.read_title(&image, super::title_width(&image), 1);
             let (item, crafted) = if self.last_title.as_deref() == Some(title.as_str()) {
                 (self.last_item.clone(), self.last_crafted)
             } else {

@@ -10,7 +10,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use super::layout::{Area, View};
 use crate::image::RgbImage;
-use crate::vision::pixel_font::{PixelFont, line_mask, shop_small_font};
+use crate::vision::gaps::fits;
+use crate::vision::pixel_font::{PixelFont, line_mask, shop_small_font, unscaled_line_mask};
 use crate::vision::vector_font::{Line, read, shop_font};
 
 /// The bitmap font's UI scale ("Ideal Ratio"); it is drawn at whole multiples of it.
@@ -72,12 +73,21 @@ pub fn read_area(view: &View<'_>, area: Area, light_text: bool) -> Option<Text> 
     read_pixels(&view.frame.crop(x0, y0, x1, y1), view.scale, light_text)
 }
 
-fn read_pixels(pixels: &RgbImage, scale: f32, light_text: bool) -> Option<Text> {
+/// A line's text by the shop's fonts, from its pixels as captured at UI `scale`.
+pub fn read_pixels(pixels: &RgbImage, scale: f32, light_text: bool) -> Option<Text> {
     let (text, unknown) = match bitmap_block(scale) {
         Some(block) => bitmap_font().read_line(&line_mask(pixels, block, light_text)?),
         None => {
+            // The default sizes scale the bitmap font up with the whole frame: shrunk back it is read exactly, but a
+            // dot can fade away in the shrink. So it only fills the drawn templates' gaps, where it agrees with every
+            // letter they are sure of.
             let reading = read(&Line::new(pixels, scale, light_text)?, shop_font())?;
-            (reading.text, reading.unknown)
+            let exact = (reading.unknown > 0)
+                .then(|| unscaled_line_mask(pixels, scale / BITMAP_SCALE, light_text))
+                .flatten()
+                .map(|mask| bitmap_font().read_line(&mask))
+                .filter(|(text, unknown)| *unknown == 0 && fits(&reading.text, text));
+            exact.unwrap_or((reading.text, reading.unknown))
         }
     };
     let text = settle(text.trim());
