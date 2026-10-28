@@ -325,7 +325,14 @@ impl HoverDetector {
         let width = title_width(image);
         let mut unmatched = None;
         for crafted in [false, true] {
-            let Some((read, 0)) = title_font::read_title(native, scale, width, crafted) else { continue };
+            let Some((read, unknown)) = title_font::read_title(native, scale, width, crafted) else { continue };
+            if unknown > 0 {
+                // Letters the table has not learnt: their gaps fit one item's name, or the other readers decide.
+                if let Some(item) = self.catalog.lookup_gaps(&read) {
+                    return Some((read, Some(item), crafted));
+                }
+                continue;
+            }
             let stem = read.trim_end().trim_end_matches('.');
             let item = self.catalog.lookup_exact(&read).or_else(|| self.catalog.lookup_truncated(&format!("{stem}..")));
             if let Some(item) = item {

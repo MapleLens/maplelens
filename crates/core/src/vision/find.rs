@@ -447,7 +447,7 @@ fn true_top(lifts: &Lifts, spot: Point) -> Point {
 
 /// Where a tooltip title's bullet is, at UI scale 1 from the tooltip's corner (`reader`'s usual spot), its size, and
 /// how far down a crafted item's maker line pushes it.
-const BULLET_AT: (i32, i32) = (14, 23);
+pub const BULLET_AT: (i32, i32) = (14, 23);
 const BULLET_SPAN: (i32, i32) = (5, 10);
 /// Around a bullet: the tooltip's dark fill, this far out (UI scale 1) left, above and below.
 const BULLET_CLEARANCE: i32 = 6;

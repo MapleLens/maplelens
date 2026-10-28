@@ -244,6 +244,25 @@ impl Catalog {
         (!self.lost_gender_mark(text, &item)).then_some(item)
     }
 
+    /// An exact read with gaps (the game's own font, '?' where it met a shape it has not learnt): the one item whose
+    /// name fits the letters around them, each gap 1 to 3 characters. Never fuzzy, as `lookup_exact`; nothing when
+    /// several names fit or a third of the read is gaps.
+    pub fn lookup_gaps(&self, text: &str) -> Option<Arc<Item>> {
+        let bare = without_gender(&clean_title(&without_enhancement(text)));
+        let pattern: Vec<char> =
+            bare.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '?').map(|c| c.to_ascii_lowercase()).collect();
+        let unknown = pattern.iter().filter(|&&c| c == '?').count();
+        if unknown == 0 || pattern.len() < 3 || unknown * 3 > pattern.len() {
+            return None;
+        }
+        let mut fitting = self.keys.iter().filter(|k| fits(&pattern, &k.chars().collect::<Vec<_>>()));
+        let item = match (fitting.next(), fitting.next()) {
+            (Some(only), None) => self.by_key.get(only).cloned()?,
+            _ => return None,
+        };
+        (!self.lost_gender_mark(text, &item)).then_some(item)
+    }
+
     /// A name the game cut to fit its box ("Two-handed Axe Attack Scr..", the Sold Items list): the one item whose
     /// name starts with what is left. None when it was not cut, when several names start so (the scroll's grade is
     /// what was cut off) and when too little is left. Never fuzzy: the cut part is unknown, not misread.
@@ -262,13 +281,17 @@ impl Catalog {
 
     /// A read with brackets but no gender letter ('Red Cloth Pants ()') for an item that exists with and without
     /// one: the letter was lost, and which of the two it was cannot be told. (An enhancement mark has brackets too.)
+    ///
+    /// A letter that was read tells: 'Dark Shadow Pants (M)' where the catalog has the plain name and its (F) is the
+    /// plain one (an (F) read would have named the (F) item before this is asked).
     fn lost_gender_mark(&self, text: &str, item: &Item) -> bool {
         let brackets = text.contains("()") || text.trim_end().ends_with('(') || text.trim_end().ends_with(')');
         let key = key(&item.name);
-        brackets
-            && !text.contains('+')
-            && !item.name.contains('(')
-            && ['f', 'm'].iter().any(|g| self.by_key.contains_key(&format!("{key}{g}")))
+        let has = |g: &str| self.by_key.contains_key(&format!("{key}{g}"));
+        let read = text.trim_end();
+        let letter_read =
+            (read.ends_with("(M)") && has("f") && !has("m")) || (read.ends_with("(F)") && has("m") && !has("f"));
+        brackets && !letter_read && !text.contains('+') && !item.name.contains('(') && (has("f") || has("m"))
     }
 
     fn lookup_read(&self, text: &str) -> Option<Arc<Item>> {

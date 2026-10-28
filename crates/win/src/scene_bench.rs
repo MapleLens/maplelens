@@ -2,22 +2,25 @@
 //! `MAPLELENS_SCENES=<folder> [MAPLELENS_SCENE_SPLIT=eval|train|all] [MAPLELENS_SCENE_KIND=store]
 //! [MAPLELENS_SCENE_LIMIT=N] cargo test --release -p maplelens scene_bench -- --ignored --nocapture`.
 //!
-//! Every scene is read twice: the app's path (the mouse where the scene put it, Windows OCR behind the glyphs) and
-//! the browser's (no mouse, the bundled atlas and the shop fonts alone: Tesseract cannot run here, so this is the
-//! browser's floor). Items count as right only when the catalog item's id is the scene's; stores by their events
+//! Every scene is read three ways: the app's path (the mouse where the scene put it, Windows OCR behind the glyphs),
+//! the browser's (no mouse, Tesseract behind the fonts: the page's tesseract.js 7.0.0 and English data, served by a
+//! local Node process at `MAPLELENS_TESSERACT`, e.g. `http://127.0.0.1:8799`, answering at once where the page
+//! answers a look or two later) and the browser's floor (no mouse, the bundled fonts alone). `MAPLELENS_SCENE_PATHS`
+//! picks some of `app,browser,floor`; the browser's is skipped when no Tesseract is given. Items count as right only when the catalog item's id is the scene's; stores by their events
 //! (visitors, chat, sales) and the owner's name, each name compared exactly. Misses go to target\scene_bench.tsv.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use maplelens_core::geometry::{Point, Rect};
-use maplelens_core::image::{RgbImage, decode_png};
+use maplelens_core::image::{GrayImage, RgbImage, decode_png, encode_png};
 use maplelens_core::market::catalog::Catalog;
 use maplelens_core::pipeline::FrameScreen;
 use maplelens_core::pipeline::hover::HoverDetector;
 use maplelens_core::shop::watcher::{ReadText, ShopWatcher};
 use maplelens_core::shop::{ShopEvent, ShopStatus};
-use maplelens_core::vision::reader::{NoOcr, TextReader, title_atlas};
+use maplelens_core::vision::Mask;
+use maplelens_core::vision::reader::{NoOcr, Ocr, OcrAnswer, TextReader, ocr_image, title_atlas};
 use serde_json::Value;
 
 use crate::{ocr, paths, refresh, shop};
@@ -29,6 +32,30 @@ const LOOKS: usize = 6;
 enum Path {
     App,
     Browser,
+    Floor,
+}
+
+/// The page's Tesseract, asked synchronously: `psm` 6 for titles (a block of one or two lines), 7 for a shop line.
+fn tesseract(image: &GrayImage, psm: u8) -> String {
+    let Ok(server) = std::env::var("MAPLELENS_TESSERACT") else { return String::new() };
+    let mut rgb = RgbImage::new(image.width, image.height);
+    for (p, &v) in rgb.data.chunks_exact_mut(3).zip(&image.data) {
+        p.copy_from_slice(&[v, v, v]);
+    }
+    let agent = crate::net::agent(60);
+    match agent.post(format!("{server}/ocr?psm={psm}")).send(&encode_png(&rgb)[..]) {
+        Ok(mut response) => response.body_mut().read_to_string().unwrap_or_default(),
+        Err(_) => String::new(),
+    }
+}
+
+struct Tesseract;
+
+impl Ocr for Tesseract {
+    fn recognize(&mut self, mask: &Mask) -> OcrAnswer {
+        // The page's title queue does not thicken (crates/web/src/lib.rs).
+        OcrAnswer::Text(tesseract(&ocr_image(mask, false), 6))
+    }
 }
 
 #[derive(Default, Clone)]
@@ -74,7 +101,8 @@ fn frame(folder: &str, file: &str) -> Option<RgbImage> {
 fn reader(path: Path) -> TextReader {
     match path {
         Path::App => TextReader::new(title_atlas(), Box::new(ocr::WindowsOcr::new(false).expect("an OCR language"))),
-        Path::Browser => TextReader::new(title_atlas(), Box::new(NoOcr)),
+        Path::Browser => TextReader::new(title_atlas(), Box::new(Tesseract)),
+        Path::Floor => TextReader::new(title_atlas(), Box::new(NoOcr)),
     }
 }
 
@@ -118,7 +146,8 @@ fn shop_reader(path: Path) -> ReadText {
     match path {
         Path::App => shop::reader(),
         // The fonts read what they know; nothing fills their gaps.
-        Path::Browser => Box::new(|_| Some(String::new())),
+        Path::Browser => Box::new(|mask: &Mask| Some(tesseract(&ocr_image(mask, false), 7))),
+        Path::Floor => Box::new(|_| Some(String::new())),
     }
 }
 
@@ -291,6 +320,9 @@ fn scene_bench() {
             !(l["display"]["ui_size"] == "ideal"
                 && l["display"]["height"].as_u64().is_some_and(|h| (1440..1536).contains(&h)))
         })
+        // Smaller windows hide part of the store, and the renderer draws the minimap over it at 1024x768.
+        .filter(|l| l["display"]["width"].as_u64().is_some_and(|w| w >= MIN_WIDTH))
+        .filter(|l| readable_items(l, &catalog))
         .take(limit)
         .collect();
     let queue = Mutex::new(labels.iter().collect::<Vec<_>>());
@@ -327,6 +359,36 @@ fn scene_bench() {
     println!("misses: {out}");
 }
 
+/// The status bar's height at UI scale 1, with its outline, and how far below the cursor an item's tooltip usually
+/// reaches: a cursor closer to the bottom than both may have the tooltip over the bar.
+const BAR_HEIGHT: f64 = 110.0;
+const TYPICAL_TOOLTIP: f64 = 290.0;
+
+/// The smallest window scored.
+const MIN_WIDTH: u64 = 1366;
+
+/// Does every item the scene names have a name of its own in the catalog? One it lacks ("Rib"), or one the game titles
+/// like another (the (M) and (F) vests), cannot be told by any reading: `scripts/scenes.py` no longer draws them.
+fn readable_items(label: &Value, catalog: &Catalog) -> bool {
+    let unique = |name: &str| {
+        let name = name.trim().to_lowercase();
+        catalog.items().filter(|it| it.name.trim().to_lowercase() == name).count() == 1
+    };
+    let item = label["item"].as_str().is_none_or(unique);
+    let sales = label["events"].as_array().into_iter().flatten().filter(|e| e[0] == "sale");
+    item && sales.into_iter().all(|e| e[1].as_str().is_some_and(unique))
+}
+
+fn paths() -> Vec<Path> {
+    let chosen = std::env::var("MAPLELENS_SCENE_PATHS").unwrap_or_else(|_| "app,browser,floor".into());
+    let tesseract = std::env::var("MAPLELENS_TESSERACT").is_ok();
+    [("app", Path::App), ("browser", Path::Browser), ("floor", Path::Floor)]
+        .into_iter()
+        .filter(|(name, path)| chosen.contains(name) && (*path != Path::Browser || tesseract))
+        .map(|(_, path)| path)
+        .collect()
+}
+
 /// The UI scale the game draws a scene's window at: the bitmap UI (0.641) below 1080p and at Ideal Ratio, else the
 /// client height over 1200.
 fn expected_scale(d: &Value) -> f32 {
@@ -338,7 +400,7 @@ fn bench_one(folder: &str, label: &Value, catalog: &Arc<Catalog>, names: &BTreeM
     let kind = label["kind"].as_str().unwrap_or_default();
     let d = &label["display"];
     let group = format!("{}x{} {}", d["width"], d["height"], d["ui_size"].as_str().unwrap_or_default());
-    for path in [Path::App, Path::Browser] {
+    for path in paths() {
         if kind == "store" || kind == "visitor" {
             bench_store(folder, label, catalog, names, path, report, &group);
         }
@@ -348,7 +410,7 @@ fn bench_one(folder: &str, label: &Value, catalog: &Arc<Catalog>, names: &BTreeM
             Path::App => label["mouse"]
                 .as_object()
                 .map(|m| Point { x: m["x"].as_i64().unwrap() as i32, y: m["y"].as_i64().unwrap() as i32 }),
-            Path::Browser => None,
+            Path::Browser | Path::Floor => None,
         };
         if path == Path::App && cursor.is_none() {
             continue;
@@ -358,8 +420,15 @@ fn bench_one(folder: &str, label: &Value, catalog: &Arc<Catalog>, names: &BTreeM
         let (_, _, measured) = read_item(catalog, &image, cursor, path, None);
         let (got, title, _) = read_item(catalog, &image, cursor, path, Some(expected));
         let scale_ok = (measured - expected).abs() < 0.02;
-        report.add(&format!("{path:?} ui-scale"), scale_ok, !scale_ok);
-        if !scale_ok {
+        // A tooltip near the bottom covers the status bar in this one frame; a running app read the bar before it
+        // opened (the scale is voted over seconds), so such a frame says nothing about measuring the scale.
+        let bar_covered = label["mouse"]["y"].as_f64().is_some_and(|y| {
+            y + (TYPICAL_TOOLTIP + BAR_HEIGHT) * expected as f64 >= d["height"].as_f64().unwrap_or(0.0)
+        });
+        if !bar_covered {
+            report.add(&format!("{path:?} ui-scale"), scale_ok, !scale_ok);
+        }
+        if !scale_ok && !bar_covered {
             report.misses.push(format!("{path:?}	{}	scale	{group}	{expected:.3}	{measured:.3}", label["id"]));
         }
         let known = names.contains_key(&want);

@@ -361,6 +361,9 @@ fn a_lost_gender_letter_names_neither_variant() {
     let catalog = Catalog::new([item("Red Cloth Pants"), item("Red Cloth Pants (F)"), item("Undershirt")], None);
     let name = |read: &str| catalog.lookup(read).map(|i| i.name.clone());
     assert_eq!(name("Red Cloth Pants ()"), None);
+    // The letter read: the (F) is named apart, so the plain name is the (M).
+    assert_eq!(name("Red Cloth Pants (M)").as_deref(), Some("Red Cloth Pants"));
+    assert_eq!(catalog.lookup_exact("Red Cloth Pants (M)").map(|i| i.name.clone()).as_deref(), Some("Red Cloth Pants"));
     assert_eq!(name("Red Cloth Pants (F)").as_deref(), Some("Red Cloth Pants (F)"));
     assert_eq!(name("Red Cloth Pants").as_deref(), Some("Red Cloth Pants"));
     // An item with no variants still reads through a gender mark.

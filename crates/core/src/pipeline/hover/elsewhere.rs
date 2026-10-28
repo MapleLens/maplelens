@@ -10,6 +10,32 @@ use crate::vision::locate::candidate_tops;
 use crate::vision::reader::find_bullet;
 use crate::vision::tooltip::measure_width;
 
+/// The title's bullet, at a plain or a crafted item's title row.
+fn has_bullet(image: &crate::image::RgbImage) -> bool {
+    find_bullet(image, 0).is_some() || find_bullet(image, config::TOOLTIP_CRAFTED_SHIFT as usize).is_some()
+}
+
+/// Is there a title bullet left of `spot` on its title row (a plain or a crafted item's), as far as the widest
+/// tooltip reaches?
+fn bullet_left_of(frame: &crate::image::RgbImage, spot: Point, scale: f32) -> bool {
+    // Room above and left for the corners `bullet_spots` gives (a bullet's corner is up and left of the dot).
+    let margin = scaled(BULLET_MARGIN, scale);
+    let x0 = (spot.x - scaled(config::TOOLTIP_WIDTHS[1], scale) - margin).max(0);
+    let y0 = (spot.y - margin).max(0);
+    let y1 = (spot.y + scaled(BULLET_ROWS, scale)).min(frame.height as i32);
+    if spot.x <= x0 || y1 <= y0 {
+        return false;
+    }
+    let area = frame.crop(x0 as usize, y0 as usize, spot.x as usize, y1 as usize);
+    // The dot's row: from the spot's top to a crafted item's title row.
+    let rows = (spot.y - y0)..(y1 - y0);
+    find::bullet_spots(&area, scale).iter().any(|corner| rows.contains(&(corner.y + scaled(find::BULLET_AT.1, scale))))
+}
+
+/// Margin for `bullet_left_of`, and how far below a corner a crafted item's bullet still lies (UI scale 1).
+const BULLET_MARGIN: i32 = 60;
+const BULLET_ROWS: i32 = 75;
+
 /// A pushed-up tooltip's bullet stands at most this far (UI scale 1) from where the tooltip's left edge was expected.
 const BULLET_COLUMN: i32 = 4;
 
@@ -117,19 +143,19 @@ impl HoverDetector {
             return None;
         }
         let native_strip = screen.grab(Rect::new(x, top, w, bounds.bottom() - top));
-        // The title's bullet pins the tooltip's top exactly where its border cannot be told from the scenery.
+        // The title's bullet pins the tooltip's top exactly where its border cannot be told from the scenery. It is
+        // looked for in a strip reaching a little left of `x`: a corner a rounded pixel left of it is still this one.
         let column = scaled(BULLET_COLUMN, scale);
-        for corner in find::bullet_spots(&native_strip, scale) {
+        let left = (x - column).max(bounds.x);
+        let wide_strip = screen.grab(Rect::new(left, top, w + (x - left), bounds.bottom() - top));
+        for corner in find::bullet_spots(&wide_strip, scale) {
+            let corner = Point { x: corner.x - (x - left), ..corner };
             if corner.x.abs() > column || top + corner.y > usual_top {
                 continue;
             }
-            let (cx, cy) = (corner.x.max(0) as usize, corner.y as usize);
-            let native = native_strip.crop(
-                cx,
-                cy,
-                native_strip.width,
-                cy + scaled(config::TOOLTIP_CAPTURE_SIZE.1, scale) as usize,
-            );
+            let (cx, cy) = ((corner.x + (x - left)) as usize, corner.y as usize);
+            let native =
+                wide_strip.crop(cx, cy, cx + w as usize, cy + scaled(config::TOOLTIP_CAPTURE_SIZE.1, scale) as usize);
             let image = normalised(&native, scale);
             if let Some((read, Some(item), crafted)) = self.font_lookup(&native, &image, scale) {
                 let screen_top = top + corner.y;
@@ -193,6 +219,13 @@ impl HoverDetector {
         for spot in spots {
             let native = frame.crop(spot.x as usize, spot.y as usize, (spot.x + w) as usize, (spot.y + h) as usize);
             let image = normalised(&native, scale);
+            // A spot found inside a tooltip (its icon box's edge looks like a border) reads the end of the title, and
+            // that can be an item's whole name ("...Leather") or close to one ("...ive Potion" for "Blue Potion"). Its
+            // title row has that tooltip's bullet to the left; a real corner's title starts with its own (unless the
+            // pointer is over it, as in a stream's frames).
+            if !has_bullet(&image) && bullet_left_of(&frame, spot, scale) {
+                continue;
+            }
             self.reader.allow_ocr(true); // found by its fill and borders
             let by_font = self.font_lookup(&native, &image, scale);
             let title = match &by_font {

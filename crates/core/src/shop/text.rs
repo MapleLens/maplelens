@@ -148,6 +148,9 @@ pub fn settle_bars(text: &str) -> String {
                 if after.is_some_and(|c| "aeiouy".contains(c)) { 'l' } else { 'I' }
             } else if upper(before) && lower(after) {
                 'l'
+            } else if starts_word && upper(after) {
+                // Before a capital, starting a word: an initial or an acronym ("INT", "IV").
+                'I'
             } else if lower(before) && (lower(after) || upper(after) || after.is_none_or(|c| !c.is_alphanumeric())) {
                 // After lowercase letters a bar ends the lowercase run: before more lowercase, the end of a word
                 // ("Steel", "Mithril") or a capital starting the next part of a name ("ApexKillKing").
@@ -174,6 +177,7 @@ mod tests {
         assert_eq!(settle_bars("ltsDaniel"), "ItsDaniel");
         assert_eq!(settle_bars("Iooking4deal Iicksack lron"), "looking4deal licksack Iron");
         assert_eq!(settle_bars("YlNO"), "YINO");
+        assert_eq!(settle_bars("Cape lNT Scroll"), "Cape INT Scroll");
         assert_eq!(settle_bars("ElliottBoy"), "ElliottBoy");
         assert_eq!(settle_bars("SteeI Titans"), "Steel Titans");
         assert_eq!(settle_bars("MithriI Ore"), "Mithril Ore");

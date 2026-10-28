@@ -20,12 +20,13 @@ import threading
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
+# 1366x768 and up: smaller windows hide part of the store (and the renderer draws the minimap over it at 1024x768).
 RESOLUTIONS = [
-    (800, 600), (1024, 768), (1280, 720), (1280, 800), (1366, 768), (1440, 900), (1600, 900), (1680, 1050),
-    (1920, 1080), (1920, 1200), (2560, 1080), (2560, 1440), (3440, 1440),
+    (1366, 768), (1440, 900), (1600, 900), (1680, 1050), (1920, 1080), (1920, 1200), (2560, 1080), (2560, 1440),
+    (3440, 1440),
 ]
 # Most players run 1080p-class screens; the small and huge ones still get their share.
-RES_WEIGHTS = [1, 3, 3, 2, 5, 2, 3, 2, 10, 5, 2, 4, 1]
+RES_WEIGHTS = [5, 2, 3, 2, 10, 5, 2, 4, 1]
 UI_SIZES = ["default", "filtered", "ideal"]
 UI_WEIGHTS = [5, 1, 4]
 FREE_MARKET = list(range(80002001, 80002021))
@@ -73,8 +74,12 @@ def odd_name(rng):
 
 
 def display(rng):
-    w, h = rng.choices(RESOLUTIONS, RES_WEIGHTS)[0]
-    return {"width": w, "height": h, "ui_size": rng.choices(UI_SIZES, UI_WEIGHTS)[0]}
+    while True:
+        w, h = rng.choices(RESOLUTIONS, RES_WEIGHTS)[0]
+        ui = rng.choices(UI_SIZES, UI_WEIGHTS)[0]
+        # The renderer draws Ideal Ratio at 1440 px high at 1x, where the game draws 2x: not what a player sees.
+        if not (ui == "ideal" and 1440 <= h < 1536):
+            return {"width": w, "height": h, "ui_size": ui}
 
 
 def ui_px(d):
@@ -114,10 +119,20 @@ class Renderer:
 
 
 def snapshot_items(renderer, cache):
-    """(id, name, category) of the price list's items the renderer can draw."""
-    if os.path.exists(cache):
-        return json.load(open(cache, encoding="utf8"))
+    """(id, name, category) of the price list's items the renderer can draw, whose drawn name is the price list's and
+    no other item's: an item the game titles like another (the (M) and (F) vests) cannot be told apart by any reading."""
     data = json.load(open("data/list.json", encoding="utf8"))
+    listed = {int(item["id"].split(":")[1]): item["name"].strip() for item in data["items"]}
+    shared = {}
+    for listed_name in listed.values():
+        shared[listed_name.lower()] = shared.get(listed_name.lower(), 0) + 1
+
+    def readable(entry):
+        drawn = entry[1].strip()
+        return listed.get(entry[0]) == drawn and shared[drawn.lower()] == 1
+
+    if os.path.exists(cache):
+        return [i for i in json.load(open(cache, encoding="utf8")) if readable(i)]
     out = []
     for item in data["items"]:
         try:
@@ -127,7 +142,7 @@ def snapshot_items(renderer, cache):
             continue
         out.append([item_id, known["name"], item.get("category"), known.get("kind")])
     json.dump(out, open(cache, "w", encoding="utf8"))
-    return out
+    return [i for i in out if readable(i)]
 
 
 def maps(renderer, cache):
