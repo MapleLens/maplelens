@@ -68,6 +68,50 @@ impl PixelFont {
         (text, unknown)
     }
 
+    /// The one letter whose shape differs from `piece` by at most `slack` pixels (same width), when no other letter
+    /// comes as close.
+    fn nearest(&self, piece: &[Column], slack: u32) -> Option<String> {
+        let distance = |shape: &[Column]| -> u32 { shape.iter().zip(piece).map(|(a, b)| (a ^ b).count_ones()).sum() };
+        let mut best: Option<(u32, &String)> = None;
+        let mut runner_up = u32::MAX;
+        for (shape, text) in self.glyphs.iter().filter(|(shape, _)| shape.len() == piece.len()) {
+            let d = distance(shape);
+            match best {
+                Some((b, t)) if d < b => {
+                    runner_up = if *t == *text { runner_up } else { b };
+                    best = Some((d, text));
+                }
+                Some((b, t)) if *t != *text => runner_up = runner_up.min(d.max(b)),
+                None => best = Some((d, text)),
+                _ => {}
+            }
+        }
+        let (d, text) = best?;
+        (d <= slack && runner_up > d + 1).then(|| text.clone())
+    }
+
+    /// `read_spaced` letting a piece differ from a known letter by up to `slack` pixels (see `nearest`): for a font
+    /// recovered from a scaled frame, where an edge pixel can fall either way. Only for reads checked against a list
+    /// of names afterwards.
+    pub fn read_near(&self, mask: &Mask, space_gap: usize, slack: u32) -> (String, usize) {
+        let mut text = String::new();
+        let mut unknown = 0;
+        for (gap, piece) in spaced_pieces(mask) {
+            let spelt = self.spell(&piece, MAX_JOINED).or_else(|| self.nearest(&piece, slack));
+            if gap >= space_gap && !text.is_empty() {
+                text.push(' ');
+            }
+            match spelt {
+                Some(letters) => text.push_str(&letters),
+                None => {
+                    text.push('?');
+                    unknown += 1;
+                }
+            }
+        }
+        (text, unknown)
+    }
+
     /// A piece as one known letter, or as up to `joined` known letters drawn touching.
     fn spell(&self, piece: &[Column], joined: usize) -> Option<String> {
         if let Some(text) = self.glyphs.get(piece) {
@@ -125,6 +169,58 @@ impl PixelFont {
         }
         let middle: String = letters[n_before..letters.len() - n_after].iter().collect();
         Some(spelt.into_iter().map(|s| s.unwrap_or_else(|| middle.clone())).collect())
+    }
+
+    /// Learn from many labelled masks at once, by vote: a shape counts as a letter only when at least `min_votes`
+    /// masks spell it so and no other spelling has as many. One mask whose pieces happen to number its letters
+    /// ("tt" drawn touching beside an 'i' split in two) cannot teach a wrong letter. Returns the shapes added.
+    pub fn learn_by_vote(&mut self, samples: &[(Mask, String)], min_votes: usize) -> usize {
+        let spelt: Vec<Vec<(Vec<Column>, String)>> = samples
+            .iter()
+            .filter_map(|(mask, truth)| {
+                let pieces = pieces(mask);
+                let letters: Vec<char> = truth.chars().collect();
+                let texts: Vec<String> = if pieces.len() == letters.len() {
+                    letters.iter().map(char::to_string).collect()
+                } else {
+                    self.fill_gap(&pieces, &letters)?
+                };
+                Some(pieces.into_iter().zip(texts).collect())
+            })
+            .collect();
+        // Each letter's usual width: a piece twice as wide is two letters drawn touching ("tt"), counted as one
+        // because another letter fell apart in two in the same word.
+        let mut widths: HashMap<String, Vec<usize>> = HashMap::new();
+        for (piece, text) in spelt.iter().flatten().filter(|(_, t)| t.chars().count() == 1) {
+            widths.entry(text.clone()).or_default().push(piece.len());
+        }
+        let usual: HashMap<String, usize> = widths
+            .into_iter()
+            .map(|(t, mut w)| {
+                w.sort_unstable();
+                (t, w[w.len() / 2])
+            })
+            .collect();
+        let mut votes: HashMap<Vec<Column>, HashMap<String, usize>> = HashMap::new();
+        for (piece, text) in spelt.into_iter().flatten() {
+            let typical = usual.get(text.as_str()).copied().unwrap_or(piece.len());
+            if text.chars().count() == 1 && (piece.len() * 2 > typical * 3 + 2 || piece.len() * 2 + 2 < typical) {
+                continue;
+            }
+            *votes.entry(piece).or_default().entry(text).or_default() += 1;
+        }
+        let mut added = 0;
+        for (piece, spellings) in votes {
+            let mut ranked: Vec<(usize, String)> = spellings.into_iter().map(|(t, n)| (n, t)).collect();
+            ranked.sort_by(|a, b| b.cmp(a));
+            let (best, text) = ranked[0].clone();
+            let clear = ranked.get(1).is_none_or(|(n, _)| best >= 3 * n);
+            if best >= min_votes && clear && !self.glyphs.contains_key(&piece) {
+                self.glyphs.insert(piece, text);
+                added += 1;
+            }
+        }
+        added
     }
 
     /// The shapes this table has that `base` lacks (what learning added to it).
@@ -238,9 +334,88 @@ pub fn line_mask(pixels: &RgbImage, block: usize, light_text: bool) -> Option<Ma
     Some(mask)
 }
 
+/// Phases tried per axis when undoing a scale: quarter steps of a font pixel.
+const PHASES: usize = 4;
+
+/// One axis of an area-weighted shrink by `factor` starting `phase` font pixels in: for each output cell, the source
+/// indices it covers and how much of each.
+fn shrink_weights(len: usize, factor: f32, phase: f32) -> Vec<Vec<(usize, f32)>> {
+    let start = phase * factor;
+    let cells = ((len as f32 - start) / factor).floor().max(0.0) as usize;
+    (0..cells)
+        .map(|u| {
+            let (a, b) = (start + u as f32 * factor, start + (u + 1) as f32 * factor);
+            (a.floor() as usize..(b.ceil() as usize).min(len))
+                .filter_map(|x| {
+                    let w = (b.min(x as f32 + 1.0) - a.max(x as f32)).max(0.0);
+                    (w > 0.0).then_some((x, w / factor))
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// A line drawn in the bitmap font and then scaled up smoothly with the whole frame by `factor` (the default UI sizes
+/// draw the game at 768 px high and scale it to the window: 1.40625 at 1080p), shrunk back onto the font's own grid
+/// and read as `line_mask` reads a line drawn 1:1. The grid's phase is unknown (the frame is scaled as a whole), so
+/// every quarter step is tried and the one leaving the fewest half-tone pixels wins.
+pub fn unscaled_line_mask(pixels: &RgbImage, factor: f32, light_text: bool) -> Option<Mask> {
+    line_mask(&unscaled(pixels, factor, |p| luma(p[0], p[1], p[2]))?, 1, light_text)
+}
+
+/// `pixels` shrunk by `factor` onto the grid of the font drawn before the frame was scaled up, as grey levels of
+/// `level` (each pixel's brightness for the purpose), at the phase that leaves the fewest half-tones.
+pub fn unscaled(pixels: &RgbImage, factor: f32, level: impl Fn([u8; 3]) -> u8) -> Option<RgbImage> {
+    if factor < 1.0 || pixels.is_empty() {
+        return None;
+    }
+    let gray: Vec<f32> = pixels.data.as_chunks::<3>().0.iter().map(|p| f32::from(level(*p))).collect();
+    let shrink = |px: f32, py: f32| {
+        let (xs, ys) = (shrink_weights(pixels.width, factor, px), shrink_weights(pixels.height, factor, py));
+        let mut out = RgbImage::new(xs.len(), ys.len());
+        for (v, row) in ys.iter().enumerate() {
+            for (u, col) in xs.iter().enumerate() {
+                let mut sum = 0.0;
+                for &(y, wy) in row {
+                    for &(x, wx) in col {
+                        sum += gray[y * pixels.width + x] * wx * wy;
+                    }
+                }
+                let g = f32::round(sum).clamp(0.0, 255.0) as u8;
+                out.set_pixel(u, v, [g, g, g]);
+            }
+        }
+        out
+    };
+    // Half-tone: neither paper nor ink, by more than a quarter of the contrast.
+    let blur = |image: &RgbImage| {
+        let values: Vec<i32> = image.data.iter().step_by(3).map(|&v| i32::from(v)).collect();
+        let (lo, hi) = (values.iter().min().copied().unwrap_or(0), values.iter().max().copied().unwrap_or(0));
+        let quarter = (hi - lo) / 4;
+        values.iter().filter(|&&v| v > lo + quarter && v < hi - quarter).count()
+    };
+    let mut best: Option<(usize, RgbImage)> = None;
+    for py in 0..PHASES {
+        for px in 0..PHASES {
+            let image = shrink(px as f32 / PHASES as f32, py as f32 / PHASES as f32);
+            let score = blur(&image);
+            if !image.is_empty() && best.as_ref().is_none_or(|(b, _)| score < *b) {
+                best = Some((score, image));
+            }
+        }
+    }
+    best.map(|(_, image)| image)
+}
+
 impl PixelFont {
     /// Like `read`, for a whole line: a gap of `SPACE_GAP` blank columns or more is a space.
     pub fn read_line(&self, mask: &Mask) -> (String, usize) {
+        self.read_spaced(mask, SPACE_GAP)
+    }
+
+    /// `read_line` for a font whose words stand `space_gap` blank columns or more apart (the bold titles' letters
+    /// can stand 3 apart).
+    pub fn read_spaced(&self, mask: &Mask, space_gap: usize) -> (String, usize) {
         let mut text = String::new();
         let mut unknown = 0;
         for (gap, piece) in spaced_pieces(mask) {
@@ -248,7 +423,7 @@ impl PixelFont {
             // A narrow '1' leaves a word-sized gap; numbers never hold spaces.
             let in_number = text.ends_with(|c: char| c.is_ascii_digit() || c == ',')
                 && spelt.as_ref().is_some_and(|s| s.starts_with(|c: char| c.is_ascii_digit() || c == ','));
-            if gap >= SPACE_GAP && !text.is_empty() && !in_number {
+            if gap >= space_gap && !text.is_empty() && !in_number {
                 text.push(' ');
             }
             match spelt {
