@@ -37,7 +37,7 @@ const STARTUP_Y: f32 = STORE_Y + ROW_H + 5.0;
 const HOTKEY_Y: f32 = STARTUP_Y + ROW_H + 11.0;
 const DELAY_Y: f32 = HOTKEY_Y + ROW_H + 20.0;
 const TRAINING_Y: f32 = DELAY_Y + ROW_H + 26.0;
-/// The training block: two switches on the left, the corner picker on the right.
+/// The training block: the EXP switch on the left, the corner picker on the right.
 const TRAINING_H: f32 = 58.0;
 const TRAINING_SWITCH_W: f32 = 150.0;
 /// The picker: a small game window whose corners are the choices.
@@ -76,8 +76,6 @@ pub enum Control {
     Delay,
     /// Show the EXP rates on the training card.
     TrainingExp,
-    /// Show the party quest helper on it.
-    TrainingQuest,
     /// Put the training card in this corner of the game.
     Corner(Corner),
     AutoUpdate,
@@ -111,7 +109,7 @@ pub enum Control {
 
 impl Control {
     /// Tab order.
-    pub const ORDER: [Self; 26] = [
+    pub const ORDER: [Self; 25] = [
         Self::Overlay,
         Self::StatusBar,
         Self::Startup,
@@ -119,7 +117,6 @@ impl Control {
         Self::ClearHotkey,
         Self::Delay,
         Self::TrainingExp,
-        Self::TrainingQuest,
         Self::Corner(Corner::TopLeft),
         Self::Corner(Corner::TopRight),
         Self::Corner(Corner::BottomLeft),
@@ -158,8 +155,9 @@ impl Control {
             Self::Hotkey => (VALUE_X, HOTKEY_Y, VALUE_W - CLEAR_W - 6.0, ROW_H),
             Self::ClearHotkey => (SIZE.0 - PAD - CLEAR_W, HOTKEY_Y, CLEAR_W, ROW_H),
             Self::Delay => (VALUE_X + 8.0, DELAY_Y, VALUE_W - 92.0, ROW_H),
-            Self::TrainingExp => (VALUE_X + 2.0, TRAINING_Y + 3.0, TRAINING_SWITCH_W, ROW_H - 2.0),
-            Self::TrainingQuest => (VALUE_X + 2.0, TRAINING_Y + ROW_H + 3.0, TRAINING_SWITCH_W, ROW_H - 2.0),
+            Self::TrainingExp => {
+                (VALUE_X + 2.0, TRAINING_Y + (TRAINING_H - ROW_H) / 2.0 + 1.0, TRAINING_SWITCH_W, ROW_H - 2.0)
+            }
             Self::Corner(corner) => {
                 let (x, y, w, h) = corner_card(corner);
                 (x - CORNER_REACH, y - CORNER_REACH, w + 2.0 * CORNER_REACH, h + 2.0 * CORNER_REACH)
@@ -392,22 +390,18 @@ fn training(cv: &mut Canvas<'_>, view: &View<'_>) {
     let area = (VALUE_X, TRAINING_Y, VALUE_W, TRAINING_H);
     gamewin::pill(cv, (PAD, TRAINING_Y, LABEL_W, ROW_H), "TRAINING", 11.0);
     field(cv, area, false, false);
-    for (control, text, on) in [
-        (Control::TrainingExp, "My EXP rates", s.training_card),
-        (Control::TrainingQuest, "Party quest helper", s.quest_helper),
-    ] {
-        let (x, y, w, h) = control.area();
-        if view.touch(control).hover {
-            cv.rounded((x, y, w, h), 2.0, Some([239, 236, 226, 255]), None);
-        }
-        maple_ui::check_box(cv, x + 5.0, y + (h - 14.0) / 2.0, on, view.touch(control).hover);
-        cv.text(x + 27.0, y + h / 2.0 + 4.0, text, Ink::new(11.5, INK), Anchor::LS);
+    let control = Control::TrainingExp;
+    let (x, y, w, h) = control.area();
+    if view.touch(control).hover {
+        cv.rounded((x, y, w, h), 2.0, Some([239, 236, 226, 255]), None);
     }
+    maple_ui::check_box(cv, x + 5.0, y + (h - 14.0) / 2.0, s.training_card, view.touch(control).hover);
+    cv.text(x + 27.0, y + h / 2.0 + 4.0, "My EXP rates", Ink::new(11.5, INK), Anchor::LS);
     picker(cv, view);
     let shown = if s.training_card || s.quest_helper {
         format!("In the game's {} corner: click another to move it", s.training_corner.name().to_lowercase())
     } else {
-        "Switched off: tick what the card should show".to_string()
+        "Switched off: tick My EXP rates to show it".to_string()
     };
     let width = SIZE.0 - PAD - VALUE_X;
     cv.text(

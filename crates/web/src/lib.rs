@@ -24,9 +24,9 @@ use maplelens_core::render::card::{CardSpec, render_card};
 use maplelens_core::render::font::Fonts;
 use maplelens_core::render::rank_card::render_rank_card;
 use maplelens_core::render::training_card::{Show, is_training, render_training_card};
+use maplelens_core::training::potions;
 use maplelens_core::training::session::Tracker;
 use maplelens_core::training::watcher::{Training, TrainingWatcher};
-use maplelens_core::training::{kpq, potions};
 use maplelens_core::vision::glyphs::Atlas;
 use maplelens_core::vision::reader::{TextReader, name_atlas, title_atlas};
 use ocr::{OcrQueue, QueuedImageOcr, QueuedOcr};
@@ -141,7 +141,7 @@ impl Engine {
             shop: ShopRunner::new(),
             training,
             map_ocr,
-            training_show: Show { exp: true, quest: true },
+            training_show: Show { exp: true, quest: false },
             training_card: None,
             since: 0.0,
             card: None,
@@ -399,9 +399,9 @@ impl Engine {
         .to_string()
     }
 
-    /// What the training card shows: the EXP rates, the party quest helper.
-    pub fn set_training_show(&mut self, exp: bool, quest: bool) {
-        self.training_show = Show { exp, quest };
+    /// Whether the training card shows the EXP rates. The party quest helper is hidden: never on the page's card.
+    pub fn set_training_show(&mut self, exp: bool) {
+        self.training_show = Show { exp, quest: false };
     }
 
     /// Pause or resume the training session (neither time nor EXP counts while paused).
@@ -498,7 +498,7 @@ impl Engine {
         .to_string();
     }
 
-    /// Redrawn when the numbers change, and every second while the quest's clock runs.
+    /// Redrawn when the numbers change, and every second (the card's clocks).
     fn update_training_card(&mut self, training: &Training, unix_now: f64) {
         let key = (training.clone(), self.training_show, unix_now as u64);
         if self.training_card.as_ref().is_some_and(|c| c.key == key) {
@@ -630,18 +630,6 @@ impl Engine {
         self.catalog.len() as u32
     }
 
-    /// The Kerning City Party Quest as the page lays it out: its stages and Cloto's questions, as JSON.
-    pub fn kpq_guide() -> String {
-        json!({
-            "name": kpq::NAME,
-            "limit_s": kpq::TIME_LIMIT_S,
-            "stages": kpq::STAGES.iter().map(stage_json).collect::<Vec<_>>(),
-            "exit": stage_json(&kpq::EXIT),
-            "questions": kpq::QUESTIONS.iter().map(|q| json!({"asks": q.asks, "coupons": q.coupons})).collect::<Vec<_>>(),
-        })
-        .to_string()
-    }
-
     /// The MapleLens version.
     pub fn version() -> String {
         env!("CARGO_PKG_VERSION").to_string()
@@ -674,19 +662,5 @@ fn training_json(training: &Training) -> Value {
                 "icon": potions::icon_url(l.id),
             })).collect::<Vec<_>>(),
         },
-        "quest": training.quest.map(|run| json!({
-            "stage": run.stage,
-            "stages": kpq::STAGES.len(),
-            "started": run.started,
-            "limit_s": kpq::TIME_LIMIT_S,
-            "at": stage_json(kpq::stage(run.stage)),
-        })),
     })
-}
-
-/// One stage of the party quest: its map, name, goal and every way to stand where that is the puzzle.
-fn stage_json(stage: &kpq::Stage) -> Value {
-    let combination =
-        stage.combination.map(|(pick, of)| json!({"pick": pick, "of": of, "all": kpq::combinations(pick, of)}));
-    json!({"map": stage.map, "name": stage.name, "goal": stage.goal, "combination": combination})
 }

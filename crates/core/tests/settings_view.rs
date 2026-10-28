@@ -91,7 +91,6 @@ fn the_picture_follows_the_state() {
         View { phone: code.clone(), phone_left_s: Some(61), ..view() },
         View { settings: Settings { phone_key: KEY.into(), ..Settings::default() }, ..view() },
         View { settings: Settings { training_card: false, ..Settings::default() }, ..view() },
-        View { settings: Settings { quest_helper: false, ..Settings::default() }, ..view() },
         View { settings: Settings { training_corner: Corner::TopLeft, ..Settings::default() }, ..view() },
         View { hover: Some(Control::Corner(Corner::TopRight)), ..view() },
         View { focus: Some(Control::Corner(Corner::BottomLeft)), ..view() },

@@ -99,7 +99,8 @@ fn settings_default_roundtrip_and_validation() {
     assert_eq!(Settings::from_json(partly), Settings { launch_at_startup: true, ..Settings::default() });
     assert_eq!(Settings::default().toggle_hotkey, DEFAULT_HOTKEY);
     assert!(Settings::default().store_status_bar);
-    assert!(Settings::default().training_card && Settings::default().quest_helper);
+    assert!(Settings::default().training_card);
+    assert!(!Settings::default().quest_helper, "the party quest helper is hidden");
     assert_eq!(Settings::default().training_corner, Corner::BottomRight);
     assert_eq!(Settings::from_json(r#"{"training_corner": "middle"}"#).training_corner, Corner::BottomRight);
     for corner in Corner::ALL {

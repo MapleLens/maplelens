@@ -1,14 +1,14 @@
 // MapleLens Web: capture the game window (the page offers nothing else; the sample, video and frame-folder sources are
 // test hooks started by a URL parameter), feed frames to the engine, show the cards in the page and, on request, in a picture-in-picture window that floats over the game.
-// The training panels (EXP rates, the Kerning City PQ) are drawn from the numbers the engine reads off the HUD.
+// The training panel (EXP rates, potions) is drawn from the numbers the engine reads off the HUD.
 
-import { Lens } from "./lens.js?v=3e1b22f7f194";
-import { CardView, floatingSize, openFloating } from "./cards.js?v=3e1b22f7f194";
-import { CardFeed } from "./cardfeed.js?v=3e1b22f7f194";
-import { Prices } from "./prices.js?v=3e1b22f7f194";
-import { drawMapleQr } from "./mapleqr.js?v=3e1b22f7f194";
-import { StoreBook } from "./storebook.js?v=3e1b22f7f194";
-import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=3e1b22f7f194";
+import { Lens } from "./lens.js?v=d8a0e9f3f521";
+import { CardView, floatingSize, openFloating } from "./cards.js?v=d8a0e9f3f521";
+import { CardFeed } from "./cardfeed.js?v=d8a0e9f3f521";
+import { Prices } from "./prices.js?v=d8a0e9f3f521";
+import { drawMapleQr } from "./mapleqr.js?v=d8a0e9f3f521";
+import { StoreBook } from "./storebook.js?v=d8a0e9f3f521";
+import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=d8a0e9f3f521";
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -360,19 +360,18 @@ function applyShopSettings() {
 }
 
 /** What the training card shows, kept in this browser. */
-const trainingSettings = { exp: true, quest: true };
+const trainingSettings = { exp: true };
 
 function loadTrainingSettings() {
   try {
     Object.assign(trainingSettings, JSON.parse(storage(s => s.getItem(TRAINING_KEY)) || "{}"));
   } catch { /* damaged: the defaults stay */ }
   $("t-show-exp").checked = trainingSettings.exp !== false;
-  $("t-show-quest").checked = trainingSettings.quest !== false;
 }
 
 function applyTrainingSettings() {
   storage(s => s.setItem(TRAINING_KEY, JSON.stringify(trainingSettings)));
-  lens?.trainingShow(trainingSettings.exp !== false, trainingSettings.quest !== false);
+  lens?.trainingShow(trainingSettings.exp !== false);
 }
 
 /** 1920 -> "1.92k", 2_300_000 -> "2.3m" (as the cards write numbers). */
@@ -425,7 +424,6 @@ function showTraining(t) {
   if (session.lost) parts.push(`${compact(session.lost)} lost to deaths`);
   if (parts.length) $("t-note").textContent = parts.join(" · ");
   showPotions(t.potions);
-  showQuest(t.quest);
 }
 
 /** The quickslots' potions this session: each one's icon with how many were used and picked up. */
@@ -460,64 +458,6 @@ function showHistory(history) {
   });
   if (rows.length) list.replaceChildren(...rows);
   else list.replaceChildren(Object.assign(document.createElement("li"), { className: "none", textContent: "None yet" }));
-}
-
-/** The quest guide: the stages (the one being played highlighted), Cloto's answers, and every way to stand on the
- *  stages that need it, each crossed out once tried. Picking a stage by hand shows it outside the quest too. */
-let guide = null;
-let picked = 0;
-let questKey = "";
-const tried = new Set();
-
-function buildGuide(kpq) {
-  guide = kpq;
-  $("quest-answers").replaceChildren(...kpq.questions.map(q => {
-    const row = document.createElement("tr");
-    row.append(Object.assign(document.createElement("td"), { textContent: q.coupons }), Object.assign(document.createElement("td"), { textContent: q.asks }));
-    return row;
-  }));
-  showQuest(null);
-}
-
-function showQuest(quest) {
-  if (!guide) return;
-  const at = quest ? quest.stage : picked;
-  const key = quest ? `${quest.started}:${quest.stage}` : `pick:${picked}`;
-  if (key !== questKey) {
-    questKey = key;
-    tried.clear();
-  }
-  const stage = at < guide.stages.length ? guide.stages[at] : guide.exit;
-  const stages = $("quest-stages");
-  if (stages.dataset.key !== key) {
-    stages.dataset.key = key;
-    stages.replaceChildren(...guide.stages.map((s, i) => {
-      const item = Object.assign(document.createElement("li"), { textContent: `${i + 1} ${s.name}`, title: s.map });
-      if (i === at) item.className = "now";
-      else if (quest && i < at) item.className = "done";
-      item.addEventListener("click", () => { picked = i; showQuest(lastState?.training?.quest ?? null); });
-      return item;
-    }));
-  }
-  const left = quest ? quest.limit_s - (Date.now() / 1000 - quest.started) : 0;
-  $("quest-tag").textContent = !quest ? "not in the quest" : left > 0 ? `${stage.name} · ${clock(left)} left` : stage.name;
-  $("quest-goal").textContent = stage.goal;
-  $("quest-answers").hidden = at !== 0;
-  const combos = $("quest-combos");
-  combos.hidden = !stage.combination;
-  if (stage.combination && combos.dataset.key !== key) {
-    combos.dataset.key = key;
-    combos.replaceChildren(...stage.combination.all.map(spots => {
-      const label = spots.join(" ");
-      const button = Object.assign(document.createElement("button"), { type: "button", textContent: label, title: "Spots counted from the left; click once tried" });
-      button.setAttribute("aria-pressed", String(tried.has(label)));
-      button.addEventListener("click", () => {
-        if (tried.has(label)) tried.delete(label); else tried.add(label);
-        button.setAttribute("aria-pressed", String(tried.has(label)));
-      });
-      return button;
-    }));
-  }
 }
 
 /** Words for a shop event, for the log. */
@@ -567,15 +507,14 @@ function shopStatus(state) {
 /** A panel stays this long after what it is about was last seen: a window over the game, or a frame without it, must
  *  not make it blink. */
 const PANEL_GRACE_MS = 20000;
-const panelSeen = { training: -Infinity, quest: -Infinity, store: -Infinity };
+const panelSeen = { training: -Infinity, store: -Infinity };
 
-/** The training, party quest and store panels show only while they are about something: a training session, a run of
- *  the quest, the player's own store. `state` is the engine's latest, or null when no game window is shared. */
+/** The training and store panels show only while they are about something: a training session, the player's own
+ *  store. `state` is the engine's latest, or null when no game window is shared. */
 function showPanels(state) {
   const now = performance.now();
   const about = {
     training: Boolean(state?.training?.active),
-    quest: Boolean(state?.training?.quest),
     // Unfollowed, the store is not watched and could never show up to be followed again.
     store: !shopSettings.shop || (state?.shop?.status?.status ?? "hidden") !== "hidden",
   };
@@ -695,7 +634,7 @@ function handleState(state, fps, ms) {
     title: state.hover?.title || (state.info?.name ? `${state.info.name}'s ranks` : ""),
     store: shopStatus(state),
     sharing: Boolean(source),
-    trainingTitle: state.training?.quest ? "Kerning City PQ" : state.training?.map || "",
+    trainingTitle: state.training?.map || "",
   };
   live = { card: Boolean(state.card), rank: Boolean(state.rank) };
   if (!state.training_card) feed.setTraining(null);
@@ -991,7 +930,6 @@ async function main() {
   loadTrainingSettings();
   showPanels(null);
   $("t-show-exp").addEventListener("change", e => { trainingSettings.exp = e.target.checked; applyTrainingSettings(); });
-  $("t-show-quest").addEventListener("change", e => { trainingSettings.quest = e.target.checked; applyTrainingSettings(); });
   $("t-pause").addEventListener("click", () => {
     trainingPaused = !trainingPaused;
     $("t-pause").textContent = trainingPaused ? "Resume" : "Pause";
@@ -1133,7 +1071,6 @@ async function main() {
       ocr: true,
     });
     setPill("engine-pill", true, `engine ${lens.version}`);
-    buildGuide(lens.kpq);
     applyTrainingSettings();
     window.maplelensLens = lens; // for measuring and debugging from the console
     window.maplelensCards = feed;

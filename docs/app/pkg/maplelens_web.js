@@ -108,26 +108,6 @@ export class Engine {
         return ret >>> 0;
     }
     /**
-     * The Kerning City Party Quest as the page lays it out: its stages and Cloto's questions, as JSON.
-     * @returns {string}
-     */
-    static kpq_guide() {
-        let deferred1_0;
-        let deferred1_1;
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.engine_kpq_guide(retptr);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            deferred1_0 = r0;
-            deferred1_1 = r1;
-            return getStringFromWasm0(r0, r1);
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-            wasm.__wbindgen_export3(deferred1_0, deferred1_1, 1);
-        }
-    }
-    /**
      * Letters learnt in an earlier visit (the page keeps them in localStorage), for "title" or "name".
      * @param {string} font
      * @param {string} json
@@ -606,12 +586,11 @@ export class Engine {
         wasm.engine_set_shop(this.__wbg_ptr, enabled);
     }
     /**
-     * What the training card shows: the EXP rates, the party quest helper.
+     * Whether the training card shows the EXP rates. The party quest helper is hidden: never on the page's card.
      * @param {boolean} exp
-     * @param {boolean} quest
      */
-    set_training_show(exp, quest) {
-        wasm.engine_set_training_show(this.__wbg_ptr, exp, quest);
+    set_training_show(exp) {
+        wasm.engine_set_training_show(this.__wbg_ptr, exp);
     }
     /**
      * Sold items whose picture to look up first, `[{"name", "url"}]` JSON (GET maplestory.io); each answer's text

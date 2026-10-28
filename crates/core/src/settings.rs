@@ -33,7 +33,8 @@ pub struct Settings {
     pub notify_store: bool,
     /// The training card's EXP rates over the game.
     pub training_card: bool,
-    /// The training card's party quest stage and answers, on the quest's maps.
+    /// The training card's party quest stage and answers, on the quest's maps. Hidden until a real run has checked
+    /// it (the stages were only tried on a drawn minimap): off, with no switch in the settings window or the tray.
     pub quest_helper: bool,
     /// Which corner of the game the training card sits in.
     pub training_corner: Corner,
@@ -110,7 +111,7 @@ impl Default for Settings {
             notify_sales: true,
             notify_store: true,
             training_card: true,
-            quest_helper: true,
+            quest_helper: false,
             training_corner: Corner::default(),
         }
     }

@@ -54,7 +54,7 @@ export class Lens {
     this.catalogCount = 0;
     this.tesseract = null;
     this.tesseractLoading = null;
-    this.worker = new Worker(new URL("worker.js?v=3e1b22f7f194", base), { type: "module" });
+    this.worker = new Worker(new URL("worker.js?v=d8a0e9f3f521", base), { type: "module" });
     this.worker.onerror = event => reject(new Error(event.message || "the engine could not start"));
     this.counts = {};
     this.bytes = 0;
@@ -62,7 +62,7 @@ export class Lens {
       this.counts[data.type] = (this.counts[data.type] || 0) + 1;
       if (data.json) this.bytes += data.json.length;
       switch (data.type) {
-        case "ready": this.version = data.version; this.items = data.items; this.kpq = data.kpq; if (this.ocrEnabled) this.loadTesseract(); resolve(this); break;
+        case "ready": this.version = data.version; this.items = data.items; if (this.ocrEnabled) this.loadTesseract(); resolve(this); break;
         case "idle": this.busy = false; break;
         case "state": options.onState(data.state, data.fps, data.ms); break;
         case "card": options.onCard(data.which, new ImageData(new Uint8ClampedArray(data.pixels.buffer), data.width, data.height), data.about); break;
@@ -115,9 +115,9 @@ export class Lens {
     this.worker.postMessage({ type: "training-new" });
   }
 
-  /** What the training card shows: the EXP rates, the party quest helper. */
-  trainingShow(exp, quest) {
-    this.worker.postMessage({ type: "training-show", exp, quest });
+  /** Whether the training card shows the EXP rates. */
+  trainingShow(exp) {
+    this.worker.postMessage({ type: "training-show", exp });
   }
 
   /** Report sold items to a Discord webhook, a Telegram bot's sendMessage URL and the phones paired with a key (the

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MapleLens Web</title>
-<meta name="description" content="MapleLens in your browser: share your MapleStory Classic window and see item cards, player ranks, your EXP rates and a Kerning City PQ helper. Nothing to install; everything runs on your computer.">
+<meta name="description" content="MapleLens in your browser: share your MapleStory Classic window and see item cards, player ranks, and your EXP rates. Nothing to install; everything runs on your computer.">
 <meta name="theme-color" content="#ffad1f">
 <!-- Scripts only from this site (Tesseract included: vendor/), and connections only to MapleLens's relays, Discord,
      Telegram, maplestory.io and classicrank.com: this page keeps the player's Discord webhook, Telegram token and
@@ -15,8 +15,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lilita+One&display=swap">
-<link rel="stylesheet" href="../assets/maple.css?v=3e1b22f7f194">
-<link rel="modulepreload" href="lens.js?v=3e1b22f7f194">
+<link rel="stylesheet" href="../assets/maple.css?v=d8a0e9f3f521">
+<link rel="modulepreload" href="lens.js?v=d8a0e9f3f521">
 <style>
 main{padding:28px 0 0}
 h1{font-size:clamp(34px,5vw,52px);line-height:1.05;margin:0}
@@ -111,7 +111,7 @@ dialog.pairing{width:min(560px,calc(100vw - 32px))}
 .pair-buttons{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap}
 @media (max-width:560px){.pair{grid-template-columns:minmax(0,1fr)}.pair canvas{justify-self:center}}
 #version:not(:empty):before{content:" · "}
-.training .win-b,.quest .win-b{display:grid;gap:12px}
+.training .win-b{display:grid;gap:12px}
 .stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .stats div{background:#fff;border:1px solid var(--win-edge);border-radius:4px;padding:6px 8px;min-width:0}
 .stats b{display:block;font-size:17px;color:#0e2a55;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -124,16 +124,6 @@ dialog.pairing{width:min(560px,calc(100vw - 32px))}
 .potion-list img{width:20px;height:20px;object-fit:contain;image-rendering:pixelated}
 .potion-list .used{color:#c0392b}.potion-list .picked{color:#2f8a2f}
 details summary{cursor:pointer;font-weight:bold;font-size:13px}
-.stages{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
-.stages li{font-size:12px;font-weight:bold;padding:3px 9px;border-radius:10px;border:1px solid var(--win-edge);background:#fff;color:var(--muted)}
-.stages li.done{color:#2f7a2f;border-color:#9fd69f;background:#effaef}
-.stages li.now{color:#3a2600;background:#ffcc33;border-color:#e0a800}
-.answers{width:100%;border-collapse:collapse;font-size:13px;background:#fff;border:1px solid var(--win-edge);border-radius:4px}
-.answers td{padding:4px 9px;border-bottom:1px solid #ece8da}
-.answers td:first-child{width:3em;text-align:right;font-weight:bold;color:#b07800;font-variant-numeric:tabular-nums}
-.combos{display:flex;flex-wrap:wrap;gap:6px}
-.combos button{font:bold 13px Tahoma,sans-serif;letter-spacing:.12em;padding:4px 9px;border-radius:5px;border:1px solid var(--win-edge);background:#fff;cursor:pointer;font-variant-numeric:tabular-nums}
-.combos button[aria-pressed=true]{background:#e5e1d2;color:#9a958a;text-decoration:line-through}
 @media (max-width:960px){.grid{grid-template-columns:minmax(0,1fr)}}
 </style>
 </head>
@@ -152,7 +142,7 @@ details summary{cursor:pointer;font-weight:bold;font-size:13px}
 
 <main class="wrap">
   <h1 class="display outline">MapleLens Web</h1>
-  <p class="lead">Share your MapleStory Classic window. Item cards, your store, your EXP rates and a Kerning City PQ helper, right here or floating over the game.</p>
+  <p class="lead">Share your MapleStory Classic window. Item cards, your store and your EXP rates, right here or floating over the game.</p>
 
   <div class="grid">
     <div class="win">
@@ -187,7 +177,7 @@ details summary{cursor:pointer;font-weight:bold;font-size:13px}
         </div>
       </div>
 
-      <p class="hint more" id="more-note">Your EXP rates, the Kerning City PQ guide and your store's sales show up here while you train, run the quest or keep your store open.</p>
+      <p class="hint more" id="more-note">Your EXP rates and your store's sales show up here while you train or keep your store open.</p>
 
       <div class="win controls training" id="training-panel" hidden>
         <div class="win-h">Training<span class="tag" id="training-tag">waiting for the EXP bar</span></div>
@@ -214,17 +204,6 @@ details summary{cursor:pointer;font-weight:bold;font-size:13px}
             <summary>Past sessions</summary>
             <ul class="log" id="t-history"><li class="none">None yet</li></ul>
           </details>
-        </div>
-      </div>
-
-      <div class="win controls quest" id="quest-panel" hidden>
-        <div class="win-h">Kerning City PQ<span class="tag" id="quest-tag">not in the quest</span></div>
-        <div class="win-b">
-          <ol class="stages" id="quest-stages"></ol>
-          <p class="hint" id="quest-goal">The stage is read from your minimap while you play it.</p>
-          <div class="combos" id="quest-combos" hidden></div>
-          <table class="answers" id="quest-answers" aria-label="Cloto's questions and the coupons that answer them"></table>
-          <label class="check"><input type="checkbox" id="t-show-quest" checked> <span>Show the party quest helper on the card</span></label>
         </div>
       </div>
 
@@ -445,6 +424,6 @@ details summary{cursor:pointer;font-weight:bold;font-size:13px}
   </div>
 </footer>
 
-<script type="module" src="app.js?v=3e1b22f7f194"></script>
+<script type="module" src="app.js?v=d8a0e9f3f521"></script>
 </body>
 </html>

@@ -218,6 +218,11 @@ seconds) so the history has dates; the platform keeps `Tracker::to_json` (traini
   until the party has been off the quest's maps for a minute. Facts (Cloto's answers, combinations) are written out in
   our own words. There is no real KPQ capture yet: the stage path was checked on a synthetic minimap (Tahoma Bold
   on the minimap panel) with both OCR engines; add a real one when there is one.
+- **The party quest helper is hidden** until a real run has checked it, and is not mentioned on the website or in the
+  README. Windows: the `quest_helper` setting is off, with no switch in the settings window or the tray; only
+  settings.json turns it on. Web: the engine never draws it (`set_training_show(exp)`) and the page has no panel for
+  it (the panel, its guide JSON and the switch are in PR #46's history). The tracker still follows the quest, and its
+  tests and `render_cards`' `training_kpq_*.png` still cover it.
 
 ## Store Permit watcher (`core/src/shop`)
 
@@ -530,10 +535,9 @@ the engine meets text the atlas cannot read) is always on, for shop text and unk
 title or a player's name before anything else waiting (`lens.js`): the minimap's lines and the shop's can wait, and a
 title queued behind them came late. A grey line alike one read lately (mean difference 6 of 255) takes that answer
 (`web/src/ocr.rs`): video frames never repeat pixels, so the minimap's title went to Tesseract on every look.
-The Training, Kerning City PQ and Store Permit panels show only while they are about something (`showPanels`): a
-training session (the engine's `training.active`, the card's own rule, `training_card::is_training`), a run of the
-quest, the player's own store window (any shop status but "hidden"), each kept 20 s after (a window over the game must
-not make it blink). Unfollowed, the store panel stays, or it could never be followed again. A line says what shows up
+The Training and Store Permit panels show only while they are about something (`showPanels`): a training session
+(the engine's `training.active`, the card's own rule, `training_card::is_training`), the player's own store window (any
+shop status but "hidden"), each kept 20 s after (a window over the game must not make it blink). Unfollowed, the store panel stays, or it could never be followed again. A line says what shows up
 there while none does.
 
 The cards (`cardfeed.js`, shown by `cards.js` in the page and the floating window alike):
@@ -553,7 +557,7 @@ The cards (`cardfeed.js`, shown by `cards.js` in the page and the floating windo
   it stays 2 s after its tooltip goes instead of 6. The player expects the price within a second of pointing: on the
   demo it shows 0.13-0.23 s after the tooltip is drawn (a 0.4 s wait plus idle-rate looks had made it over a second). (The training card had sat over the others, and the floating
   window grew into a tall stack the player could not leave in a corner.)
-- The header says what is shown: the item, the training's map ("Kerning City PQ" in the quest), or "Watching the
+- The header says what is shown: the item, the training's map, or "Watching the
   game" / "Not watching the game" (with what to do). No engine numbers there: they are on the page.
 - The rank panel is the web's own, in HTML (`rankpanel.js`): classicrank.com's photo of the character (`photo`, a 96 px
   PNG; the page's policy allows images from classicrank.com), the name, level, job and fame, the three ranks as tiles,

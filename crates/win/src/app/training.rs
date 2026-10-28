@@ -1,5 +1,6 @@
-//! The training card: EXP rates and the party quest helper in the corner of the game the player picked, only over the
-//! game (rule 5) and only for the parts the player switched on (settings or tray).
+//! The training card: EXP rates in the corner of the game the player picked, only over the game (rule 5) and only
+//! while the player has it switched on (settings or tray). The party quest helper joins it only with settings.json's
+//! hidden `quest_helper`.
 
 use std::sync::Arc;
 
@@ -24,7 +25,7 @@ impl App {
             self.training = Some(update);
         }
         let paused = self.training.as_ref().is_some_and(|(_, t)| t.exp.paused);
-        self.tray.set_training(self.settings.training_card, self.settings.quest_helper, paused);
+        self.tray.set_training(self.settings.training_card, paused);
         let show = Show { exp: self.settings.training_card, quest: self.settings.quest_helper };
         let Some((hwnd, training)) = self.training.as_ref().filter(|(_, t)| has_content(t, show)) else {
             return self.training_window.hide();

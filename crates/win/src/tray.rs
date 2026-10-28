@@ -29,9 +29,8 @@ const ID_SETTINGS: usize = 2;
 const ID_EXIT: usize = 3;
 const ID_UPDATE: usize = 4;
 const ID_EXP: usize = 5;
-const ID_QUEST: usize = 6;
-const ID_PAUSE: usize = 7;
-const ID_NEW_SESSION: usize = 8;
+const ID_PAUSE: usize = 6;
+const ID_NEW_SESSION: usize = 7;
 const HOTKEY_ID: i32 = 1;
 const TIP: &str = concat!("MapleLens v", env!("CARGO_PKG_VERSION"));
 
@@ -48,7 +47,6 @@ pub fn tooltip(update: Option<&str>) -> String {
 pub enum TrayCommand {
     Toggle,
     ToggleExp,
-    ToggleQuest,
     /// Pause or resume the training session.
     PauseTraining,
     NewSession,
@@ -87,7 +85,6 @@ pub struct Tray {
 pub struct MenuState {
     pub overlay_enabled: bool,
     pub exp: bool,
-    pub quest: bool,
     pub paused: bool,
     /// Set while a newer release is waiting.
     pub update: Option<String>,
@@ -101,7 +98,7 @@ struct TrayState {
 
 impl Tray {
     pub fn new(icon: HICON) -> windows::core::Result<Self> {
-        let menu = MenuState { overlay_enabled: true, exp: true, quest: true, ..MenuState::default() };
+        let menu = MenuState { overlay_enabled: true, exp: true, ..MenuState::default() };
         let state = Rc::new(RefCell::new(TrayState { menu, commands: Vec::new() }));
         // The shell broadcasts this when explorer restarts and the tray is rebuilt: our icon must be re-added.
         // SAFETY: plain registration of a system-wide message name.
@@ -154,10 +151,10 @@ impl Tray {
         self.state.borrow_mut().menu.overlay_enabled = enabled;
     }
 
-    /// The training card's switches and whether its session is paused.
-    pub fn set_training(&self, exp: bool, quest: bool, paused: bool) {
+    /// The training card's switch and whether its session is paused.
+    pub fn set_training(&self, exp: bool, paused: bool) {
         let menu = &mut self.state.borrow_mut().menu;
-        (menu.exp, menu.quest, menu.paused) = (exp, quest, paused);
+        (menu.exp, menu.paused) = (exp, paused);
     }
 
     /// Announce (or clear) a newer release in the icon's tooltip and the menu.
@@ -246,7 +243,6 @@ fn show_menu(hwnd: HWND, state: &MenuState) -> Option<TrayCommand> {
         let _ = AppendMenuW(menu, checked(state.overlay_enabled), ID_TOGGLE, w!("Show overlays"));
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
         let _ = AppendMenuW(menu, checked(state.exp), ID_EXP, w!("EXP tracker"));
-        let _ = AppendMenuW(menu, checked(state.quest), ID_QUEST, w!("Party quest helper"));
         let pause = if state.paused { w!("Resume training session") } else { w!("Pause training session") };
         let _ = AppendMenuW(menu, MF_STRING, ID_PAUSE, pause);
         let _ = AppendMenuW(menu, MF_STRING, ID_NEW_SESSION, w!("New training session"));
@@ -268,7 +264,6 @@ fn show_menu(hwnd: HWND, state: &MenuState) -> Option<TrayCommand> {
         match choice.0 as usize {
             ID_TOGGLE => Some(TrayCommand::Toggle),
             ID_EXP => Some(TrayCommand::ToggleExp),
-            ID_QUEST => Some(TrayCommand::ToggleQuest),
             ID_PAUSE => Some(TrayCommand::PauseTraining),
             ID_NEW_SESSION => Some(TrayCommand::NewSession),
             ID_SETTINGS => Some(TrayCommand::Settings),

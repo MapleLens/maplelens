@@ -304,10 +304,6 @@ impl App {
                     let training_card = !self.settings.training_card;
                     self.update_settings(Settings { training_card, ..self.settings.clone() });
                 }
-                TrayCommand::ToggleQuest => {
-                    let quest_helper = !self.settings.quest_helper;
-                    self.update_settings(Settings { quest_helper, ..self.settings.clone() });
-                }
                 TrayCommand::PauseTraining => {
                     let paused = self.training.as_ref().is_some_and(|(_, t)| t.exp.paused);
                     self.send_training(TrainingCommand::SetPaused(!paused));

@@ -37,9 +37,8 @@ fn the_demo_frame_shows_a_price_card_and_a_rank_panel() {
     assert!(state["card"].as_u64().is_some());
     // A tooltip in view: the page looks at full rate.
     assert_eq!(state["tooltip_in_view"], true);
-    // Nothing here for the page's training, quest or store panels to show.
+    // Nothing here for the page's training or store panels to show.
     assert_eq!(state["training"]["active"], false);
-    assert!(state["training"]["quest"].is_null());
     assert_eq!(state["shop"]["status"]["status"], "hidden");
     assert_eq!(engine.card_pixels().len(), (engine.card_width() * engine.card_height() * 4) as usize);
     // The page lists recent items by what their card is about.
