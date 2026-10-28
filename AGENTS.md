@@ -273,6 +273,11 @@ starts itself again with the "runas" verb (the Windows prompt), same arguments a
   (`startup.rs`), it asks then.
 - Being elevated raises what a compromised update could do: one more reason rule 7 (the signed update chain) must
   never weaken. Do not add anything that needs elevation for its own sake.
+- Every program the player runs can write the exe's folder (unzipped in Downloads, often), %TEMP% and
+  %LOCALAPPDATA%\MapleLens, and the elevated app must not trust what it finds there: DLLs load from System32 only
+  (`/DEPENDENTLOADFLAG` in build.rs, the static C runtime in .cargo/config.toml, `elevate::restrict_dll_search`
+  first in `main`), an update is verified and unpacked in memory (never through a file in %TEMP%), the staged exe is
+  written as a new file, and the clipboard's text is read only as far as its block goes.
 - Not a manifest `requireAdministrator`: Windows does not start such programs from the Run key at sign-in, and the
   prompt could not be declined into a working app.
 

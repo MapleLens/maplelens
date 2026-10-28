@@ -1,7 +1,6 @@
 //! HTTPS fetching with TLS verification, a host allow-list that also covers every redirect, and size caps.
 
-use std::io::{Read, Write};
-use std::path::Path;
+use std::io::Read;
 use std::time::Duration;
 
 use sha2::{Digest, Sha256};
@@ -75,45 +74,35 @@ pub fn get_bytes(url: &str, limit: u64) -> Result<Vec<u8>, UpdateError> {
     Ok(data)
 }
 
-/// Stream into `dest`; the byte count and hash must match the signed manifest exactly or it is deleted.
-pub fn download(url: &str, dest: &Path, size: u64, sha256: &str, progress: Progress<'_>) -> Result<(), UpdateError> {
-    let result = (|| {
-        let mut reader = open(url)?.into_body().into_reader();
-        stream(&mut reader, dest, size, sha256, progress)
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(dest);
-    }
-    result
+/// The whole download, in memory; its byte count and hash must match the signed manifest exactly. Never staged in a
+/// file: %TEMP% is writable by every program the player runs, and the elevated app would have unpacked whatever one
+/// of them swapped in there after the hash was checked.
+pub fn download(url: &str, size: u64, sha256: &str, progress: Progress<'_>) -> Result<Vec<u8>, UpdateError> {
+    let mut reader = open(url)?.into_body().into_reader();
+    stream(&mut reader, size, sha256, progress)
 }
 
-/// Copy `reader` to `dest`, checking it against the expected size and SHA-256 as it goes.
-pub fn stream(
-    reader: &mut dyn Read,
-    dest: &Path,
-    size: u64,
-    sha256: &str,
-    progress: Progress<'_>,
-) -> Result<(), UpdateError> {
+/// Read `reader` to its end, checking it against the expected size and SHA-256 as it goes.
+pub fn stream(reader: &mut dyn Read, size: u64, sha256: &str, progress: Progress<'_>) -> Result<Vec<u8>, UpdateError> {
     let io = |e: std::io::Error| UpdateError(format!("the download broke off: {e}"));
-    let mut output = std::fs::File::create(dest).map_err(io)?;
-    let (mut digest, mut done, mut buffer) = (Sha256::new(), 0u64, vec![0u8; CHUNK]);
+    // `size` is the signed manifest's, at most MAX_ZIP_BYTES.
+    let mut data = Vec::with_capacity(usize::try_from(size).unwrap_or(0));
+    let (mut digest, mut buffer) = (Sha256::new(), vec![0u8; CHUNK]);
     loop {
         let n = reader.read(&mut buffer).map_err(io)?;
         if n == 0 {
             break;
         }
-        done += n as u64;
-        if done > size {
+        if (data.len() + n) as u64 > size {
             return fail("the download is larger than the signed manifest says");
         }
         digest.update(&buffer[..n]);
-        output.write_all(&buffer[..n]).map_err(io)?;
-        progress(done, size);
+        data.extend_from_slice(&buffer[..n]);
+        progress(data.len() as u64, size);
     }
     let hex: String = digest.finalize().iter().map(|b| format!("{b:02x}")).collect();
-    if done != size || hex != sha256 {
+    if data.len() as u64 != size || hex != sha256 {
         return fail("the download does not match its checksum");
     }
-    Ok(())
+    Ok(data)
 }

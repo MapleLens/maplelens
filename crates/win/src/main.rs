@@ -179,6 +179,7 @@ fn already_running() -> bool {
 
 #[cfg(windows)]
 fn main() -> std::process::ExitCode {
+    elevate::restrict_dll_search();
     attach_console();
     let maintainer = matches!(std::env::args().nth(1).as_deref(), Some("--sign-release" | "--make-update-key"));
     let args = match parse(std::env::args().take(if maintainer { 1 } else { usize::MAX })) {

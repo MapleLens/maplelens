@@ -1,7 +1,8 @@
 //! Staging, verifying and swapping in a downloaded exe. A running exe can be renamed but not overwritten, so the
 //! swap is rename-aside then move-in, with the old file put back if anything goes wrong.
 
-use std::io::Read;
+use std::io::{Cursor, Read};
+use std::os::windows::fs::OpenOptionsExt;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -15,6 +16,7 @@ pub const NEW_NAME: &str = "maplelens.new.exe";
 pub const OLD_NAME: &str = "maplelens.old.exe";
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const DETACHED_PROCESS: u32 = 0x0000_0008;
+const FILE_SHARE_READ: u32 = 0x0000_0001;
 
 pub fn current_exe() -> PathBuf {
     std::env::current_exe().unwrap_or_else(|_| PathBuf::from(EXE_NAME))
@@ -46,12 +48,11 @@ pub fn cleanup_leftovers(exe: &Path, tries: u32, delay: Duration) {
 }
 
 /// Pull out the one expected member by exact name; nothing else in the zip is ever touched.
-pub fn extract_exe(archive: &Path, update: &Update, target: &Path) -> Result<(), UpdateError> {
+pub fn extract_exe(archive: &[u8], update: &Update, target: &Path) -> Result<(), UpdateError> {
     let result = (|| {
         let stem = update.manifest.asset.trim_end_matches(".zip");
         let member = format!("{stem}/{EXE_NAME}");
-        let file = std::fs::File::open(archive).map_err(|e| UpdateError(format!("cannot read the download: {e}")))?;
-        let mut bundle = zip::ZipArchive::new(file)
+        let mut bundle = zip::ZipArchive::new(Cursor::new(archive))
             .map_err(|_| UpdateError("the update archive is not what was expected".into()))?;
         // Some zip writers store backslashes; match the one expected name either way, never a pattern.
         let index = (0..bundle.len())
@@ -63,7 +64,14 @@ pub fn extract_exe(archive: &Path, update: &Update, target: &Path) -> Result<(),
             return fail("the update contains an oversized program");
         }
         let expected = entry.size();
-        let mut output = std::fs::File::create(target)
+        // Written as a new file, not through whatever is at that name (a leftover, or a link another program made
+        // there), and unshared for writing while it is written.
+        let _ = std::fs::remove_file(target);
+        let mut output = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .share_mode(FILE_SHARE_READ)
+            .open(target)
             .map_err(|e| UpdateError(format!("cannot write to {}: {e}", target.display())))?;
         let copied = std::io::copy(&mut (&mut entry).take(MAX_ZIP_BYTES + 1), &mut output)
             .map_err(|_| UpdateError("the update archive is corrupt".into()))?;
@@ -113,13 +121,8 @@ pub fn self_test(exe: &Path, version: &str) -> Result<(), UpdateError> {
 /// Download, verify, unpack next to `exe` and self-test. Returns the staged file.
 pub fn stage(update: &Update, exe: &Path, progress: net::Progress<'_>) -> Result<PathBuf, UpdateError> {
     let staged = exe.with_file_name(NEW_NAME);
-    let scratch = std::env::temp_dir().join(format!("maplelens-update-{}", std::process::id()));
-    std::fs::create_dir_all(&scratch).map_err(|e| UpdateError(format!("cannot make a temporary folder: {e}")))?;
-    let archive = scratch.join(&update.manifest.asset);
-    let result = net::download(&update.url, &archive, update.manifest.size, &update.manifest.sha256, progress)
-        .and_then(|()| extract_exe(&archive, update, &staged));
-    let _ = std::fs::remove_dir_all(&scratch);
-    result?;
+    let archive = net::download(&update.url, update.manifest.size, &update.manifest.sha256, progress)?;
+    extract_exe(&archive, update, &staged)?;
     if let Err(error) = self_test(&staged, &update.version) {
         let _ = std::fs::remove_file(&staged);
         return Err(error);

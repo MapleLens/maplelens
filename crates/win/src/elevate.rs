@@ -16,6 +16,7 @@ use std::path::Path;
 
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation};
+use windows::Win32::System::LibraryLoader::{LOAD_LIBRARY_SEARCH_SYSTEM32, SetDefaultDllDirectories};
 use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
@@ -41,6 +42,15 @@ pub fn is_elevated() -> bool {
         let _ = CloseHandle(token);
         read.is_ok() && elevation.TokenIsElevated != 0
     }
+}
+
+/// Libraries load from System32 only, never from the exe's folder or the working directory: players run the exe from
+/// wherever they unzipped it (Downloads, often), any program can drop a DLL beside it there, and this process runs as
+/// administrator. The exe's own imports are covered at link time (`/DEPENDENTLOADFLAG` in build.rs, and the static C
+/// runtime in .cargo/config.toml); this covers what Windows' own libraries load later.
+pub fn restrict_dll_search() {
+    // SAFETY: a process-wide setting, given a valid flag; it cannot fail on the Windows versions MapleLens runs on.
+    let _ = unsafe { SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32) };
 }
 
 /// Start this exe again as administrator with the same arguments; true when it started (this copy should then leave).
