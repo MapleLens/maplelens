@@ -108,6 +108,37 @@ fn line_starts_by_separators(list: &RgbImage) -> Vec<usize> {
     starts
 }
 
+/// Rows are this far apart in the list and lines this far apart in a row (reference px, measured: 9, 37, 66 | 100,
+/// 128, 156 | 190, 219, 247 | 281, 309, 337).
+const ROW_PITCH: f32 = 90.67;
+const LINE_PITCH: f32 = 28.33;
+/// A line found this close to where the grid puts one is that line.
+const GRID_SLACK: f32 = 3.0;
+
+/// The line tops of whole rows, from two finders that each missed a line or two (a row's faint first line, the totals
+/// row's): the rows are on a fixed grid, so the grid's phase is fitted to every top either found, and a row counts once
+/// two of its three lines were seen (one alone could be a stray edge).
+fn on_grid(a: &[usize], b: &[usize], height: usize) -> Vec<usize> {
+    let mut found: Vec<f32> = a.iter().chain(b).map(|&s| s as f32).collect();
+    found.sort_by(f32::total_cmp);
+    found.dedup_by(|x, y| (*x - *y).abs() <= GRID_SLACK);
+    let near = |at: f32| found.iter().copied().find(|s| (s - at).abs() <= GRID_SLACK);
+    let rows = |phase: f32| (0..).map(move |r| phase + r as f32 * ROW_PITCH).take_while(|&top| top < height as f32);
+    let lines = |top: f32| (0..LINES_PER_ROW).map(move |l| top + l as f32 * LINE_PITCH);
+    let phases =
+        found.iter().flat_map(|&s| (0..LINES_PER_ROW).map(move |l| (s - l as f32 * LINE_PITCH).rem_euclid(ROW_PITCH)));
+    let score = |phase: f32| rows(phase).flat_map(lines).filter(|&at| near(at).is_some()).count();
+    let Some(phase) = phases.max_by_key(|&p| score(p)) else { return Vec::new() };
+    let mut starts = Vec::new();
+    for top in rows(phase) {
+        let seen: Vec<Option<f32>> = lines(top).map(near).collect();
+        if seen.iter().flatten().count() >= 2 && top + 2.0 * LINE_PITCH + LINE_MIN_H as f32 <= height as f32 {
+            starts.extend(lines(top).zip(&seen).map(|(at, s)| s.unwrap_or(at).round() as usize));
+        }
+    }
+    starts
+}
+
 /// True when a Sold Items list (even an empty one: its slots still show their cell lines) hangs below `anchor`.
 pub fn has_list(view: &View<'_>, anchor: Point) -> bool {
     let (x, y, w, h) = sold_list(anchor);
@@ -124,7 +155,12 @@ pub fn read_rows(view: &View<'_>, anchor: Point) -> Option<Vec<Row>> {
     let list = view.crop((x, y, w, h));
     let mut starts = line_starts(&list);
     if !starts.len().is_multiple_of(LINES_PER_ROW) {
-        starts = line_starts_by_separators(&list);
+        let by_separators = line_starts_by_separators(&list);
+        starts = if by_separators.len().is_multiple_of(LINES_PER_ROW) {
+            by_separators
+        } else {
+            on_grid(&starts, &by_separators, list.height)
+        };
     }
     if !starts.len().is_multiple_of(LINES_PER_ROW) {
         return None;
