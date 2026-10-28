@@ -321,7 +321,7 @@ same frames through the Rust watcher (373 real captures, 22 ms a frame against P
   vendored jsQR). Android needs no install, but Chrome offers it only for a manifest that names its `start_url`
   ("start-url-not-valid") and a service worker with a fetch handler, so every other browser is pointed at
   `install.webmanifest` (`start_url` "./": an Android app shares Chrome's storage and finds the kept key), the worker
-  is registered before pairing, and it answers navigations (offline: a short page). The page never calls `preventDefault()` on `beforeinstallprompt` (that hid Chrome's own offer) and puts its Install button above every view, the dashboard included: a paired phone opens there. A phone follows one pairing: a code for another one (a link anyone can
+  is registered before pairing, and it answers navigations (offline: a short page). The page never calls `preventDefault()` on `beforeinstallprompt` (that hid Chrome's own offer) and puts its Install button above every view, the dashboard included: a paired phone opens there. iPhone lets no page add itself to the home screen, so in an iPhone tab the page shows the install card other sites show there (littlepolls.com): `@khmyznikov/pwa-install` 0.6.3, vendored like jsQR (`scripts/vendor.mjs`), loaded only on iPhone, with our icon and wording; its button reveals that browser's taps, and it reads the manifest with `fetch` (the page's `connect-src` has `'self'` for it). The page's own card lists the same steps per browser (Chrome keeps Share in its address bar; an app's own web view cannot install at all). A phone follows one pairing: a code for another one (a link anyone can
   post) switches it only after a tap, joining the new pairing before leaving the old, and the key leaves the address
   bar once kept (not in an iPhone Safari tab, which installs from that address). A pairing takes 5 phones; a sixth is
   refused (409), never one dropped silently, and an unused pairing is deleted after 60 days. The website's QR (`docs/assets/phone-qr.svg`) is
@@ -443,8 +443,8 @@ to the site with the same path (`relay/site`: a redirect, never a copy on a seco
 relay and `prices.` the price relay, all under one firewall rate limit (`relay/push/README.md`, "Rate limits").
 
 `maplelens.github.io` is one origin for the website, the web app and the phone app, and its localStorage holds the
-player's Discord webhook, Telegram bot token and phone pairing key. So no page of the site runs a script from another server: Tesseract
-and jsQR are vendored (`node scripts/vendor.mjs`: pinned versions checked against the npm registry's integrity,
+player's Discord webhook, Telegram bot token and phone pairing key. So no page of the site runs a script from another server: Tesseract,
+jsQR and pwa-install are vendored (`node scripts/vendor.mjs`: pinned versions checked against the npm registry's integrity,
 files against each folder's SHA256SUMS; `--check` runs in CI), GoatCounter's script is `docs/assets/goatcounter-count.v4.js`,
 and every page has a Content Security Policy (`script-src 'self'`, connections only to the hosts it uses). CI fails on
 a `<script src="https://...">` or a dynamic import from another host. Adding a host to a page means adding it to that

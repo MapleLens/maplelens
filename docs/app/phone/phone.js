@@ -5,8 +5,8 @@
 // Fastest path per phone: Android receives push in the browser tab itself (scan, tap, done; installing is optional).
 // iPhone only lets home-screen apps receive push, so the page is installed once, and the app can pair by scanning.
 
-import { pullToRefresh } from "./pull.js?v=088810e6a9ca";
-import { KEY_SHAPE, PAIR_CACHE, PAIR_REQUEST, relay, RELAY_URL, unseal } from "./relay.js?v=088810e6a9ca";
+import { pullToRefresh } from "./pull.js?v=349056720992";
+import { KEY_SHAPE, PAIR_CACHE, PAIR_REQUEST, relay, RELAY_URL, unseal } from "./relay.js?v=349056720992";
 
 const $ = id => document.getElementById(id);
 const STORED_KEY = "maplelens.phone.key";
@@ -18,6 +18,9 @@ const LEAVE_KEY = "maplelens.phone.leave";
 const JSQR_URL = new URL("vendor/jsqr-1.4.0/jsQR.js", import.meta.url).href;
 /** That exact file, as vendored. */
 const JSQR_INTEGRITY = "sha384-b5Ya4Bq3qCyz39m2ISh+4DxjAIljdeFwK/BsXLuj9gugaNwAcj/ia15fxNZL9Nlx";
+/** The iPhone install card (pwa-install), vendored like jsQR, and loaded only on an iPhone. */
+const PWA_INSTALL_URL = new URL("vendor/pwa-install-0.6.3/pwa-install.bundle.js", import.meta.url).href;
+const PWA_INSTALL_INTEGRITY = "sha384-Y/8ZP8Y+L1PZ9LFmLykD3Ao2udUqJ/jYlWWkJbjA+hQo5TpbXO1EcWQJuSt2RAGT";
 const SCAN_EVERY_MS = 250;
 /** The store is asked for this often while the app is on screen (a push also asks at once). */
 const REFRESH_MS = 15000;
@@ -486,6 +489,78 @@ function visitRow(visit) {
   );
 }
 
+// ---------- installing on iPhone ----------
+
+const b = text => el("b", { textContent: text });
+const SHARE = "share";
+const FINISH = ["Tap ", b("Add"), ", then open ", b("MapleLens"), " from your Home Screen."];
+
+/** Which iPhone browser this is. Every one of them can add a page to the home screen since iOS 16.4, and what it adds
+ *  is a Safari web app, so push works whichever added it; an app's own web view (Instagram, the Google app) cannot. */
+function iosBrowser() {
+  const ua = navigator.userAgent;
+  if (/CriOS\//.test(ua)) return "chrome";
+  if (/EdgiOS\//.test(ua)) return "edge";
+  if (/FxiOS\//.test(ua)) return "firefox";
+  if (/FBAN|FBAV|Instagram|Line\/|Snapchat|GSA\//.test(ua) || !/Safari\//.test(ua)) return "in-app";
+  return "safari";
+}
+
+/** Each browser keeps Add to Home Screen somewhere else: Safari behind Share in its toolbar, Chrome behind Share in
+ *  its address bar. Steps written for Safari sent Chrome users looking for a button that is not there. */
+const INSTALL_STEPS = {
+  safari: [
+    ["Tap ", b("Share"), " ", SHARE, " in the toolbar. On iOS 26, tap ", b("•••"), " first."],
+    ["Tap ", b("Add to Home Screen"), " (scroll down, or look under ", b("More"), ")."],
+    FINISH,
+  ],
+  chrome: [
+    ["Tap ", b("Share"), " ", SHARE, " in Chrome's address bar, or ", b("•••"), " then ", b("Share"), "."],
+    ["Tap ", b("Add to Home Screen"), " (scroll down, or look under ", b("More"), ")."],
+    FINISH,
+  ],
+  edge: [
+    ["Tap ", b("•••"), " in Edge, then ", b("Share"), " ", SHARE, "."],
+    ["Tap ", b("Add to Home Screen"), " (scroll down, or look under ", b("More"), ")."],
+    FINISH,
+  ],
+  firefox: [
+    ["Tap the menu ", b("☰"), " in Firefox, then ", b("Share"), " ", SHARE, "."],
+    ["Tap ", b("Add to Home Screen"), "."],
+    FINISH,
+  ],
+  "in-app": [
+    ["Open this page in ", b("Safari"), ": tap ", b("•••"), " or ", SHARE, ", then ", b("Open in Safari"), ". An app's own browser cannot add it."],
+    ["In Safari, tap ", b("Share"), " ", SHARE, ", then ", b("Add to Home Screen"), "."],
+    FINISH,
+  ],
+};
+
+function installSteps(list) {
+  list.replaceChildren(
+    ...INSTALL_STEPS[iosBrowser()].map(parts =>
+      el("li", {}, ...parts.map(part =>
+        part === SHARE ? $("share-icon").content.cloneNode(true) : typeof part === "string" ? part : part.cloneNode(true)))),
+  );
+}
+
+/** iPhone lets no page add itself to the home screen and has no install prompt a page can call, so the page shows the
+ *  card other sites show there (littlepolls.com): pwa-install, vendored, with this app's icon and its browser's steps.
+ *  It opens by itself once a visit (it keeps that in sessionStorage); the page's own card lists the steps under it. */
+function offerInstall() {
+  installSteps($("install-steps"));
+  if (document.querySelector("pwa-install")) return;
+  const card = document.createElement("pwa-install");
+  card.setAttribute("manifest-url", "manifest.webmanifest");
+  card.setAttribute("icon", "apple-touch-icon.png");
+  card.setAttribute("name", "MapleLens");
+  card.setAttribute("description", "Store notifications");
+  card.setAttribute("install-description", "On iPhone, notifications only reach apps on the Home Screen. Add MapleLens there to hear when an item sells or your store opens or closes.");
+  card.setAttribute("disable-chrome", "");
+  document.body.append(card);
+  document.head.append(el("script", { src: PWA_INSTALL_URL, integrity: PWA_INSTALL_INTEGRITY }));
+}
+
 // ---------- settings ----------
 
 function openSettings() {
@@ -563,7 +638,10 @@ function demo() {
 async function start() {
   if (new URLSearchParams(location.search).has("demo")) return demo();
   // iPhone allows push only to home-screen apps, whatever the Safari tab exposes.
-  if (ios && !standalone) return show("install", "add to home screen");
+  if (ios && !standalone) {
+    show("install", "add to home screen");
+    return offerInstall();
+  }
   if (!pushable) return show("unsupported", "not available");
   // Registered before pairing too: Chrome's install prompt waits for a service worker that handles fetches. Not
   // awaited yet: a phone that cannot register still sees how to pair, and learns why only when it tries.

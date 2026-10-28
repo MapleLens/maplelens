@@ -1,5 +1,5 @@
 // Third-party code the site serves itself: Tesseract for the web app (docs/app/vendor/tesseract-<version>/) and the QR
-// decoder for the phone app (docs/app/phone/vendor/jsqr-<version>/). No code or data from a CDN runs in these pages:
+// decoder and the iPhone install card for the phone app (docs/app/phone/vendor/jsqr-<version>/, pwa-install-<version>/). No code or data from a CDN runs in these pages:
 // they share one origin, whose storage holds the player's Discord webhook and phone key.
 //
 //   node scripts/vendor.mjs           download the pinned packages, check them, copy what the pages use
@@ -50,10 +50,21 @@ const JSQR = [
     files: { "dist/jsQR.js": "jsQR.js", "LICENSE": "LICENSE-jsqr" },
   },
 ];
+// The phone app's install card on iPhone, which has no install prompt a page can call: the card littlepolls.com shows,
+// with each browser's steps. Self-contained (lit inside); it fetches only the page's own manifest.
+const PWA_INSTALL = [
+  {
+    name: "@khmyznikov/pwa-install",
+    version: "0.6.3",
+    integrity: "sha512-1GoPVcltXCZgXa7kovAYqodSWNmUW26RaNoF6KbSGfEZ6r6OLwHrUm/+vYFlDUBaIgYHo5Xi301bN4mG51KZRA==",
+    files: { "dist/pwa-install.bundle.js": "pwa-install.bundle.js", "LICENSE": "LICENSE-pwa-install" },
+  },
+];
 const DOCS = join(import.meta.dirname, "..", "docs", "app");
 const SETS = [
   { out: join(DOCS, "vendor", `tesseract-${TESSERACT[0].version}`), packages: TESSERACT },
   { out: join(DOCS, "phone", "vendor", `jsqr-${JSQR[0].version}`), packages: JSQR },
+  { out: join(DOCS, "phone", "vendor", `pwa-install-${PWA_INSTALL[0].version}`), packages: PWA_INSTALL },
 ];
 
 const sha256 = path => createHash("sha256").update(readFileSync(path)).digest("hex");
