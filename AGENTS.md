@@ -128,7 +128,8 @@ crates/core/src/          platform-free; everything here is unit-testable
                           the UI scale), layout (anchors, offsets, View: reference pixels read off the frame as
                           captured), buttons (whose store, open?), lines (column-ink text compare), soldlist,
                           chatlog, scrollbar, align (the double-count rules), text (a line read by the game's own
-                          fonts), parse (text -> events), watcher (ShopWatcher: frame in, events out)
+                          fonts), parse (text -> events), held (events waiting for OCR), watcher (ShopWatcher:
+                          frame in, events out)
   placement.rs, settings.rs, hotkey.rs (naming and building the show/hide combo)
 crates/win/src/           the Windows app (only this crate talks to Win32)
   main.rs                 CLI, single instance, --screenshot
@@ -274,11 +275,14 @@ same frames through the Rust watcher (373 real captures, 22 ms a frame against P
   "disconnected" notification; the phone app clears itself. A phone leaving is seen by the page's next check-in.
   `relay/push/README.md` has the routes, limits, deploy steps and the security model; `npm test` there.
 - The browser runs the same watcher (`web/src/shopwatch.rs`). Its OCR is asynchronous: the reader answers None while
-  text is being read. Only a sale or a visitor whose text is not in (`ShopWatcher::missing_text`) undoes the frame (the
-  watcher is cloned first) to try again when the answers are in; text the watcher reads for itself (the owner's name,
-  the counter's first value) is asked again next look and counts as a try only once answered. Undoing every frame with
-  any pending text held the store "not in view" for as long as Tesseract took to load (seconds) and spent the owner's
-  tries on unanswered reads. Lines are read by the game's own fonts
+  text is being read. The watcher follows its lists at once and holds back only the events whose text is not in
+  (`shop::held`: a sale, a visitor, the counter's change), each with the glyphs it was first read from, asked again
+  every look until answered (`ShopWatcher::missing_text` says some wait), told in order, and after `HOLD_MAX_S` (30 s)
+  with what the font read. Undoing the whole look instead (the watcher cloned and restored) lost a burst live: one buyer
+  took six items in twelve seconds, every look waited on the moving counter and rows, and once one went through the page
+  had moved four rows on a page of four, which no longer aligns (LostSync); the Windows app, whose OCR answers at once,
+  counted all six. Text the watcher reads for itself (the owner's name, the counter's first value) is asked again next
+  look and counts as a try only once answered. Lines are read by the game's own fonts
   first (`shop::text`), so the browser asks Tesseract only for letters the fonts have not learnt (a sale of known
   letters needs no OCR at all: `the_shop_is_followed_in_the_browser_and_its_sales_are_read_without_ocr`).
 - The status the player sees is core's: `status_pill::text_for` / `tone_for` give the Windows pill's wording ("Press the
