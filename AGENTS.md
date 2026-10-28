@@ -550,12 +550,17 @@ are held out: fonts learn from the rest; a set nothing was tuned on is the hones
 - A title running into the tooltip's edge (`title_font::title_cut`) is matched only by the name it starts; a fuzzy
   match completed cut grades of scrolls wrongly. A scroll cut before its grade is graded by its description
   (`hover/graded.rs`: 100% Lesser, 60% Intermediate, 10% Greater, 10% with the destruction warning Chaos).
-- Measured on 1,127 held-out scenes (main at 695b591 -> this work; app path / browser floor): items 77.1 -> 89.5% /
-  32.5 -> 73.9% (wrong 1.15 -> 0.14% / 0.72 -> 0.72%), owner names 65.0 -> 92.2% (wrong 25.2 -> 1.3%) / 31.2 -> 91.9%,
-  visitors 87.9 -> 90.7% / 83.3 -> 90.2%, sales 80.2 -> 88.8% / 75.7 -> 87.2%, chat 63.5 -> 81.8% / 55.2 -> 81.8%,
-  stores found 86.9 -> 92.2%. Held-out shop lines read by the fonts alone: 84.8 -> 90.4% exact. On the live game (a
+- Measured on v3, 5,917 scenes drawn after the work was tuned and never looked at during it (main at 695b591 ->
+  2b1b0d8; app path / browser path, % right with % wrong): items 80.7/1.25 -> 96.6/0.05 / 45.7/1.14 -> 95.7/0.05
+  (tooltips 74.3 -> 95.8 / 29.1 -> 94.4, inventory 91.4 -> 97.9 / 72.2 -> 97.7), owner names 68.2/26.0 -> 96.8/2.2 /
+  67.7/20.2 -> 96.0/2.0, visitor names 92.1 -> 95.6 / 92.3 -> 95.8, stores found 91.3 -> 97.4 / 91.2 -> 96.8, sales
+  83.6 -> 91.4 / 83.1 -> 90.0 (sales naming another item 27 -> 1 / 25 -> 0), chat 68.9 -> 90.2 / 65.8 -> 89.9, UI
+  scale 94.6 -> 97.8 / 94.4 -> 97.8; false store events 891 -> 362 / 916 -> 363. The browser's floor (no OCR): items
+  43.5 -> 88.6%. The 12,000-scene development set agrees within half a point. What is left: owner names still wrong 2%
+  of the time, sales and chat lines the fonts read only in part, the scale read off a covered bar. On the live game (a
   store at Ideal Ratio, 1,805 frames) both read 316/315 of 319 lines checked by eye and the same 110 visitors and 2
-  sales; on six 1080p YouTube videos the same items plus 6 frames over dark scenery.
+  sales; on six 1080p YouTube videos 251 frames and 88 items found where ae62206 found 211 and 73, each new one
+  checked by eye.
 
 ## Stream footage
 
