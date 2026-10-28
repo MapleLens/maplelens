@@ -305,7 +305,7 @@ same frames through the Rust watcher (373 real captures, 22 ms a frame against P
   vendored jsQR). Android needs no install, but Chrome offers it only for a manifest that names its `start_url`
   ("start-url-not-valid") and a service worker with a fetch handler, so every other browser is pointed at
   `install.webmanifest` (`start_url` "./": an Android app shares Chrome's storage and finds the kept key), the worker
-  is registered before pairing, and it answers navigations (offline: a short page). A phone follows one pairing: a code for another one (a link anyone can
+  is registered before pairing, and it answers navigations (offline: a short page). The page never calls `preventDefault()` on `beforeinstallprompt` (that hid Chrome's own offer) and puts its Install button above every view, the dashboard included: a paired phone opens there. A phone follows one pairing: a code for another one (a link anyone can
   post) switches it only after a tap, joining the new pairing before leaving the old, and the key leaves the address
   bar once kept (not in an iPhone Safari tab, which installs from that address). A pairing takes 5 phones; a sixth is
   refused (409), never one dropped silently, and an unused pairing is deleted after 60 days. The website's QR (`docs/assets/phone-qr.svg`) is
