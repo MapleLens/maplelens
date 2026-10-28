@@ -60,6 +60,9 @@ const POINTER: (i32, i32) = (30, 32);
 const POINTER_LEFT: i32 = 6;
 const POINTER_FILL: [u8; 3] = [40, 40, 90];
 
+/// Bullet corners of one look that are read loosely (by the atlas and OCR) when the font cannot read them.
+const MAX_LOOSE_READS: usize = 6;
+
 /// A pushed-up tooltip's bullet stands at most this far (UI scale 1) from where the tooltip's left edge was expected.
 const BULLET_COLUMN: i32 = 4;
 
@@ -340,6 +343,7 @@ impl HoverDetector {
         // box inside it. Every title starts with its light-blue bullet at a fixed spot: a tooltip is also looked for
         // there.
         if self.last_spot.is_none() {
+            let mut loose_reads = 0;
             for spot in find::bullet_spots(&frame, scale) {
                 let native = frame.crop(spot.x as usize, spot.y as usize, (spot.x + w) as usize, (spot.y + h) as usize);
                 let image = normalised(&native, scale);
@@ -348,7 +352,11 @@ impl HoverDetector {
                     // The bullet pins the corner as a mouse does: the title is read as at the usual spot (an enhanced
                     // item's orange title is seldom read in full by the font). Only at a plain title's row: a crafted
                     // item's corner, above the maker line, reads the scenery there as its first line.
-                    _ if find_bullet(&image, 0).is_some() => {
+                    // A busy frame has dozens of light-blue dots: only the first few get the reading OCR may be
+                    // asked for (the page keeps only its newest few OCR jobs, and a sky's specks would push the title's
+                    // out).
+                    _ if find_bullet(&image, 0).is_some() && loose_reads < MAX_LOOSE_READS => {
+                        loose_reads += 1;
                         self.reader.allow_ocr(true);
                         let title = self.reader.read_title(&image, super::title_width(&image), 1);
                         let (item, crafted) = self.lookup(&image, &title);
