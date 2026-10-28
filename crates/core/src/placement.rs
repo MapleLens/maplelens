@@ -1,6 +1,7 @@
 //! Where a card goes relative to the game's tooltip or window (pure).
 
 use crate::geometry::Rect;
+use crate::settings::Corner;
 
 /// Top-left of a card of size `card` (w, h) for the tooltip at `tooltip`, inside `bounds`.
 ///
@@ -45,4 +46,35 @@ pub fn place_beside_window(window: Rect, card: (i32, i32), gap: i32, bounds: Rec
 /// Does a card at (x, y) of size `card` lie fully inside `bounds`? (Overlays only ever show over the game.)
 pub fn fits_inside(x: i32, y: i32, card: (i32, i32), bounds: Rect) -> bool {
     x >= bounds.x && y >= bounds.y && x + card.0 <= bounds.right() && y + card.1 <= bounds.bottom()
+}
+
+/// Top-left of a card in `corner` of `client`, `margin` in from its edges, or None when it does not fit.
+///
+/// It keeps clear of the game's own HUD in that corner: top left it goes right of the minimap (`minimap_right`,
+/// from the client's left edge, when the minimap is on screen), and at the bottom a card that would cover the
+/// status bar (`status_bar`, centred, narrower than the client) sits above it.
+pub fn place_in_corner(
+    client: Rect,
+    card: (i32, i32),
+    corner: Corner,
+    margin: i32,
+    status_bar: Option<Rect>,
+    minimap_right: Option<i32>,
+) -> Option<(i32, i32)> {
+    let (width, height) = card;
+    let mut x = if corner.is_left() { client.x + margin } else { client.right() - margin - width };
+    if corner == Corner::TopLeft
+        && let Some(right) = minimap_right
+    {
+        x = x.max(client.x + right + margin);
+    }
+    let mut y = if corner.is_top() { client.y + margin } else { client.bottom() - margin - height };
+    if !corner.is_top()
+        && let Some(bar) = status_bar
+        && x < bar.right()
+        && x + width > bar.x
+    {
+        y = y.min(bar.y - margin - height);
+    }
+    fits_inside(x, y, card, client).then_some((x, y))
 }

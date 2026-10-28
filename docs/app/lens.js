@@ -9,8 +9,10 @@ const FONTS = ["fonts/DejaVuSansCondensed.ttf", "fonts/DejaVuSansCondensed-Bold.
 const TESSERACT_DIR = new URL("vendor/tesseract-7.0.0/", base).href;
 /** Jobs the page keeps waiting for the OCR engine: a title or a name goes stale in a moment, but every line of a
  *  shop's list is needed (a burst of sales is three lines each), so none of those is dropped. */
-const MAX_OCR_QUEUE = { title: 4, name: 4, shop: 48 };
+const MAX_OCR_QUEUE = { title: 4, name: 4, map: 4, shop: 48 };
 const GLYPHS_KEY = font => `maplelens.glyphs.${font}`;
+/** The training sessions (the one being played and the history), kept in this browser. */
+const TRAINING_KEY = "maplelens.training";
 
 function storage(action) {
   try { return action(window.localStorage); } catch { return undefined; } // private windows may refuse
@@ -20,9 +22,10 @@ export class Lens {
   /**
    * @param {object} options
    * @param {(state: object, fps: number, ms: number) => void} options.onState  every processed frame (ms: the engine's time on it)
-   * @param {(which: "card"|"rank", image: ImageData, about: object) => void} options.onCard
+   * @param {(which: "card"|"rank"|"training", image: ImageData, about: object) => void} options.onCard
    *   a card was redrawn; `about` says what it shows (an item card: {name, price, trend}; the rank panel: {read,
-   *   status, rank}, see `Engine::rank_about`)
+   *   status, rank}, see `Engine::rank_about`; the training card: nothing)
+   * @param {(history: object[]) => void} [options.onTrainingHistory]  the finished training sessions, oldest first
    * @param {(message: string) => void} [options.onError]
    * @param {boolean} [options.ocr]  allow downloading the OCR fallback (~10 MB, once)
    */
@@ -35,6 +38,7 @@ export class Lens {
         cardScale: window.devicePixelRatio || 1,
         ocr: Boolean(options.ocr),
         glyphs: Object.fromEntries(["title", "name"].map(f => [f, storage(s => s.getItem(GLYPHS_KEY(f)))]).filter(([, v]) => v)),
+        training: storage(s => s.getItem(TRAINING_KEY)) || "",
       });
     });
   }
@@ -50,7 +54,7 @@ export class Lens {
     this.catalogCount = 0;
     this.tesseract = null;
     this.tesseractLoading = null;
-    this.worker = new Worker(new URL("worker.js?v=cae61cd22445", base), { type: "module" });
+    this.worker = new Worker(new URL("worker.js?v=d8a0e9f3f521", base), { type: "module" });
     this.worker.onerror = event => reject(new Error(event.message || "the engine could not start"));
     this.counts = {};
     this.bytes = 0;
@@ -63,6 +67,7 @@ export class Lens {
         case "state": options.onState(data.state, data.fps, data.ms); break;
         case "card": options.onCard(data.which, new ImageData(new Uint8ClampedArray(data.pixels.buffer), data.width, data.height), data.about); break;
         case "glyphs": storage(s => s.setItem(GLYPHS_KEY(data.font), data.json)); break;
+        case "training-save": storage(s => s.setItem(TRAINING_KEY, data.json)); options.onTrainingHistory?.(data.history); break;
         case "ocr-job": this.queueOcr(data); break;
         case "notify-status": options.onNotify?.(data); break;
         case "catalog-loaded": this.catalogWaiters.get(data.id)?.(data); this.catalogWaiters.delete(data.id); break;
@@ -98,6 +103,21 @@ export class Lens {
   /** Follow the player's Store Permit in the frames (sales, visitors, the store opening and closing). */
   setShop(enabled) {
     this.worker.postMessage({ type: "shop", enabled });
+  }
+
+  /** Pause or resume the training session: neither time nor EXP counts while paused. */
+  trainingPause(paused) {
+    this.worker.postMessage({ type: "training-pause", paused });
+  }
+
+  /** End the training session (into the history) and start a new one. */
+  trainingNewSession() {
+    this.worker.postMessage({ type: "training-new" });
+  }
+
+  /** Whether the training card shows the EXP rates. */
+  trainingShow(exp) {
+    this.worker.postMessage({ type: "training-show", exp });
   }
 
   /** Report sold items to a Discord webhook, a Telegram bot's sendMessage URL and the phones paired with a key (the
@@ -172,9 +192,11 @@ export class Lens {
     try {
       await this.loadTesseract();
       while (this.ocrQueue.length) {
-        const job = this.ocrQueue.shift();
-        // A shop's lines are one line each; a title may take two.
-        await this.tesseract.setParameters({ tessedit_pageseg_mode: job.font === "shop" ? "7" : "6" });
+        // A tooltip's title or a player's name is wanted now; the minimap's map and the shop's lines can wait.
+        const urgent = this.ocrQueue.findIndex(j => j.font === "title" || j.font === "name");
+        const job = this.ocrQueue.splice(Math.max(0, urgent), 1)[0];
+        // A shop's lines and the minimap's are one line each; a title may take two.
+        await this.tesseract.setParameters({ tessedit_pageseg_mode: job.font === "shop" || job.font === "map" ? "7" : "6" });
         const canvas = new OffscreenCanvas(job.width, job.height);
         canvas.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(job.pixels.buffer), job.width, job.height), 0, 0);
         const { data } = await this.tesseract.recognize(await canvas.convertToBlob());

@@ -1,4 +1,5 @@
-//! The notification-area icon: right-click menu (Show overlays, Settings, Update, Exit), double-click opens
+//! The notification-area icon: right-click menu (Show overlays, the training card's switches and session, Settings,
+//! Update, Exit), double-click opens
 //! settings, the tooltip names the version (and a waiting update), and the global show/hide hotkey
 //! (RegisterHotKey: a registered shortcut, not a keyboard hook).
 
@@ -27,6 +28,9 @@ const ID_TOGGLE: usize = 1;
 const ID_SETTINGS: usize = 2;
 const ID_EXIT: usize = 3;
 const ID_UPDATE: usize = 4;
+const ID_EXP: usize = 5;
+const ID_PAUSE: usize = 6;
+const ID_NEW_SESSION: usize = 7;
 const HOTKEY_ID: i32 = 1;
 const TIP: &str = concat!("MapleLens v", env!("CARGO_PKG_VERSION"));
 
@@ -42,6 +46,10 @@ pub fn tooltip(update: Option<&str>) -> String {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TrayCommand {
     Toggle,
+    ToggleExp,
+    /// Pause or resume the training session.
+    PauseTraining,
+    NewSession,
     Settings,
     Update,
     Exit,
@@ -72,17 +80,26 @@ pub struct Tray {
     state: Rc<RefCell<TrayState>>,
 }
 
+/// What the menu's check marks and labels show.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MenuState {
+    pub overlay_enabled: bool,
+    pub exp: bool,
+    pub paused: bool,
+    /// Set while a newer release is waiting.
+    pub update: Option<String>,
+}
+
 #[derive(Default)]
 struct TrayState {
-    overlay_enabled: bool,
-    /// Set while a newer release is waiting.
-    update: Option<String>,
+    menu: MenuState,
     commands: Vec<TrayCommand>,
 }
 
 impl Tray {
     pub fn new(icon: HICON) -> windows::core::Result<Self> {
-        let state = Rc::new(RefCell::new(TrayState { overlay_enabled: true, update: None, commands: Vec::new() }));
+        let menu = MenuState { overlay_enabled: true, exp: true, ..MenuState::default() };
+        let state = Rc::new(RefCell::new(TrayState { menu, commands: Vec::new() }));
         // The shell broadcasts this when explorer restarts and the tray is rebuilt: our icon must be re-added.
         // SAFETY: plain registration of a system-wide message name.
         let taskbar_created = unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) };
@@ -91,11 +108,8 @@ impl Tray {
             if msg == WM_APP_TRAY {
                 match lparam.0 as u32 {
                     WM_RBUTTONUP => {
-                        let (checked, update) = {
-                            let state = shared.borrow();
-                            (state.overlay_enabled, state.update.clone())
-                        };
-                        if let Some(command) = show_menu(hwnd, checked, update.as_deref()) {
+                        let menu = shared.borrow().menu.clone();
+                        if let Some(command) = show_menu(hwnd, &menu) {
                             shared.borrow_mut().commands.push(command);
                         }
                     }
@@ -109,7 +123,7 @@ impl Tray {
                 return Some(LRESULT(0));
             }
             if msg == taskbar_created {
-                let tip = tooltip(shared.borrow().update.as_deref());
+                let tip = tooltip(shared.borrow().menu.update.as_deref());
                 notify(NIM_ADD, hwnd, icon, &tip);
                 return Some(LRESULT(0));
             }
@@ -134,14 +148,20 @@ impl Tray {
 
     /// The check mark in front of "Show overlays".
     pub fn set_overlay_enabled(&self, enabled: bool) {
-        self.state.borrow_mut().overlay_enabled = enabled;
+        self.state.borrow_mut().menu.overlay_enabled = enabled;
+    }
+
+    /// The training card's switch and whether its session is paused.
+    pub fn set_training(&self, exp: bool, paused: bool) {
+        let menu = &mut self.state.borrow_mut().menu;
+        (menu.exp, menu.paused) = (exp, paused);
     }
 
     /// Announce (or clear) a newer release in the icon's tooltip and the menu.
     pub fn set_update(&self, version: Option<String>) {
-        if self.state.borrow().update != version {
+        if self.state.borrow().menu.update != version {
             notify(NIM_MODIFY, self.hwnd, self.icon, &tooltip(version.as_deref()));
-            self.state.borrow_mut().update = version;
+            self.state.borrow_mut().menu.update = version;
         }
     }
 
@@ -215,14 +235,20 @@ fn notify(action: windows::Win32::UI::Shell::NOTIFY_ICON_MESSAGE, hwnd: HWND, ic
     }
 }
 
-fn show_menu(hwnd: HWND, overlay_enabled: bool, update: Option<&str>) -> Option<TrayCommand> {
+fn show_menu(hwnd: HWND, state: &MenuState) -> Option<TrayCommand> {
+    let checked = |on: bool| if on { MF_STRING | MF_CHECKED } else { MF_STRING };
     // SAFETY: the menu is created and destroyed here; TrackPopupMenu blocks until the user chooses.
     unsafe {
         let menu = CreatePopupMenu().ok()?;
-        let toggle_flags = if overlay_enabled { MF_STRING | MF_CHECKED } else { MF_STRING };
-        let _ = AppendMenuW(menu, toggle_flags, ID_TOGGLE, w!("Show overlays"));
+        let _ = AppendMenuW(menu, checked(state.overlay_enabled), ID_TOGGLE, w!("Show overlays"));
+        let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
+        let _ = AppendMenuW(menu, checked(state.exp), ID_EXP, w!("EXP tracker"));
+        let pause = if state.paused { w!("Resume training session") } else { w!("Pause training session") };
+        let _ = AppendMenuW(menu, MF_STRING, ID_PAUSE, pause);
+        let _ = AppendMenuW(menu, MF_STRING, ID_NEW_SESSION, w!("New training session"));
+        let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
         let _ = AppendMenuW(menu, MF_STRING, ID_SETTINGS, w!("Settings"));
-        if let Some(version) = update {
+        if let Some(version) = &state.update {
             let _ = AppendMenuW(menu, MF_STRING, ID_UPDATE, &HSTRING::from(format!("Update to v{version}")));
         }
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
@@ -237,6 +263,9 @@ fn show_menu(hwnd: HWND, overlay_enabled: bool, update: Option<&str>) -> Option<
         let _ = DestroyMenu(menu);
         match choice.0 as usize {
             ID_TOGGLE => Some(TrayCommand::Toggle),
+            ID_EXP => Some(TrayCommand::ToggleExp),
+            ID_PAUSE => Some(TrayCommand::PauseTraining),
+            ID_NEW_SESSION => Some(TrayCommand::NewSession),
             ID_SETTINGS => Some(TrayCommand::Settings),
             ID_UPDATE => Some(TrayCommand::Update),
             ID_EXIT => Some(TrayCommand::Exit),

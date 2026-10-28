@@ -19,6 +19,8 @@ const SPARK_W: f32 = 84.0;
 const SPARK_H: f32 = 24.0;
 /// Under half a percent reads as noise, so it shows as "steady".
 const FLAT_TREND: f64 = 0.005;
+/// Between the price's subtitle and the sparkline beside it.
+const BASIS_GAP: f32 = 8.0;
 
 pub(crate) fn coin() -> &'static (usize, usize, Vec<u8>) {
     static COIN: OnceLock<(usize, usize, Vec<u8>)> = OnceLock::new();
@@ -48,17 +50,9 @@ pub fn hero(cv: &mut Canvas<'_>, y: f32, item: &Item) -> f32 {
     let (w, h, rgba) = coin();
     let coin_x = PAD + cv.measure(&text, 30.0, true) + 6.0;
     cv.image(coin_x, y + 10.0, *w as f32, *h as f32, (*w, *h, rgba));
-    let mut basis = if item.price_basis.as_deref() == Some("24h") {
-        "median of the last 24 h"
-    } else {
-        "median of the last 10 sales"
-    }
-    .to_string();
-    if item.unit_basis == "set" {
-        basis.push_str(" · per set");
-    }
-    cv.text(PAD, y + 40.0, &basis, Ink::new(11.0, theme::TEXT_DIM), Anchor::LA);
     let right = cv.width - PAD;
+    basis_line(cv, y + 40.0, item, right - SPARK_W - BASIS_GAP);
+
     match item.trend {
         Some(trend) if trend.abs() >= FLAT_TREND => {
             let colour = if trend > 0.0 { theme::UP } else { theme::DOWN };
@@ -73,6 +67,28 @@ pub fn hero(cv: &mut Canvas<'_>, y: f32, item: &Item) -> f32 {
     }
     sparkline(cv, right - SPARK_W, y + 27.0, item);
     y + 60.0
+}
+
+/// What the price is a median of, dim, then what the last sales went for (the average of the last three),
+/// bright: the longest wording that fits left of the sparkline, ending at `limit`.
+fn basis_line(cv: &mut Canvas<'_>, y: f32, item: &Item, limit: f32) {
+    let day = item.price_basis.as_deref() == Some("24h");
+    let set = if item.unit_basis == "set" { " · per set" } else { "" };
+    let long = format!("{}{set}", if day { "median of the last 24 h" } else { "median of the last 10 sales" });
+    let short = format!("{}{set}", if day { "24 h median" } else { "10-sale median" });
+    let last = item.last3_avg.map(|avg| format!("last sales {}", format_mesos(Some(avg))));
+    let size = 11.0;
+    let fits =
+        |cv: &Canvas<'_>, a: &str, b: &str| PAD + cv.measure(a, size, false) + cv.measure(b, size, false) <= limit;
+    let (basis, last) = match &last {
+        Some(last) if fits(cv, &format!("{long} · "), last) => (format!("{long} · "), Some(last.as_str())),
+        Some(last) if fits(cv, &format!("{short} · "), last) => (format!("{short} · "), Some(last.as_str())),
+        _ => (long, None),
+    };
+    let x = PAD + cv.text(PAD, y, &basis, Ink::new(size, theme::TEXT_DIM), Anchor::LA);
+    if let Some(last) = last {
+        cv.text(x, y, last, Ink::new(size, theme::TEXT), Anchor::LA);
+    }
 }
 
 fn sparkline(cv: &mut Canvas<'_>, x: f32, y: f32, item: &Item) {
