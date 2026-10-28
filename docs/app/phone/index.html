@@ -53,6 +53,8 @@ button{font:inherit}
 .icon-btn:active{background:#ffffff33}
 .icon-btn svg{width:22px;height:22px}
 .onboard{padding-top:18px}
+#install-landing{margin-top:18px}
+#install-landing:not([hidden])+.onboard{padding-top:0}
 .onboard h1{font-size:36px;line-height:1.05;margin:4px 0 0;text-align:center}
 .win-b{display:grid;gap:14px}
 .win-b p{margin:0}
@@ -178,6 +180,13 @@ dialog.sheet[open]{animation:up .22s ease-out}
 <div class="ptr" id="ptr" aria-hidden="true" hidden><span class="coin"><img class="px" src="../../assets/meso.png" alt=""></span><span class="ptr-label">Pull to refresh</span></div>
 
 <main>
+  <!-- Above every view: a paired phone lands on the dashboard, and the offer must reach it there too. -->
+  <div class="group" id="install-landing" hidden>
+    <div class="item">
+      <div class="label">Install MapleLens<small>Open it from your home screen like an app</small></div>
+      <button class="btn sm" id="install-landing-btn" type="button">Install</button>
+    </div>
+  </div>
   <div class="onboard" id="onboard">
     <div class="win">
       <div class="win-h">Phone notifications<span class="tag" id="state">…</span></div>
@@ -225,12 +234,6 @@ dialog.sheet[open]{animation:up .22s ease-out}
         <p>See your store from your phone, and get a notification when an item sells or the store opens or closes.</p>
         <button class="btn big" id="enable-btn" type="button">Turn on notifications</button>
         <p class="note" id="enable-note"></p>
-      </div>
-    </div>
-    <div class="group" id="install-landing" style="margin-top:14px" hidden>
-      <div class="item">
-        <div class="label">Add to home screen<small>Open MapleLens like an app</small></div>
-        <button class="btn sm" id="install-landing-btn" type="button">Add</button>
       </div>
     </div>
   </div>
@@ -321,6 +324,6 @@ dialog.sheet[open]{animation:up .22s ease-out}
 </dialog>
 
 <div class="toast" id="toast" role="status" hidden></div>
-<script type="module" src="phone.js?v=cae61cd22445"></script>
+<script type="module" src="phone.js?v=088810e6a9ca"></script>
 </body>
 </html>

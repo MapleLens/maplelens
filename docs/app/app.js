@@ -1,13 +1,14 @@
 // MapleLens Web: capture the game window (the page offers nothing else; the sample, video and frame-folder sources are
 // test hooks started by a URL parameter), feed frames to the engine, show the cards in the page and, on request, in a picture-in-picture window that floats over the game.
+// The training panel (EXP rates, potions) is drawn from the numbers the engine reads off the HUD.
 
-import { Lens } from "./lens.js?v=cae61cd22445";
-import { CardView, floatingSize, openFloating } from "./cards.js?v=cae61cd22445";
-import { CardFeed } from "./cardfeed.js?v=cae61cd22445";
-import { Prices } from "./prices.js?v=cae61cd22445";
-import { drawMapleQr } from "./mapleqr.js?v=cae61cd22445";
-import { StoreBook } from "./storebook.js?v=cae61cd22445";
-import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=cae61cd22445";
+import { Lens } from "./lens.js?v=088810e6a9ca";
+import { CardView, floatingSize, openFloating } from "./cards.js?v=088810e6a9ca";
+import { CardFeed } from "./cardfeed.js?v=088810e6a9ca";
+import { Prices } from "./prices.js?v=088810e6a9ca";
+import { drawMapleQr } from "./mapleqr.js?v=088810e6a9ca";
+import { StoreBook } from "./storebook.js?v=088810e6a9ca";
+import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=088810e6a9ca";
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -21,6 +22,9 @@ const TRY_MS = 1500;
 /** Frames the page keeps timings of, for the numbers it shows (and `window.maplelensStats`). */
 const STATS_FRAMES = 300;
 const SHOP_KEY = "maplelens.web.shop";
+const TRAINING_KEY = "maplelens.web.training";
+/** Past sessions listed under the training panel, newest first. */
+const HISTORY_ROWS = 15;
 /** A Discord webhook URL, as the engine accepts one (it checks again; this is for the buttons). */
 const WEBHOOK = /^https:\/\/(discord\.com|discordapp\.com|ptb\.discord\.com|canary\.discord\.com)\/api\/webhooks\/\d+\/[A-Za-z0-9_-]+$/;
 /** A Telegram bot's sendMessage URL, with its chat once known; or a token alone (in @BotFather's whole message). The
@@ -355,6 +359,107 @@ function applyShopSettings() {
   lens.setNotify({ webhook, telegramWebhook, phone, sales, store });
 }
 
+/** What the training card shows, kept in this browser. */
+const trainingSettings = { exp: true };
+
+function loadTrainingSettings() {
+  try {
+    Object.assign(trainingSettings, JSON.parse(storage(s => s.getItem(TRAINING_KEY)) || "{}"));
+  } catch { /* damaged: the defaults stay */ }
+  $("t-show-exp").checked = trainingSettings.exp !== false;
+}
+
+function applyTrainingSettings() {
+  storage(s => s.setItem(TRAINING_KEY, JSON.stringify(trainingSettings)));
+  lens?.trainingShow(trainingSettings.exp !== false);
+}
+
+/** 1920 -> "1.92k", 2_300_000 -> "2.3m" (as the cards write numbers). */
+function compact(value) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  for (const [divisor, unit] of [[1e9, "b"], [1e6, "m"], [1e3, "k"]]) {
+    if (value >= divisor) {
+      const scaled = value / divisor;
+      return `${Number(scaled.toFixed(scaled < 10 ? 2 : scaled < 100 ? 1 : 0))}${unit}`;
+    }
+  }
+  return String(Math.round(value));
+}
+
+/** 75 -> "1:15", 3725 -> "1:02:05". */
+function clock(seconds) {
+  const s = Math.max(0, Math.floor(seconds || 0));
+  const two = n => String(n).padStart(2, "0");
+  return s >= 3600 ? `${Math.floor(s / 3600)}:${two(Math.floor(s / 60) % 60)}:${two(s % 60)}` : `${Math.floor(s / 60)}:${two(s % 60)}`;
+}
+
+/** "~14 min", "~2 h 5 min". */
+function eta(seconds) {
+  if (seconds == null) return "—";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 1) return "< 1 min";
+  if (minutes < 60) return `~${minutes} min`;
+  return minutes % 60 ? `~${Math.floor(minutes / 60)} h ${minutes % 60} min` : `~${minutes / 60} h`;
+}
+
+let trainingPaused = false;
+
+function showTraining(t) {
+  if (!t) return;
+  trainingPaused = t.paused;
+  const session = t.session || {};
+  $("t-rate").textContent = compact(t.last_minute ?? t.recent_per_min);
+  $("t-average").textContent = compact(t.average_per_min);
+  $("t-best").textContent = session.best_minute ? compact(session.best_minute) : "—";
+  $("t-level").textContent = eta(t.to_level_s);
+  $("t-gained").textContent = session.gained ? `+${compact(session.gained)}` : "—";
+  $("t-time").textContent = session.active_s ? clock(session.active_s) : "—";
+  $("t-gauge").style.width = `${t.percent ?? 0}%`;
+  $("t-pause").textContent = t.paused ? "Resume" : "Pause";
+  $("training-tag").textContent = t.paused ? "paused" : !t.live ? "waiting for the EXP bar"
+    : `${t.percent?.toFixed(2) ?? "?"}%${session.levels ? ` · ${session.levels} level${session.levels > 1 ? "s" : ""} up` : ""}`;
+  const parts = [];
+  if (t.map) parts.push(t.map_stat ? `${t.map}: +${compact(t.map_stat.gained)}` : t.map);
+  if (t.percent_per_hour != null) parts.push(`${t.percent_per_hour.toFixed(1)}% of a level an hour`);
+  if (session.lost) parts.push(`${compact(session.lost)} lost to deaths`);
+  if (parts.length) $("t-note").textContent = parts.join(" · ");
+  showPotions(t.potions);
+}
+
+/** The quickslots' potions this session: each one's icon with how many were used and picked up. */
+let shownPotions = "";
+
+function showPotions(potions) {
+  const key = JSON.stringify(potions || {});
+  if (key === shownPotions) return;
+  shownPotions = key;
+  const lines = potions?.lines || [];
+  $("t-potions").hidden = !lines.length;
+  $("t-potion-list").replaceChildren(...[...lines].sort((a, b) => b.used + b.picked - a.used - a.picked).map(line => {
+    const chip = Object.assign(document.createElement("span"), { title: line.name });
+    chip.append(Object.assign(document.createElement("img"), { src: line.icon, alt: line.name, loading: "lazy" }));
+    if (line.used) chip.append(Object.assign(document.createElement("b"), { className: "used", textContent: `−${line.used}` }));
+    if (line.picked) chip.append(Object.assign(document.createElement("b"), { className: "picked", textContent: `+${line.picked}` }));
+    return chip;
+  }));
+}
+
+function showHistory(history) {
+  const list = $("t-history");
+  const rows = (history || []).slice(-HISTORY_ROWS).reverse().map(session => {
+    const row = document.createElement("li");
+    const when = new Date(session.started * 1000);
+    const time = Object.assign(document.createElement("span"), { className: "t", textContent: when.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) });
+    const perMinute = session.active_s >= 30 ? ` · ${compact(session.gained * 60 / session.active_s)}/min` : "";
+    const levels = session.levels ? ` · ${session.levels} level${session.levels > 1 ? "s" : ""}` : "";
+    const where = session.maps?.length ? ` · ${[...session.maps].sort((a, b) => b.gained - a.gained)[0].map}` : "";
+    row.append(time, document.createTextNode(`+${compact(session.gained)} in ${clock(session.active_s)}${perMinute}${levels}${where}`));
+    return row;
+  });
+  if (rows.length) list.replaceChildren(...rows);
+  else list.replaceChildren(Object.assign(document.createElement("li"), { className: "none", textContent: "None yet" }));
+}
+
 /** Words for a shop event, for the log. */
 function describeShopEvent(e, owner) {
   const whose = owner ? `${owner}'s store` : "Your store";
@@ -399,6 +504,30 @@ function shopStatus(state) {
   return shopSettings.shop && status?.text ? { text: status.text, tone: status.tone } : null;
 }
 
+/** A panel stays this long after what it is about was last seen: a window over the game, or a frame without it, must
+ *  not make it blink. */
+const PANEL_GRACE_MS = 20000;
+const panelSeen = { training: -Infinity, store: -Infinity };
+
+/** The training and store panels show only while they are about something: a training session, the player's own
+ *  store. `state` is the engine's latest, or null when no game window is shared. */
+function showPanels(state) {
+  const now = performance.now();
+  const about = {
+    training: Boolean(state?.training?.active),
+    // Unfollowed, the store is not watched and could never show up to be followed again.
+    store: !shopSettings.shop || (state?.shop?.status?.status ?? "hidden") !== "hidden",
+  };
+  let any = false;
+  for (const [name, on] of Object.entries(about)) {
+    if (on) panelSeen[name] = now;
+    const shown = on || (Boolean(state) && now - panelSeen[name] <= PANEL_GRACE_MS);
+    if ($(`${name}-panel`).hidden === shown) $(`${name}-panel`).hidden = !shown;
+    any ||= shown;
+  }
+  $("more-note").hidden = any;
+}
+
 function showShopStatus(state) {
   const store = shopStatus(state);
   setPill("shop-pill", store?.tone === "ok", store?.text || "no store");
@@ -438,6 +567,7 @@ function refreshViews() {
 
 function show(which, image, about) {
   stats.cards += 1;
+  if (which === "training") return feed.setTraining(image);
   if (which === "card") Object.assign(images, { card: image, about });
   else images.rank = about;
   refreshViews();
@@ -504,8 +634,12 @@ function handleState(state, fps, ms) {
     title: state.hover?.title || (state.info?.name ? `${state.info.name}'s ranks` : ""),
     store: shopStatus(state),
     sharing: Boolean(source),
+    trainingTitle: state.training?.map || "",
   };
   live = { card: Boolean(state.card), rank: Boolean(state.rank) };
+  if (!state.training_card) feed.setTraining(null);
+  showTraining(state.training);
+  showPanels(state);
   refreshViews();
   drawBoxes(state, ...lastSize);
   // Auto mode: a detection proves the title bar guess right; keep it.
@@ -513,6 +647,9 @@ function handleState(state, fps, ms) {
     lockedUntil = performance.now() + RELOCK_MS;
     lastSeen = performance.now();
   }
+  // A tooltip still being read (its title, or an unknown one read alike several times) is looked at full rate too:
+  // at the idle rate its card took over a second.
+  if (state.tooltip_in_view) lastSeen = performance.now();
 }
 
 function inset() {
@@ -590,7 +727,9 @@ function stop() {
   images.card = images.rank = images.about = null;
   live = { card: false, rank: false };
   feed.clear();
+  feed.setTraining(null);
   refreshViews();
+  showPanels(null);
 }
 
 /** Frames of a shared window, one ImageBitmap at a time. */
@@ -724,15 +863,15 @@ async function share() {
   }
 }
 
-/** Open the floating window: a narrow strip beside the game (or the size the player last gave it). The page's own
- *  panel then says where the cards went, with a button that brings them back. */
+/** Open the floating window: one box in proportion to the screen (or the size the player last gave it). The page's
+ *  own panel then says where the cards went, with a button that brings them back. */
 async function popOut() {
   if (floating) return floating.window.focus();
   const opened = await openFloating(feed, () => {
     floating = null;
     pageView.setAway(null);
     $("popout").textContent = "Float over the game";
-  }, floatingSize(...lastSize));
+  }, floatingSize());
   if (!opened) return;
   floating = opened;
   pageView.setAway(() => floating?.window.close());
@@ -754,7 +893,8 @@ function checkSupport() {
  *  at it without a second window. */
 function previewFloating() {
   const box = Object.assign(document.createElement("div"), { id: "pip-preview" });
-  const [width, height] = (params.get("size") || "320x480").split("x").map(Number);
+  const size = floatingSize();
+  const [width, height] = (params.get("size") || `${size.width}x${size.height}`).split("x").map(Number);
   Object.assign(box.style, { position: "fixed", right: "16px", bottom: "16px", width: `${width}px`, height: `${height}px`, zIndex: 9, background: "#16203d", display: "flex", boxShadow: "0 8px 30px #000a", borderRadius: "8px", overflow: "hidden", resize: "both" });
   document.body.append(box);
   const view = new CardView(document, box, feed, { compact: true });
@@ -787,7 +927,21 @@ async function main() {
   $("stop").addEventListener("click", stop);
   $("popout").addEventListener("click", popOut);
   loadShopSettings();
-  $("shop").addEventListener("change", e => { shopSettings.shop = e.target.checked; saveShopSettings(); applyShopSettings(); });
+  loadTrainingSettings();
+  showPanels(null);
+  $("t-show-exp").addEventListener("change", e => { trainingSettings.exp = e.target.checked; applyTrainingSettings(); });
+  $("t-pause").addEventListener("click", () => {
+    trainingPaused = !trainingPaused;
+    $("t-pause").textContent = trainingPaused ? "Resume" : "Pause";
+    lens?.trainingPause(trainingPaused);
+  });
+  $("t-new").addEventListener("click", () => lens?.trainingNewSession());
+  $("shop").addEventListener("change", e => {
+    shopSettings.shop = e.target.checked;
+    saveShopSettings();
+    applyShopSettings();
+    showPanels(lastState && source ? lastState : null);
+  });
   $("notify-sales").addEventListener("change", e => { shopSettings.sales = e.target.checked; saveShopSettings(); applyShopSettings(); });
   $("notify-store").addEventListener("change", e => { shopSettings.store = e.target.checked; saveShopSettings(); applyShopSettings(); });
   const note = text => { $("discord-note").textContent = text; };
@@ -913,9 +1067,11 @@ async function main() {
         if (!result.ok) $(note).textContent = result.text;
       },
       onPicture: showPicture,
+      onTrainingHistory: showHistory,
       ocr: true,
     });
     setPill("engine-pill", true, `engine ${lens.version}`);
+    applyTrainingSettings();
     window.maplelensLens = lens; // for measuring and debugging from the console
     window.maplelensCards = feed;
     prices = new Prices(json => lens.loadCatalog(json, book.unpictured()));

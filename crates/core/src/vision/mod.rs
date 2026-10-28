@@ -4,13 +4,17 @@
 pub mod bitmap;
 pub mod find;
 pub mod gaps;
+pub mod gauge;
 pub mod glyphs;
 pub mod hud;
 pub mod info_window;
+pub mod item_icon;
 pub mod locate;
 pub mod map_tooltip;
+pub mod minimap;
 pub mod ncc;
 pub mod pixel_font;
+pub mod quickslot;
 pub mod reader;
 pub mod samples;
 pub mod segment;

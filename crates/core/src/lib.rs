@@ -18,4 +18,5 @@ pub mod render;
 pub mod scale_vote;
 pub mod settings;
 pub mod shop;
+pub mod training;
 pub mod vision;

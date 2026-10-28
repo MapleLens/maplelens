@@ -8,6 +8,7 @@
 pub mod align;
 pub mod buttons;
 pub mod chatlog;
+mod held;
 pub mod layout;
 pub mod lines;
 pub mod markers;

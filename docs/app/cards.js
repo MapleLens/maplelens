@@ -1,18 +1,22 @@
 // Cards: the item card and the rank panel, in the page and in the floating (picture-in-picture) window. Each document
-// has a `CardView` of the one `CardFeed` (cardfeed.js): the card while it is live or leaving (with a bar running out),
-// or what to do next and the recent items, newest first. The floating window never scrolls: the cards shrink to fit it,
-// and recent items that do not fit are left out.
+// has a `CardView` of the one `CardFeed` (cardfeed.js), showing one thing at a time: the card while it is live or
+// leaving (with a bar running out); else the training card while the player is training; else what to do next and the
+// recent items, newest first. So a player grinding sees the EXP card, an item hovered meanwhile takes its place, and
+// the EXP card comes back once that card has gone.
+// The floating window is one fixed box for the whole session (it sits in a corner of the screen): whatever it shows
+// shrinks to fit it, and recent items that do not fit are left out.
 
-import { paint } from "./lens.js?v=cae61cd22445";
-import { LINGER_MS } from "./cardfeed.js?v=cae61cd22445";
-import { RANK_CSS, rankPanel } from "./rankpanel.js?v=cae61cd22445";
+import { paint } from "./lens.js?v=088810e6a9ca";
+import { LINGER_MS } from "./cardfeed.js?v=088810e6a9ca";
+import { RANK_CSS, rankPanel } from "./rankpanel.js?v=088810e6a9ca";
 
 function storage(action) {
   try { return action(window.localStorage); } catch { return undefined; } // private windows may refuse
 }
 
-/** The floating window's size, once the player has resized it. */
-const SIZE_KEY = "maplelens.cards.floating";
+/** The floating window's size, once the player has resized it. (A new key: sizes saved before the window became one
+ *  box were for a tall strip of stacked cards.) */
+const SIZE_KEY = "maplelens.cards.box";
 const COIN = new URL("../assets/meso.png", import.meta.url).href;
 /** Under half a percent reads as noise, as on the card. */
 const FLAT_TREND = 0.005;
@@ -21,15 +25,17 @@ const STACK_GAP = 8;
 /** The rank panel's width (px) when no item card sets it, and the least it is given beside a shrunken card. */
 const RANK_WIDTH = 330;
 const MIN_RANK_WIDTH = 270;
+/** The header's height (px), as the stylesheet has it. */
+const HEAD_H = 34;
 
 /** The look shared by the page's panel and the floating window (the page's own sheet styles the rest). */
 const CSS = `
 .cv{--ink:#eef3ff;--dim:#9fb0d8;--faint:#7183b6;--line:#2a3a6a;--gold:#ffd34d;--up:#8ae68a;--down:#ff8c8c;--live:#4ee08a;--wait:#ffb938;
-  display:flex;flex-direction:column;min-height:0;min-width:0;font:bold 13px Tahoma,Verdana,sans-serif;color:var(--ink);background:#16203d}
+  position:relative;display:flex;flex-direction:column;min-height:0;min-width:0;font:bold 13px Tahoma,Verdana,sans-serif;color:var(--ink);background:#16203d}
 .cv [hidden]{display:none!important}
 .cv button{font:inherit;color:inherit;cursor:pointer}
 .cv button:focus-visible{outline:2px solid #fff;outline-offset:1px}
-.cv-head{flex:none;display:flex;align-items:center;gap:8px;height:34px;padding:0 10px;background:#101a36;border-bottom:1px solid var(--line);box-sizing:border-box}
+.cv-head{flex:none;display:flex;align-items:center;gap:8px;height:${HEAD_H}px;padding:0 10px;background:#101a36;border-bottom:1px solid var(--line);box-sizing:border-box}
 .cv-dot{flex:none;width:9px;height:9px;border-radius:50%;background:#59648a;transition:background .2s,box-shadow .2s}
 .cv[data-sharing=true] .cv-dot{background:#3c9b6a}
 .cv[data-mode=live] .cv-dot{background:var(--live);box-shadow:0 0 0 3px #4ee08a33,0 0 8px #4ee08a99}
@@ -41,14 +47,16 @@ const CSS = `
 .cv-brand img{width:14px;height:14px;image-rendering:pixelated}
 .cv-back{flex:none;display:flex;align-items:center;gap:4px;padding:3px 9px 3px 7px;border-radius:12px;border:1px solid #3b4f8c;background:#1a2750;font-size:11px;color:#c9d5fb}
 .cv-back:hover{border-color:var(--gold);color:#fff}
-.cv-timer{flex:none;height:3px;background:#0c1430;overflow:hidden}
+/* Over the body, not above it: the bar coming and going must not resize what is shown. */
+.cv-timer{position:absolute;z-index:1;left:0;right:0;top:${HEAD_H}px;height:3px;background:#0c1430;overflow:hidden}
 .cv-timer i{display:block;height:100%;background:var(--wait);transform-origin:left;animation:cv-run var(--linger) linear forwards}
 .cv[data-held=true] .cv-timer i{animation-play-state:paused;background:#ffd98a}
 @keyframes cv-run{from{transform:scaleX(1)}to{transform:scaleX(0)}}
 .cv-body{flex:1;min-height:0;display:flex;flex-direction:column;padding:10px;overflow:hidden;box-sizing:border-box}
 .cv-stack{flex:none;display:flex;flex-direction:column;align-items:center;gap:${STACK_GAP}px}
 .cv-stack > *{flex:none;transition:opacity .25s}
-.cv-stack canvas{display:block;filter:drop-shadow(0 6px 12px #0007)}
+.cv-stack canvas,.cv-training{display:block;filter:drop-shadow(0 6px 12px #0007)}
+.cv-training{flex:none;align-self:center}
 .cv[data-mode=leaving] .cv-stack > *{opacity:.8}
 .cv[data-mode=leaving][data-held=true] .cv-stack > *{opacity:1}
 .cv-idle{flex:1;min-height:0;display:flex;flex-direction:column;gap:14px}
@@ -78,7 +86,7 @@ const CSS = `
 .cv-store span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cv-store[data-tone=ok] i{background:var(--live)}.cv-store[data-tone=ok]{color:#bff0d2}
 .cv-store[data-tone=warn] i{background:var(--wait)}.cv-store[data-tone=warn]{color:#ffd98a}
-.cv[data-compact=true] .cv-body{padding:8px}
+.cv[data-compact=true] .cv-body{padding:8px;justify-content:center}
 .cv[data-compact=false] .cv-brand{display:none}
 @media (prefers-reduced-motion:reduce){.cv *{transition:none!important}.cv-timer i{animation:none}}
 `;
@@ -104,7 +112,7 @@ export class CardView {
     this.compact = compact;
     this.page = page;
     this.away = null;
-    this.painted = { card: null, rank: null };
+    this.painted = { card: null, rank: null, training: null };
     /** Pictures painted so far, and the layout last fitted: refitting reads the layout, so only when it changed. */
     this.paints = 0;
     this.fitted = "";
@@ -153,8 +161,9 @@ export class CardView {
     this.awayBox.append(el("b", "", { textContent: "The cards are floating over the game" }),
       "Close the floating window to see them here again.", this.awayBack);
 
+    this.training = el("canvas", "cv-training");
     this.body = el("div", "cv-body");
-    this.body.append(this.stack, this.idle, this.awayBox);
+    this.body.append(this.training, this.stack, this.idle, this.awayBox);
     // Not a <footer>: the site's sheet spaces those out (the page's view is in its document).
     this.store = el("div", "cv-store");
     this.storeText = el("span");
@@ -192,8 +201,11 @@ export class CardView {
     set("held", String(feed.held));
     set("hasRecent", String(feed.recent.length > 0));
 
+    // One thing at a time: what the player is looking at, else the training while there is some, else the idle view.
+    const training = away || showing ? null : feed.training;
     const title = showing ? shown.title || (shown.rank ? "Character Info" : "Item")
-      : feed.sharing ? "Watching the game" : "Not watching the game";
+      : training ? feed.trainingTitle || "Training"
+        : feed.sharing ? "Watching the game" : "Not watching the game";
     if (this.title.textContent !== title) this.title.textContent = title;
     this.back.hidden = mode !== "recalled" || away;
     this.brand.hidden = !this.compact || showing;
@@ -202,17 +214,24 @@ export class CardView {
     const leaving = !away && mode === "leaving";
     if (leaving && this.leaving !== feed.leaves) {
       this.leaving = feed.leaves;
+      this.root.style.setProperty("--linger", `${feed.linger}ms`);
       this.timerBar.replaceChildren(this.el("i"));
     }
     if (!leaving) this.leaving = 0;
     this.timerBar.hidden = !leaving;
 
     this.stack.hidden = !showing;
-    this.idle.hidden = away || showing;
+    this.idle.hidden = away || showing || Boolean(training);
     this.awayBox.hidden = !away;
     if (showing) this.paint(shown);
     else this.lastName = "";
-    if (!away && !showing) this.renderIdle();
+    if (training && this.painted.training !== training) {
+      paint(this.training, training);
+      this.painted.training = training;
+      this.paints += 1;
+    }
+    this.training.hidden = !training;
+    if (!this.idle.hidden) this.renderIdle();
 
     const store = feed.store;
     this.store.hidden = !store?.text;
@@ -235,7 +254,8 @@ export class CardView {
       this.paints += 1;
     }
     this.canvas.hidden = !shown.card;
-    this.rankSlot.hidden = !shown.rank;
+    // One thing at a time here too: an item hovered with a Character Info window open is what the player looks at.
+    this.rankSlot.hidden = !shown.rank || Boolean(shown.card);
     const name = shown.title;
     if (name !== this.lastName) {
       // A new item comes in with a short rise, so the eye catches that the card changed.
@@ -281,12 +301,12 @@ export class CardView {
 
   /** What the last fit depends on besides the view's size (the observer refits on that). */
   layoutKey() {
-    return `${this.feed.mode}|${Boolean(this.away)}|${this.paints}|${this.feed.recentVersion}|${this.store.hidden}`;
+    return `${this.feed.mode}|${Boolean(this.away)}|${this.paints}|${this.feed.recentVersion}|${this.store.hidden}|${this.training.hidden}`;
   }
 
-  /** The item card at its own size, or smaller to fit (the floating window: its whole height too; the page: its
-   *  width), never larger, which would blur it; the rank panel as wide as the card and its own height (its text does
-   *  not wrap). Recent items that do not fit are left out rather than scrolled to. */
+  /** The card shown (the training card, or the item card) at its own size, or smaller to fit (the floating window: its
+   *  whole height too; the page: its width), never larger, which would blur it; the rank panel as wide as the card
+   *  and its own height (its text does not wrap). Recent items that do not fit are left out rather than scrolled to. */
   fit() {
     this.fitted = this.layoutKey();
     const body = this.body;
@@ -294,10 +314,16 @@ export class CardView {
     const width = body.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
     const height = body.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
     if (width <= 0 || (this.compact && height <= 0)) return; // not laid out yet: the observer calls again
+    const dpr = window.devicePixelRatio || 1;
+    if (!this.training.hidden && this.training.width) {
+      const [w, h] = [this.training.width / dpr, this.training.height / dpr];
+      const k = Math.max(0, Math.min(1, width / w, this.compact ? height / h : 1));
+      this.training.style.width = `${Math.floor(w * k)}px`;
+      this.training.style.height = `${Math.floor(h * k)}px`;
+    }
     if (!this.stack.hidden) {
       const card = !this.canvas.hidden && this.canvas.width ? this.canvas : null;
       const rank = this.rankSlot.hidden ? null : this.rankSlot;
-      const dpr = window.devicePixelRatio || 1;
       const [w, h] = card ? [card.width / dpr, card.height / dpr] : [0, 0];
       let shownWidth = Math.min(width, RANK_WIDTH);
       if (rank) rank.style.width = `${Math.min(width, w || RANK_WIDTH)}px`;
@@ -319,34 +345,20 @@ export class CardView {
   }
 }
 
-/** The floating window's size (CSS px) for a game window of `gameWidth` x `gameHeight`: a narrow strip, a fifth of the
- *  game's width (so it fits the dead space beside the game's HUD at any size), and tall enough for the biggest thing it
- *  shows at its own size, an item card with a player's rank panel under it (anything bigger shrinks to fit). A size
- *  the player gave it by dragging its edges wins. */
-export function floatingSize(gameWidth, gameHeight, dpr = window.devicePixelRatio || 1) {
+/** The floating window's size (CSS px): one box, the same whatever it shows, in proportion to the screen (the game's
+ *  UI, and so its cards, grow with the screen's height). Its inside is square: the training card fits it at about its
+ *  own size on a 1200 px screen, and a price card shrinks to its width. A size the player gave it by dragging wins. */
+export function floatingSize() {
   const saved = storage(s => JSON.parse(s.getItem(SIZE_KEY) || "null"));
   if (Array.isArray(saved) && saved.every(n => Number.isFinite(n) && n >= 200)) {
     return { width: Math.min(saved[0], screen.availWidth), height: Math.min(saved[1], screen.availHeight) };
   }
-  if (!gameWidth) return { width: MIN_WIDTH, height: 520 };
-  const width = Math.round(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, gameWidth * WIDTH_SHARE)));
-  const cardWidth = Math.min(width - 2 * PAD, CARD_PX / dpr);
-  const height = cardWidth * CARD_ASPECT + GAP + RANK_H + 2 * PAD + CHROME;
-  return { width, height: Math.round(Math.min(height, gameHeight * MAX_HEIGHT_SHARE)) };
+  const side = Math.round(Math.min(MAX_SIDE, Math.max(MIN_SIDE, (screen.height || 1080) * SIDE_SHARE)));
+  return { width: side, height: side + HEAD_H };
 }
-const WIDTH_SHARE = 0.2;
-const MIN_WIDTH = 300;
-const MAX_WIDTH = 440;
-/** An item card is 450 px wide at the game's own size and up to this much taller than wide; the rank panel
- *  (rankpanel.js) is about this tall. */
-const CARD_PX = 450;
-const CARD_ASPECT = 1.4;
-const RANK_H = 176;
-const PAD = 8;
-const GAP = 8;
-/** The header, the countdown bar and the store's line. */
-const CHROME = 66;
-const MAX_HEIGHT_SHARE = 0.9;
+const SIDE_SHARE = 0.28;
+const MIN_SIDE = 280;
+const MAX_SIDE = 480;
 
 /** The floating window: Chrome's document picture-in-picture, kept above the game. Resolves to null when the browser
  *  has none (or the player refuses). */

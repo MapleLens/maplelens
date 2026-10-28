@@ -160,9 +160,9 @@ pub fn reader() -> ReadText {
 }
 
 /// The game window being watched and its capture.
-struct Source {
-    hwnd: HWND,
-    capture: Option<wgc::WindowCapture>,
+pub(crate) struct Source {
+    pub(crate) hwnd: HWND,
+    pub(crate) capture: Option<wgc::WindowCapture>,
 }
 
 /// Watch until `updates` is closed (the app quit) or forever (`--shop`).
@@ -234,7 +234,7 @@ fn open(hwnd: HWND, emit: &Emit) -> Source {
 }
 
 /// The newest client frame: from the window capture, or (without it) from the screen while the game is in front.
-fn grab(source: &mut Source) -> Option<RgbImage> {
+pub(crate) fn grab(source: &mut Source) -> Option<RgbImage> {
     match &mut source.capture {
         Some(capture) => capture.latest().unwrap_or_else(|error| {
             crate::debug!("window capture failed: {error}");

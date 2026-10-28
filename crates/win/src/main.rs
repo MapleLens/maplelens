@@ -37,6 +37,8 @@ mod ocr;
 mod paths;
 #[cfg(windows)]
 mod phone;
+#[cfg(windows)]
+mod potions;
 #[cfg(all(windows, test))]
 mod reading_bench;
 #[cfg(windows)]
@@ -65,6 +67,10 @@ mod startup;
 mod stream_bench;
 #[cfg(all(windows, test))]
 mod tests;
+#[cfg(windows)]
+mod training;
+#[cfg(all(windows, test))]
+mod training_tests;
 #[cfg(windows)]
 mod tray;
 #[cfg(windows)]

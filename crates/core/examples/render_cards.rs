@@ -12,7 +12,13 @@ use maplelens_core::render::map_card::{render_loading_card, render_map_card};
 use maplelens_core::render::rank_card::render_rank_card;
 use maplelens_core::render::settings_view::{self, Control, View};
 use maplelens_core::render::status_pill::render_status;
+use maplelens_core::render::training_card::{Show, render_training_card};
 use maplelens_core::shop::ShopStatus;
+use maplelens_core::training::kpq::Run;
+use maplelens_core::training::potions::{PotionLine, Potions};
+use maplelens_core::training::session::{MapStat, Session, TrainingView};
+use maplelens_core::training::watcher::Training;
+use maplelens_core::vision::gauge::ExpReading;
 
 fn save(image: &RgbaImage, path: &std::path::Path) {
     let file = std::fs::File::create(path).expect("output file");
@@ -104,6 +110,28 @@ fn main() {
         ..View::default()
     };
     save(&settings_view::render(&fonts, &view, 1.0), &out.join("settings.png"));
+    // The training block's picker: the top-left card (beside the minimap) with a corner under the pointer and the
+    // keyboard on another, and the card switched off.
+    let picking = View {
+        settings: maplelens_core::settings::Settings {
+            training_corner: maplelens_core::settings::Corner::TopLeft,
+            ..Default::default()
+        },
+        hover: Some(Control::Corner(maplelens_core::settings::Corner::BottomRight)),
+        focus: Some(Control::Corner(maplelens_core::settings::Corner::TopRight)),
+        ..view.clone()
+    };
+    save(&settings_view::render(&fonts, &picking, 2.0), &out.join("settings_corner.png"));
+    let off = View {
+        settings: maplelens_core::settings::Settings {
+            training_card: false,
+            quest_helper: false,
+            ..Default::default()
+        },
+        hover: Some(Control::TrainingExp),
+        ..view.clone()
+    };
+    save(&settings_view::render(&fonts, &off, 2.0), &out.join("settings_training_off.png"));
     let discord = View {
         settings: maplelens_core::settings::Settings {
             discord_webhook:
@@ -131,6 +159,7 @@ fn main() {
     };
     save(&settings_view::render(&fonts, &busy, 1.5), &out.join("settings_busy.png"));
     phone_steps(&fonts, &out, &view);
+    training(&fonts, &out);
 }
 
 /// The phone's row and the pairing panel in each of their states.
@@ -163,5 +192,61 @@ fn phone_steps(fonts: &Fonts, out: &std::path::Path, view: &View<'_>) {
             ..view.clone()
         };
         save(&settings_view::render(fonts, &shown, 1.0), &out.join(format!("settings_phone_{name}.png")));
+    }
+}
+
+/// A session an hour in, and the party quest's first and fourth stages.
+fn training(fonts: &Fonts, out: &std::path::Path) {
+    let map = MapStat { map: "Ant Tunnel I".into(), active_s: 2_100.0, gained: 61_400 };
+    let session = Session {
+        active_s: 3_725.0,
+        gained: 108_250,
+        percent: 412.0,
+        levels: 2,
+        best_minute: 2_480,
+        maps: vec![map.clone()],
+        ..Session::default()
+    };
+    let exp = TrainingView {
+        reading: Some(ExpReading { exp: 12_128, hundredths: 5_999 }),
+        live: true,
+        session,
+        last_minute: Some(1_920.0),
+        recent_per_min: Some(1_850.0),
+        average_per_min: Some(1_744.0),
+        percent_per_hour: Some(398.2),
+        to_level_s: Some(4.4 * 60.0),
+        map: Some(map.map.clone()),
+        map_stat: Some(map),
+        ..TrainingView::default()
+    };
+    let both = Show { exp: true, quest: true };
+    // Potions with their icons when the local captures have them (tests/fixtures/icons: the game's artwork).
+    let icon = |id: u32| {
+        let png = std::fs::read(format!("{}/../../tests/fixtures/icons/{id}.png", env!("CARGO_MANIFEST_DIR"))).ok()?;
+        let (width, height, data) = maplelens_core::image::decode_png_rgba(&png).ok()?;
+        Some(std::sync::Arc::new(RgbaImage { width, height, data }))
+    };
+    let line = |id: u32, name: &str, used: u32, picked: u32| PotionLine {
+        id,
+        name: name.into(),
+        used,
+        picked,
+        icon: icon(id),
+    };
+    let potions = Potions {
+        lines: vec![
+            line(2_000_002, "White Potion", 34, 0),
+            line(2_000_003, "Blue Potion", 12, 3),
+            line(2_010_005, "Lemon", 0, 5),
+        ],
+    };
+    let exp_only = Training { exp: exp.clone(), potions, ..Training::default() };
+    save(&render_training_card(fonts, &exp_only, both, 0.0, 1.0).expect("card"), &out.join("training_exp.png"));
+    for stage in [0, 3] {
+        let training =
+            Training { exp: exp.clone(), quest: Some(Run { started: 0.0, stage, seen: 400.0 }), ..Training::default() };
+        let card = render_training_card(fonts, &training, both, 412.0, 1.0).expect("card");
+        save(&card, &out.join(format!("training_kpq_{stage}.png")));
     }
 }

@@ -1,19 +1,20 @@
 // The MapleLens engine (Rust compiled to WebAssembly) in a worker, so reading frames never stutters the page.
 //
-// Messages in:  {type: "init", fonts, glyphs, cardScale} · {type: "frame", bitmap, inset, scale} ·
+// Messages in:  {type: "init", fonts, glyphs, cardScale, training} · {type: "frame", bitmap, inset, scale} ·
 //               {type: "ocr-answer", id, text} · {type: "ocr-enabled", enabled} · {type: "shop", enabled} ·
 //               {type: "notify", webhook, telegramWebhook, phone, sales, store} ·
 //               {type: "notify-test", service, webhook, telegramWebhook, phone} · {type: "phone-qr", url} ·
-//               {type: "catalog", id, json, unpictured (item names whose sales have no picture)}
-// Messages out: {type: "ready", version, items} · {type: "state", state, fps, ms} · {type: "card", which, version,
-//               width, height, pixels, about (the item card's {name, price, trend}; the rank panel's {read, status,
-//               rank})} · {type: "ocr-job", id, font, width, height, pixels} · {type: "glyphs", font,
-//               json} · {type: "idle"} (ready for the next frame) · {type: "notify-status", text} ·
+//               {type: "catalog", id, json, unpictured (item names whose sales have no picture)} ·
+//               {type: "training-pause", paused} · {type: "training-new"} · {type: "training-show", exp}
+// Messages out: {type: "ready", version, items} · {type: "state", state, fps, ms} · {type: "card", which,
+//               version, width, height, pixels, about (the item card's {name, price, trend}; the rank panel's {read,
+//               status, rank}; the training card's {})} · {type: "ocr-job", id, font, width, height, pixels} ·
+//               {type: "glyphs", font, json} · {type: "idle"} (ready for the next frame) · {type: "notify-status", text} ·
 //               {type: "notify-test-result", ok, text, telegramWebhook?} · {type: "phone-qr", modules} ·
 //               {type: "picture", name, url} (a sold item's picture, once found) · {type: "catalog-loaded", id, items | error} ·
-//               {type: "error", message}
+//               {type: "training-save", json, history} · {type: "error", message}
 
-import init, { Engine } from "./pkg/maplelens_web.js?v=cae61cd22445";
+import init, { Engine } from "./pkg/maplelens_web.js?v=088810e6a9ca";
 
 /** One rank lookup every two seconds stays under classicrank.com's 30 requests a minute. */
 const RANK_GAP_MS = 2000;
@@ -23,6 +24,10 @@ let canvas = null;
 let context = null;
 let lastCard = 0;
 let lastRank = 0;
+let lastTraining = 0;
+let lastTrainingSave = 0;
+/** The training sessions go to the page's storage this often while frames come in (and at once after a command). */
+const TRAINING_SAVE_MS = 30000;
 let lastRankFetch = 0;
 const askedOcr = new Set();
 /** Messages waiting to go out, sent one at a time: a webhook takes about five messages in two seconds, a Telegram
@@ -36,9 +41,9 @@ const frameTimes = [];
 
 const post = (message, transfer = []) => self.postMessage(message, transfer);
 
-async function start({ fonts, glyphs, cardScale, ocr }) {
+async function start({ fonts, glyphs, cardScale, ocr, training }) {
   // Named explicitly so scripts/stamp-web.ps1 can version it together with the glue.
-  await init({ module_or_path: new URL("./pkg/maplelens_web_bg.wasm?v=cae61cd22445", import.meta.url) });
+  await init({ module_or_path: new URL("./pkg/maplelens_web_bg.wasm?v=088810e6a9ca", import.meta.url) });
   const [regular, bold] = await Promise.all(fonts.map(url => fetch(url).then(r => r.arrayBuffer())));
   engine = new Engine(new Uint8Array(regular), new Uint8Array(bold));
   engine.card_scale = cardScale || 1;
@@ -46,7 +51,35 @@ async function start({ fonts, glyphs, cardScale, ocr }) {
   for (const [font, json] of Object.entries(glyphs || {})) {
     try { engine.learn_glyphs(font, json); } catch { /* an old or damaged copy: the bundled letters still work */ }
   }
+  if (training) engine.load_training(training); // a damaged copy starts afresh
   post({ type: "ready", version: Engine.version(), items: engine.item_count() });
+  saveTraining();
+  loadPotions();
+}
+
+/** Icons fetched at once: maplestory.io serves ~65 small ones; a few at a time keeps it polite. */
+const ICON_FETCHES = 4;
+
+/** The healing and buff items' icons, so the engine can tell which potion each quickslot holds (maplestory.io's
+ *  Classic data; the browser's cache keeps them). Without them the potions are simply not counted. */
+async function loadPotions() {
+  try {
+    const list = await (await fetch(Engine.potion_list_url(), { cache: "force-cache" })).text();
+    const items = JSON.parse(Engine.potion_candidates(list));
+    let next = 0;
+    const fetchOne = async () => {
+      while (next < items.length) {
+        const [id, name, url] = items[next++];
+        try {
+          const response = await fetch(url, { cache: "force-cache" });
+          if (response.ok) engine.add_potion_icon(id, name, new Uint8Array(await response.arrayBuffer()));
+        } catch { /* one icon missing: that potion is not counted */ }
+      }
+    };
+    await Promise.all(Array.from({ length: ICON_FETCHES }, fetchOne));
+  } catch (error) {
+    post({ type: "error", message: `Potion icons unavailable: ${error.message || error}` });
+  }
 }
 
 /** POST one request to a service; resolves to {ok, text, answer}: text in words for the player, never with the URL
@@ -150,8 +183,10 @@ function collectRequests() {
 function sendCard(which, version) {
   const [width, height, pixels] = which === "card"
     ? [engine.card_width(), engine.card_height(), engine.card_pixels()]
-    : [engine.rank_width(), engine.rank_height(), engine.rank_pixels()];
-  const about = JSON.parse(which === "card" ? engine.card_about() : engine.rank_about());
+    : which === "rank"
+      ? [engine.rank_width(), engine.rank_height(), engine.rank_pixels()]
+      : [engine.training_width(), engine.training_height(), engine.training_pixels()];
+  const about = which === "training" ? {} : JSON.parse(which === "card" ? engine.card_about() : engine.rank_about());
   post({ type: "card", which, version, width, height, pixels, about }, [pixels.buffer]);
 }
 
@@ -187,6 +222,8 @@ function frame({ bitmap, inset, scale }) {
   // A new picture goes before the state that shows it, so the page never shows a state with the last item's picture.
   if (state.card && state.card !== lastCard) sendCard("card", (lastCard = state.card));
   if (state.rank && state.rank !== lastRank) sendCard("rank", (lastRank = state.rank));
+  if (state.training_card && state.training_card !== lastTraining) sendCard("training", (lastTraining = state.training_card));
+  if (performance.now() - lastTrainingSave > TRAINING_SAVE_MS) saveTraining();
   post({ type: "state", state, fps, ms });
   if (state.ocr > 0) {
     const jobs = JSON.parse(engine.ocr_jobs()).filter(job => !askedOcr.has(job.id));
@@ -203,6 +240,12 @@ function frame({ bitmap, inset, scale }) {
   lookUpPictures();
   collectRequests();
   lookUpRanks();
+}
+
+/** Hand the page the sessions to keep (the engine never touches storage itself). */
+function saveTraining() {
+  lastTrainingSave = performance.now();
+  post({ type: "training-save", json: engine.training_save(), history: JSON.parse(engine.training_history()) });
 }
 
 self.onmessage = async ({ data }) => {
@@ -224,6 +267,9 @@ self.onmessage = async ({ data }) => {
       }
     }
     else if (data.type === "shop" && engine) engine.set_shop(data.enabled);
+    else if (data.type === "training-pause" && engine) { engine.training_pause(data.paused); saveTraining(); }
+    else if (data.type === "training-new" && engine) { engine.training_new_session(Date.now() / 1000); saveTraining(); }
+    else if (data.type === "training-show" && engine) engine.set_training_show(data.exp);
     else if (data.type === "notify" && engine) {
       engine.set_notify(data.webhook, data.telegramWebhook, data.phone || "", data.sales, data.store);
     }

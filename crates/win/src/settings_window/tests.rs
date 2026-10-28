@@ -2,10 +2,10 @@
 //! every control reports what the app needs.
 
 use maplelens_core::render::settings_view::Control;
-use maplelens_core::settings::{EXPAND_DELAY_RANGE_S, Settings};
+use maplelens_core::settings::{Corner, EXPAND_DELAY_RANGE_S, Settings};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
-use windows::Win32::UI::Input::KeyboardAndMouse::{VK_BACK, VK_ESCAPE, VK_SPACE, VK_TAB};
+use windows::Win32::UI::Input::KeyboardAndMouse::{VK_BACK, VK_DOWN, VK_ESCAPE, VK_LEFT, VK_SPACE, VK_TAB, VK_UP};
 use windows::Win32::UI::WindowsAndMessaging::{
     IsWindowVisible, SendMessageW, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
 };
@@ -64,10 +64,35 @@ fn check_boxes_flip_their_setting() {
         (Control::AutoUpdate, Settings { check_updates: !defaults.check_updates, ..defaults.clone() }),
         (Control::NotifySales, Settings { notify_sales: !defaults.notify_sales, ..defaults.clone() }),
         (Control::NotifyStore, Settings { notify_store: !defaults.notify_store, ..defaults.clone() }),
+        (Control::TrainingExp, Settings { training_card: !defaults.training_card, ..defaults.clone() }),
     ] {
         window.sync(defaults.clone());
         click(hwnd, control);
         assert_eq!(window.take_events(), [SettingsEvent::Changed(expected)], "{control:?}");
+    }
+}
+
+#[test]
+fn a_corner_is_picked_by_a_click_or_the_arrows() {
+    let window = opened();
+    let hwnd = window.hwnd();
+    let at = |corner| Settings { training_corner: corner, ..Settings::default() };
+    for corner in Corner::ALL {
+        window.sync(Settings::default());
+        click(hwnd, Control::Corner(corner));
+        let expected = if corner == Settings::default().training_corner {
+            vec![]
+        } else {
+            vec![SettingsEvent::Changed(at(corner))]
+        };
+        assert_eq!(window.take_events(), expected, "{corner:?}");
+    }
+    // From the default bottom right: left, up, then down again, each picking the corner it lands on.
+    window.sync(Settings::default());
+    click(hwnd, Control::Corner(Corner::BottomRight));
+    for (vk, corner) in [(VK_LEFT, Corner::BottomLeft), (VK_UP, Corner::TopLeft), (VK_DOWN, Corner::BottomLeft)] {
+        key(hwnd, vk.0);
+        assert_eq!(window.take_events(), [SettingsEvent::Changed(at(corner))], "{corner:?}");
     }
 }
 

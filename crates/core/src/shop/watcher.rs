@@ -2,6 +2,7 @@
 
 use super::align::{new_at_back, new_at_front};
 use super::buttons::{StoreState, read_state};
+use super::held::{Held, LineRead};
 use super::layout::{self, Located, View};
 use super::lines::{self, Line};
 use super::names::{NameBook, same_name_key};
@@ -52,6 +53,10 @@ const OWNER_SPELLING_LINES: usize = 12;
 const OWNER_SPELLING_TRIES: u32 = 3;
 /// The counter is dark digits on white.
 const DIGIT_INK: u8 = 150;
+/// An event waits this long at most for OCR (the browser's first answers take seconds while it loads); then it is told
+/// with what the font read: a sale with gaps in its name beats a sale lost, and a reader that never answers would
+/// hold back every later event.
+const HOLD_MAX_S: f64 = 30.0;
 
 /// Glyph mask (true = ink) -> text; None while the text is still being read (the browser's OCR answers later).
 pub type ReadText = Box<dyn FnMut(&Mask) -> Option<String> + Send>;
@@ -110,8 +115,7 @@ pub(super) fn settle_scale(vote: &mut ScaleVote, held: Option<f32>, measured: f3
     }
 }
 
-/// Cloning a watcher copies its state and shares the reader: the browser reads text asynchronously, so a frame whose
-/// text is not read yet is undone (the state restored from a clone) and tried again when the answers are in.
+/// Cloning a watcher copies its state and shares the reader.
 #[derive(Clone)]
 pub struct ShopWatcher {
     read: Arc<Mutex<ReadText>>,
@@ -159,7 +163,9 @@ pub struct ShopWatcher {
     names: NameBook,
     /// Item names read off the Sold Items list are matched against it: OCR drops and swaps letters.
     catalog: Option<Arc<Catalog>>,
-    /// The last update met an event (a sale, a visitor) whose text was not read yet.
+    /// Events whose text is still being read, oldest first, with when they were seen (`held`).
+    held: Vec<(f64, Held)>,
+    /// Some of them are left after the last update.
     missing_text: bool,
     /// Lines already read by the shop's font.
     texts: text::Cache,
@@ -197,6 +203,7 @@ impl ShopWatcher {
             was_open: false,
             names: NameBook::default(),
             catalog: None,
+            held: Vec::new(),
             missing_text: false,
             texts: text::Cache::default(),
         }
@@ -234,10 +241,8 @@ impl ShopWatcher {
         self.status
     }
 
-    /// The last update met a sale or a visitor whose text is still being read: its events are incomplete, and the
-    /// caller that reads text asynchronously should undo it and try the frame again once the text is in. Text read
-    /// for the watcher's own sake (the owner's name, the counter's first value) never asks for that: it is simply
-    /// read again on the next look.
+    /// Events (a sale, a visitor) are waiting for their text after the last update: they come, in order, from a later
+    /// update once it is read, so a caller whose reader answers later may look again soon.
     pub fn missing_text(&self) -> bool {
         self.missing_text
     }
@@ -274,9 +279,26 @@ impl ShopWatcher {
     /// Call with every captured client frame (any rate, any size: the shop measures the scale its UI is drawn at
     /// itself); returns what newly happened, oldest first.
     pub fn update(&mut self, frame: &RgbImage, now: f64) -> Vec<ShopEvent> {
-        self.missing_text = false;
-        let events = self.read_frame(frame, now);
+        let seen = self.read_frame(frame, now);
+        self.held.extend(seen.into_iter().map(|held| (now, held)));
+        let events = self.release(now);
+        self.missing_text = !self.held.is_empty();
         events.into_iter().map(|event| self.settle_names(event)).collect()
+    }
+
+    /// The held events that can be told now, oldest first. One still waiting for its text holds back those after it,
+    /// whose reads are asked for meanwhile (the browser reads them all at once), so events are told in order.
+    fn release(&mut self, now: f64) -> Vec<ShopEvent> {
+        let mut events = Vec::new();
+        let mut waiting = Vec::new();
+        for (since, held) in std::mem::take(&mut self.held) {
+            match self.read_held(&held, now - since >= HOLD_MAX_S) {
+                Some(reads) if waiting.is_empty() => events.extend(self.tell(reads)),
+                _ => waiting.push((since, held)),
+            }
+        }
+        self.held = waiting;
+        events
     }
 
     fn settle_names(&mut self, event: ShopEvent) -> ShopEvent {
@@ -301,7 +323,7 @@ impl ShopWatcher {
         }
     }
 
-    fn read_frame(&mut self, frame: &RgbImage, now: f64) -> Vec<ShopEvent> {
+    fn read_frame(&mut self, frame: &RgbImage, now: f64) -> Vec<Held> {
         if frame.is_empty() {
             // Minimized or mid-resize: nothing to read, and nothing has closed.
             return Vec::new();
@@ -326,7 +348,7 @@ impl ShopWatcher {
             let events = self.follow_state(None, now);
             self.follow_status(None);
             self.last = None;
-            return events;
+            return events.into_iter().map(Held::Event).collect();
         };
         let view = View { frame, scale: located.scale };
         let enter = located.anchors.enter.expect("a located shop has its ENTER anchor");
@@ -335,7 +357,7 @@ impl ShopWatcher {
             // Something covers the buttons: no news about the state.
             return Vec::new();
         }
-        let mut events = self.follow_state(Some(reading), now);
+        let mut events: Vec<Held> = self.follow_state(Some(reading), now).into_iter().map(Held::Event).collect();
         if self.state == Some(StoreState::Open) {
             self.read_owner(&view, enter);
         }
@@ -443,13 +465,24 @@ impl ShopWatcher {
         }
     }
 
-    pub(crate) fn sold_events(&mut self, view: &View<'_>, obs: &Observation) -> Vec<ShopEvent> {
+    /// The sold list's part of an update at `now`, for tests that feed observations without a frame behind them.
+    #[cfg(test)]
+    pub(super) fn sold_update(&mut self, view: &View<'_>, obs: &Observation, now: f64) -> Vec<ShopEvent> {
+        let seen = self.sold_events(view, obs);
+        self.held.extend(seen.into_iter().map(|held| (now, held)));
+        let events = self.release(now);
+        self.missing_text = !self.held.is_empty();
+        events
+    }
+
+    fn sold_events(&mut self, view: &View<'_>, obs: &Observation) -> Vec<Held> {
         let moved = self.balance.is_some() && !balance_same(&self.balance, &obs.balance);
         self.balance = obs.balance.clone();
         // The counter is read once when first seen, so that the first change has something to be measured against
-        // (and the balance is known for a notification), and again whenever it moves.
+        // (and the balance is known for a notification), and again whenever it moves (a held change sets it).
         if self.balance_value.is_none()
             && !moved
+            && self.held.is_empty()
             && self.baseline_tries < BASELINE_TRIES
             && let Some(counter) = &obs.balance
             && let Ok(value) = self.read_counter(view, counter, obs.balance_area)
@@ -457,18 +490,17 @@ impl ShopWatcher {
             self.baseline_tries += 1;
             self.balance_value = value;
         }
-        let gain =
-            if moved { obs.balance.as_ref().and_then(|b| self.balance_gain(view, b, obs.balance_area)) } else { None };
+        let counter = obs.balance.as_ref().filter(|_| moved).map(|b| self.counter_read(view, b, obs.balance_area));
         let Some(sold) = &obs.sold else {
             // The dialog is closed: the meso counter is the only sign of a sale.
             if !moved {
                 return Vec::new();
             }
             self.unseen += 1;
-            return vec![ShopEvent::SaleUnseen { mesos: gain }];
+            return vec![Held::Unseen { counter }];
         };
         if !obs.sold_live {
-            return Vec::new();
+            return self.held_sales(view, &[], counter, false);
         }
         let rows: Vec<Row> = sold.iter().filter(|r| !r.is_total).cloned().collect();
         let known = self.sold.replace(rows.clone());
@@ -477,43 +509,54 @@ impl ShopWatcher {
             // First sight of the list: its newest rows are the sales that happened while it was closed (the dialog
             // may have opened in the very frame the counter changed).
             let fresh = (unseen + usize::from(moved)).min(rows.len());
-            let sales: Vec<ShopEvent> = rows[..fresh].iter().rev().map(|row| self.read_sale(view, row)).collect();
-            return with_gain(sales, gain);
+            return self.held_sales(view, &rows[..fresh], counter, false);
         };
         let Some(added) = new_at_front(&known, &rows, soldlist::same) else {
-            return vec![ShopEvent::LostSync(ListKind::Sold)];
+            let mut held = self.held_sales(view, &[], counter, false);
+            held.push(Held::Event(ShopEvent::LostSync(ListKind::Sold)));
+            return held;
         };
-        let mut events = Vec::new();
-        if added == 0 && moved && !known.is_empty() && known.iter().all(|r| soldlist::same(r, &known[0])) {
-            events.push(ShopEvent::AmbiguousSale);
-        }
-        // Oldest first, so listeners see sales in the order they happened.
-        let sales: Vec<ShopEvent> = rows[..added].iter().rev().map(|row| self.read_sale(view, row)).collect();
-        events.extend(with_gain(sales, gain));
-        events
+        let ambiguous = added == 0 && moved && !known.is_empty() && known.iter().all(|r| soldlist::same(r, &known[0]));
+        self.held_sales(view, &rows[..added], counter, ambiguous)
     }
 
-    /// Change of the meso counter, read by OCR; None when either reading failed.
-    fn balance_gain(&mut self, view: &View<'_>, balance: &RgbImage, area: Option<layout::Area>) -> Option<i64> {
+    /// New rows (newest first, as listed) and the counter's reading as one held entry; none when there is nothing.
+    fn held_sales(&self, view: &View<'_>, rows: &[Row], counter: Option<LineRead>, ambiguous: bool) -> Vec<Held> {
+        if rows.is_empty() && counter.is_none() && !ambiguous {
+            return Vec::new();
+        }
+        // Oldest first, so listeners see sales in the order they happened.
+        let rows = rows.iter().rev().map(|row| row.lines.iter().map(|line| self.line_read(view, line)).collect());
+        vec![Held::Sales { rows: rows.collect(), counter, ambiguous }]
+    }
+
+    /// The counter's new value set, and its change (None when either reading was not a number).
+    fn commit_counter(&mut self, value: Option<i64>) -> Option<i64> {
         let before = self.balance_value;
-        let Ok(value) = self.read_counter(view, balance, area) else {
-            self.missing_text = true;
-            return None;
-        };
         self.balance_value = value;
         Some(value? - before?)
     }
 
     /// The meso counter's number, read by OCR from the frame's own pixels (None when it is not a number).
     fn read_counter(
-        &mut self,
+        &self,
         view: &View<'_>,
         balance: &RgbImage,
         area: Option<layout::Area>,
     ) -> Result<Option<i64>, Pending> {
+        self.counter_of(&self.counter_read(view, balance, area), false).ok_or(Pending)
+    }
+
+    /// A counter reading's number (inner None: not a number); None while OCR's answer is pending.
+    fn counter_of(&self, read: &LineRead, give_up: bool) -> Option<Option<i64>> {
+        self.text_of(read, OCR_PADS[0], false, give_up).map(|text| counter_value(&text))
+    }
+
+    /// The meso counter as first seen, for the font or OCR to read.
+    fn counter_read(&self, view: &View<'_>, balance: &RgbImage, area: Option<layout::Area>) -> LineRead {
         let exact = area.and_then(|area| self.texts.read_area(view, area, false));
         if let Some(read) = exact.as_ref().filter(|t| t.unknown == 0) {
-            return Ok(counter_value(&read.text));
+            return LineRead::known(read.text.clone());
         }
         let ink = match area {
             Some(area) => lines::glyphs_at(view, area, false),
@@ -526,8 +569,7 @@ impl ShopWatcher {
                 }
             }
         };
-        let ocr = self.ocr(&padded(&ink, OCR_PADS[0])).ok_or(Pending)?;
-        Ok(counter_value(&exact.map_or(ocr.clone(), |e| fill_gaps(&e.text, &ocr))))
+        LineRead { exact: exact.map(|e| e.text), glyphs: Some(ink) }
     }
 
     /// Reads the owner's name until it comes out (OCR is touchy, and the browser's answers take a moment): from the
@@ -605,13 +647,30 @@ impl ShopWatcher {
     /// A line's text: the shop's own font first (exact for every letter it knows, no OCR), OCR's letters only where
     /// the font has none ('?'), checked against the letters it is sure of. None while OCR's answer is pending.
     fn line_text(&self, view: &View<'_>, line: &Line, pad: usize) -> Option<String> {
-        let exact = line.source.and_then(|(area, _)| self.texts.read_area(view, area, false));
-        if let Some(read) = exact.as_ref().filter(|t| t.unknown == 0) {
-            return Some(read.text.clone());
+        self.text_of(&self.line_read(view, line), pad, true, false)
+    }
+
+    /// A line as first seen: the font's reading, and the glyphs for OCR when the font did not know every letter.
+    fn line_read(&self, view: &View<'_>, line: &Line) -> LineRead {
+        match line.source.and_then(|(area, _)| self.texts.read_area(view, area, false)) {
+            Some(read) if read.unknown == 0 => LineRead::known(read.text),
+            exact => LineRead { exact: exact.map(|e| e.text), glyphs: Some(self.glyphs(view, line)) },
         }
-        let ocr = self.ocr(&padded(&self.glyphs(view, line), pad))?;
+    }
+
+    /// A line's text from its first reading; None while OCR's answer is pending, unless `give_up`: then the font's
+    /// reading as it is.
+    fn text_of(&self, read: &LineRead, pad: usize, settle: bool, give_up: bool) -> Option<String> {
+        let Some(glyphs) = &read.glyphs else { return Some(read.exact.clone().unwrap_or_default()) };
+        let Some(ocr) = self.ocr(&padded(glyphs, pad)) else {
+            return give_up.then(|| read.exact.clone().unwrap_or_default());
+        };
+        let text = match &read.exact {
+            Some(exact) => fill_gaps(exact, &ocr),
+            None => ocr,
+        };
         // The bars are settled again once OCR's letters stand beside them ("?lNO" + "Y" is "YINO").
-        Some(text::settle(&exact.map_or(ocr.clone(), |e| fill_gaps(&e.text, &ocr))))
+        Some(if settle { text::settle(&text) } else { text })
     }
 
     /// A line's glyphs, from the frame's own pixels (the game's small glyphs read better than an enlarged copy).
@@ -622,13 +681,48 @@ impl ShopWatcher {
         }
     }
 
-    fn read_sale(&mut self, view: &View<'_>, row: &Row) -> ShopEvent {
-        let reads: Vec<Option<String>> = row.lines.iter().map(|line| self.line_text(view, line, OCR_PADS[0])).collect();
-        self.missing_text |= reads.iter().any(Option::is_none);
-        let texts: Vec<String> = reads.into_iter().map(Option::unwrap_or_default).collect();
-        let text = |i: usize| texts.get(i).map_or("", String::as_str);
-        let (item, buyer, quantity) = (text(0), text(1), text(2));
-        parse_sale(item, buyer, quantity)
+    /// A held entry's text, every read asked for (the browser reads them all at once); None while any is pending.
+    fn read_held(&self, held: &Held, give_up: bool) -> Option<Reads> {
+        let counter = |counter: &Option<LineRead>| match counter {
+            Some(read) => self.counter_of(read, give_up).map(Some),
+            None => Some(None),
+        };
+        match held {
+            Held::Event(event) => Some(Reads::Event(event.clone())),
+            Held::Chat(line) => self.chat_of(line, give_up).map(Reads::Chat),
+            Held::Unseen { counter: read } => counter(read).map(Reads::Unseen),
+            Held::Sales { rows, counter: read, ambiguous } => {
+                let texts: Vec<Vec<Option<String>>> = rows
+                    .iter()
+                    .map(|lines| lines.iter().map(|line| self.text_of(line, OCR_PADS[0], true, give_up)).collect())
+                    .collect();
+                let value = counter(read);
+                let texts: Option<Vec<Vec<String>>> = texts.into_iter().map(|row| row.into_iter().collect()).collect();
+                Some(Reads::Sales { texts: texts?, value: value?, ambiguous: *ambiguous })
+            }
+        }
+    }
+
+    /// The events a held entry's text stands for, the counter's new value set.
+    fn tell(&mut self, reads: Reads) -> Vec<ShopEvent> {
+        match reads {
+            Reads::Event(event) => vec![event],
+            Reads::Chat(event) => event.into_iter().collect(),
+            Reads::Unseen(value) => vec![ShopEvent::SaleUnseen { mesos: value.and_then(|v| self.commit_counter(v)) }],
+            Reads::Sales { texts, value, ambiguous } => {
+                let gain = value.and_then(|v| self.commit_counter(v));
+                let sales = texts.iter().map(|lines| {
+                    let text = |i: usize| lines.get(i).map_or("", String::as_str);
+                    parse_sale(text(0), text(1), text(2))
+                });
+                let mut events = Vec::new();
+                if ambiguous {
+                    events.push(ShopEvent::AmbiguousSale);
+                }
+                events.extend(with_gain(sales.collect(), gain));
+                events
+            }
+        }
     }
 
     /// The plate's letters are anti-aliased into its blue, so OCR gets their case wrong ("ShOpOwner" for "ShopOwner"). The
@@ -661,32 +755,30 @@ impl ShopWatcher {
         }
     }
 
-    fn read_chat(&mut self, view: &View<'_>, line: &Line) -> Option<ShopEvent> {
+    /// A chat line's event (None: not one); the outer None while OCR's answer is pending.
+    fn chat_of(&self, line: &LineRead, give_up: bool) -> Option<Option<ShopEvent>> {
         let mut event = None;
         for pad in OCR_PADS {
-            let Some(text) = self.line_text(view, line, pad) else {
-                self.missing_text = true;
-                return None;
-            };
-            event = parse_chat(&text);
+            event = parse_chat(&self.text_of(line, pad, true, give_up)?);
             let named = match &event {
                 Some(ShopEvent::PlayerEntered(name) | ShopEvent::PlayerLeft(name)) => name != NO_NAME,
                 _ => false,
             };
-            if named {
+            // The font's whole reading is the same at every margin.
+            if named || line.glyphs.is_none() {
                 break;
             }
         }
-        event
+        Some(event)
     }
 
-    fn chat_events(&mut self, view: &View<'_>, obs: &Observation) -> Vec<ShopEvent> {
+    fn chat_events(&mut self, view: &View<'_>, obs: &Observation) -> Vec<Held> {
         let Some(chat) = obs.chat.as_ref().filter(|_| obs.chat_live) else { return Vec::new() };
         let Some(known) = self.chat.replace(chat.clone()) else { return Vec::new() };
         let Some(added) = new_at_back(&known, chat, lines::same) else {
-            return vec![ShopEvent::LostSync(ListKind::Chat)];
+            return vec![Held::Event(ShopEvent::LostSync(ListKind::Chat))];
         };
-        chat[chat.len() - added..].iter().filter_map(|line| self.read_chat(view, line)).collect()
+        chat[chat.len() - added..].iter().map(|line| Held::Chat(self.line_read(view, line))).collect()
     }
 }
 
@@ -694,6 +786,19 @@ impl ShopWatcher {
 /// ("gGcK1 49").
 fn joined(name: &str) -> String {
     name.split_whitespace().collect()
+}
+
+/// A held entry's text, all in.
+enum Reads {
+    Event(ShopEvent),
+    Chat(Option<ShopEvent>),
+    /// The counter's reading when it moved (inner None: not a number).
+    Unseen(Option<Option<i64>>),
+    Sales {
+        texts: Vec<Vec<String>>,
+        value: Option<Option<i64>>,
+        ambiguous: bool,
+    },
 }
 
 /// Where the character's name is in the status bar: under their job, right of the level box, offsets measured on a

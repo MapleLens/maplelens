@@ -128,11 +128,16 @@ crates/core/src/          platform-free; everything here is unit-testable
     title_font.rs         item titles read exactly by the game's bold font (assets/glyphs/title_small.json)
     vector_font/          the anti-aliased UI font read by drawing it: templates, DP reader, learner
                           (assets/glyphs/shop_vector.{png,json}); gaps.rs: OCR fills only a reading's '?'
+    gauge.rs              the status bar's EXP ("12,128[59.99%]"): 5x7 gauge font scaled like the game, grammar-bound decode
+    minimap.rs            the minimap's title (street, map) as two grey lines for OCR, found by its WORLD button
+    quickslot.rs          the 4x2 quickslots over the bar's right end, and their item counts (the game's 8x11 count
+                          digits, exact at Ideal Ratio, sampled at each pixel's centre when scaled); item_icon.rs: which
+                          item an icon is (colour match over its solid pixels)
   market/                 models (Item::from_raw), snapshot, catalog (exact / fuzzy / '?' wildcard),
                           insights, format, time (ISO-8601 without a date crate), sample
   ranking/                classicrank.com model, URL, response parsing, RankCache (pacing is the caller's)
   render/                 canvas (tiny-skia + ab_glyph, Ink text style), theme, font, card, glance, details,
-                          origin, range_bar, gamewin, rank_card, status_pill, map_card, maple_qr -> RgbaImage;
+                          origin, range_bar, gamewin, rank_card, status_pill, map_card, maple_qr, training_card -> RgbaImage;
                           maple_ui (game-style buttons, check boxes, slider), settings_view (the settings window:
                           picture + hit-testing; panel.rs: the phone's pairing panel)
   pipeline/               Screen trait + FrameScreen; HoverDetector (hover/elsewhere.rs: pushed-up tooltips and the
@@ -143,7 +148,11 @@ crates/core/src/          platform-free; everything here is unit-testable
                           the UI scale), layout (anchors, offsets, View: reference pixels read off the frame as
                           captured), buttons (whose store, open?), lines (column-ink text compare), soldlist,
                           chatlog, scrollbar, align (the double-count rules), text (a line read by the game's own
-                          fonts), parse (text -> events), watcher (ShopWatcher: frame in, events out)
+                          fonts), parse (text -> events), held (events waiting for OCR), watcher (ShopWatcher:
+                          frame in, events out)
+  training/               session (Tracker: EXP gains, level ups, deaths, idle time, rates, potion tallies, history JSON),
+                          potions (candidates, PotionWatcher: quickslots -> totals per item, Potions), kpq (stages,
+                          Cloto's answers, combinations, QuestTracker), watcher (TrainingWatcher: frames in, Training out)
   placement.rs, settings.rs, hotkey.rs (naming and building the show/hide combo)
 crates/win/src/           the Windows app (only this crate talks to Win32)
   main.rs                 CLI, single instance, --screenshot
@@ -157,6 +166,9 @@ crates/win/src/           the Windows app (only this crate talks to Win32)
   phone.rs                the phone pairing's relay requests (a thread); app/phone.rs: its presses and answers
   shop.rs, wgc.rs         the shop watcher thread (and `--shop`), fed by Windows Graphics Capture; app/status.rs:
                           the status pill
+  training.rs             the training reader thread (window capture, Windows OCR of the minimap, training.json);
+                          app/training.rs: the training card in the corner picked in the settings (placement.rs
+                          place_in_corner: beside the minimap, above the status bar); tray: its switches and session
   update/                 signed self-update: version, manifest (Ed25519), net (allow-listed hosts), check
                           (daily thread), install (stage, self-test, swap, relaunch), release (--sign-release,
                           --make-update-key)
@@ -180,6 +192,53 @@ Dependency direction: `win`/`web` -> `core`. Inside core: `pipeline` -> (`vision
 - Errors: specific error types at boundaries (`SnapshotError`); the UI tick catches panics and logs, so one bad
   frame never kills the overlay. Logging through the `info!/warn!/error!/debug!` macros of `win/src/log.rs`.
 - Drawing: lay out in design units (the 1x card) with `Canvas`; never resample a finished card.
+
+## Training: EXP tracker and party quest helper (`core/src/training`)
+
+Frame in, `Training` out, about once a second (`TrainingWatcher` paces itself; the app runs it on its own thread from
+window capture, the browser from every frame it is given). Sessions are timed by the wall clock (`now` is Unix
+seconds) so the history has dates; the platform keeps `Tracker::to_json` (training.json / localStorage).
+- **EXP** (`vision::gauge`): the gauge font is drawn 1:1 at Ideal Ratio and smoothed at 1.5625x in Normal; the read
+  area is relative to the status bar and scaled by `bar.width / 800`. Glyphs are scaled the same way and the cheapest
+  run is decoded under the printed shape (number with separators, `[`, 1-3 digits, `.`, two decimals, `%]`), which is
+  what separates `[` from `1` in the blur. Reads with more than `MAX_COST_PER_PX` mismatch are no read (a window over
+  the gauge). Fixtures: `status_bar_*` (both UI sizes, four values).
+- **Sessions** (`training::session`): a value counts once two reads agree. A share drop of 20+ points with less EXP is a
+  level up (the rest of the old level plus the new EXP), unless the new level is not bigger, or more than twice as
+  big, than the old one: that is another character, which counts nothing. The level's size (EXP / share) also tells a
+  death (same size, less EXP: counted as lost) from a character switch. Time counts while the bar is read and EXP
+  keeps coming; a minute without EXP or a move to another map (not paused) ends the session into the history, and
+  so does a gap over 30 minutes unseen. A session starts at its first EXP, and so does the card (`is_training`: a
+  player training wants it at once); its rates fill in after 10 s of play (`MIN_RATE_S`).
+- **Map** (`vision::minimap` + OCR): the title's two lines are cut as grey "whiteness" images, not masks (a mask broke
+  "Street" into "Stl eet"), and OCR'd with a wide white border (tight, Windows OCR read nothing at Ideal Ratio). Readings
+  settle in `training::map_name`: the look-alikes of I folded (l, 1, |), the last word kept apart when it is a numeral,
+  and two readings are one map when their numerals agree (or one is missing) and their words score 90+. A different
+  map counts on two readings in a row. Neither exact nor fuzzy alone works: the browser's frames are video, so
+  Tesseract reads "III" as "Ill" and an exact match ended the session on every such pair; neighbouring maps differ by
+  the numeral alone ("East Rocky Mountain V" and "VI"), and `mapinfo::vote` held the old one for as long as the
+  player stayed. The pointer over the title is no read (it changes what OCR sees). OCR leaves out the Free Market's room ("<8>") about half the time; KPQ stage names
+  keep their words. Only the default top-left minimap is found (its WORLD button anchors it).
+- **Potions** (`vision::quickslot`, `vision::item_icon`, `training::potions`): the quickslots are a fixed offset from
+  the status bar (measured at Ideal Ratio and Normal). Counts are read with the game's own count digits: crisp, every
+  pixel matches; scaled, the game draws them blocky, so each 1x pixel is sampled at the centre of its block over a few
+  sub-pixel phases, and of the digits that fit the one explaining most pixels wins (a 0 fits inside an 8). Items are
+  told by their icon in colour (the Red, Orange and White Potions are one shape), from maplestory.io's Classic list of
+  Use items 2000000-2022999; icons are the game's artwork, so they are downloaded at run time (app: a disk cache;
+  web: the browser's cache), never committed (tests read them from `tests/fixtures/icons`). A slot is identified again
+  only when its count changes (or every 10 s); totals per item count once two looks agree; a slot gone unreadable
+  holds its item's total back for 5 s (a window or the pointer over it), and an item dragged out of the quickslots
+  is no longer followed. The session counts a total that falls as used and one that rises as picked up (buying from
+  an NPC reads as picked up).
+- **Party quest** (`training::kpq`): stages by map name (fuzzy, letters and digits only), a run from the first stage
+  until the party has been off the quest's maps for a minute. Facts (Cloto's answers, combinations) are written out in
+  our own words. There is no real KPQ capture yet: the stage path was checked on a synthetic minimap (Tahoma Bold
+  on the minimap panel) with both OCR engines; add a real one when there is one.
+- **The party quest helper is hidden** until a real run has checked it, and is not mentioned on the website or in the
+  README. Windows: the `quest_helper` setting is off, with no switch in the settings window or the tray; only
+  settings.json turns it on. Web: the engine never draws it (`set_training_show(exp)`) and the page has no panel for
+  it (the panel, its guide JSON and the switch are in PR #46's history). The tracker still follows the quest, and its
+  tests and `render_cards`' `training_kpq_*.png` still cover it.
 
 ## Store Permit watcher (`core/src/shop`)
 
@@ -262,7 +321,7 @@ same frames through the Rust watcher (373 real captures, 22 ms a frame against P
   vendored jsQR). Android needs no install, but Chrome offers it only for a manifest that names its `start_url`
   ("start-url-not-valid") and a service worker with a fetch handler, so every other browser is pointed at
   `install.webmanifest` (`start_url` "./": an Android app shares Chrome's storage and finds the kept key), the worker
-  is registered before pairing, and it answers navigations (offline: a short page). A phone follows one pairing: a code for another one (a link anyone can
+  is registered before pairing, and it answers navigations (offline: a short page). The page never calls `preventDefault()` on `beforeinstallprompt` (that hid Chrome's own offer) and puts its Install button above every view, the dashboard included: a paired phone opens there. A phone follows one pairing: a code for another one (a link anyone can
   post) switches it only after a tap, joining the new pairing before leaving the old, and the key leaves the address
   bar once kept (not in an iPhone Safari tab, which installs from that address). A pairing takes 5 phones; a sixth is
   refused (409), never one dropped silently, and an unused pairing is deleted after 60 days. The website's QR (`docs/assets/phone-qr.svg`) is
@@ -289,11 +348,14 @@ same frames through the Rust watcher (373 real captures, 22 ms a frame against P
   "disconnected" notification; the phone app clears itself. A phone leaving is seen by the page's next check-in.
   `relay/push/README.md` has the routes, limits, deploy steps and the security model; `npm test` there.
 - The browser runs the same watcher (`web/src/shopwatch.rs`). Its OCR is asynchronous: the reader answers None while
-  text is being read. Only a sale or a visitor whose text is not in (`ShopWatcher::missing_text`) undoes the frame (the
-  watcher is cloned first) to try again when the answers are in; text the watcher reads for itself (the owner's name,
-  the counter's first value) is asked again next look and counts as a try only once answered. Undoing every frame with
-  any pending text held the store "not in view" for as long as Tesseract took to load (seconds) and spent the owner's
-  tries on unanswered reads. Lines are read by the game's own fonts
+  text is being read. The watcher follows its lists at once and holds back only the events whose text is not in
+  (`shop::held`: a sale, a visitor, the counter's change), each with the glyphs it was first read from, asked again
+  every look until answered (`ShopWatcher::missing_text` says some wait), told in order, and after `HOLD_MAX_S` (30 s)
+  with what the font read. Undoing the whole look instead (the watcher cloned and restored) lost a burst live: one buyer
+  took six items in twelve seconds, every look waited on the moving counter and rows, and once one went through the page
+  had moved four rows on a page of four, which no longer aligns (LostSync); the Windows app, whose OCR answers at once,
+  counted all six. Text the watcher reads for itself (the owner's name, the counter's first value) is asked again next
+  look and counts as a try only once answered. Lines are read by the game's own fonts
   first (`shop::text`), so the browser asks Tesseract only for letters the fonts have not learnt (a sale of known
   letters needs no OCR at all: `the_shop_is_followed_in_the_browser_and_its_sales_are_read_without_ocr`).
 - The status the player sees is core's: `status_pill::text_for` / `tone_for` give the Windows pill's wording ("Press the
@@ -508,6 +570,15 @@ general:
   needs its ink and paper (`info_window::has_title_contrast`).
 - Tooltip fill over dark scenery is dark (18,19,60) or keeps the backdrop's hue (34,21,60), and its border over
   black is as dark as the fill: `is_fill` has a dark class, and `find` counts unreadable border pixels as unknown.
+- Over a warm backdrop (Perion's orange rock, smoke over it) the fill is a dull purple, (78,65,93) to (83,77,116), and
+  the browser found an equipment tooltip there in 3 of 59 frames of a live capture at Ideal Ratio (it showed nothing
+  for as long as the player hovered). Three things missed it: `is_fill` has a warm class (blue leads red by 8-40, red
+  at least green); the right border takes the rock's colour, light in red but as dark as the fill in blue, so
+  `measure_width_lit` reads it by the brightest channel when the darkest shows nothing; and the 1.56x enlargement at
+  Ideal Ratio smears the 1 px top line over two rows, so a line reading 0.7-0.8 counts while the other reads 0.95+.
+  Now 58 of 58 frames with the tooltip find its top (`tooltip_ideal_ratio_*` fixtures). Lines inside the tooltip are
+  found too; a spot without a title bullet no longer resets the unknown-title count, which had kept an item with no
+  price from ever showing.
 - Enhanced equipment has an orange title and a "(+3)" suffix (`reader::title_gray`, `catalog::without_enhancement`).
   The card shows the unenhanced item's price.
 
@@ -526,7 +597,14 @@ started with `--js-flags=--expose-gc` makes the reported heap live data.
 
 The page is deliberately bare: Share game window, the cards (Float over the game), the store log, the Discord webhook and
 the Telegram bot (kept in localStorage, shown masked with a Change button). There is no settings panel; Tesseract (tesseract.js 7.0.0, served from `docs/app/vendor/`, loaded when
-the engine meets text the atlas cannot read) is always on, for shop text and unknown letters.
+the engine meets text the atlas cannot read) is always on, for shop text and unknown letters. It reads a tooltip's
+title or a player's name before anything else waiting (`lens.js`): the minimap's lines and the shop's can wait, and a
+title queued behind them came late. A grey line alike one read lately (mean difference 6 of 255) takes that answer
+(`web/src/ocr.rs`): video frames never repeat pixels, so the minimap's title went to Tesseract on every look.
+The Training and Store Permit panels show only while they are about something (`showPanels`): a training session
+(the engine's `training.active`, the card's own rule, `training_card::is_training`), the player's own store window (any
+shop status but "hidden"), each kept 20 s after (a window over the game must not make it blink). Unfollowed, the store panel stays, or it could never be followed again. A line says what shows up
+there while none does.
 
 The cards (`cardfeed.js`, shown by `cards.js` in the page and the floating window alike):
 - A card is live while its tooltip is read; once it is gone it stays `LINGER_MS` (6 s) under a bar that runs out, the
@@ -538,8 +616,15 @@ The cards (`cardfeed.js`, shown by `cards.js` in the page and the floating windo
 - The engine sends a card's pixels only when they change, and before the state that shows them; the page keeps the
   last ones and takes from each state whether they are live. Dropping them when a tooltip went showed nothing for an
   item hovered a second time.
-- The header says what is shown: the item, or "Watching the game" / "Not watching the game" (with what to do). No
-  engine numbers there: they are on the page.
+- One thing shows at a time: the item card (or, without one, the rank panel) while it is live, leaving or recalled;
+  else the training card while there is one; else the idle view. A player grinding keeps the EXP card in view, an item
+  hovered takes its place, and the EXP card is back once that card has gone. While the EXP card shows, a card takes
+  over only once two reports in a row have it (`CONFIRM_REPORTS`: the search finds look-alikes in a single frame), and
+  it stays 2 s after its tooltip goes instead of 6. The player expects the price within a second of pointing: on the
+  demo it shows 0.13-0.23 s after the tooltip is drawn (a 0.4 s wait plus idle-rate looks had made it over a second). (The training card had sat over the others, and the floating
+  window grew into a tall stack the player could not leave in a corner.)
+- The header says what is shown: the item, the training's map, or "Watching the
+  game" / "Not watching the game" (with what to do). No engine numbers there: they are on the page.
 - The rank panel is the web's own, in HTML (`rankpanel.js`): classicrank.com's photo of the character (`photo`, a 96 px
   PNG; the page's policy allows images from classicrank.com), the name, level, job and fame, the three ranks as tiles,
   and a visible link to classicrank.com (their terms ask for one). The Windows app's panel sits beside the Character
@@ -548,10 +633,11 @@ The cards (`cardfeed.js`, shown by `cards.js` in the page and the floating windo
   with the canvas panel it still draws (the home page's demo shows that one). Pictures and links are used only when
   they are classicrank.com's; nothing in the panel wraps, so its height does not depend on its width. Neither it nor
   the store line is a `<footer>`: the site's sheet spaces those out in the page's document.
-- The floating window never scrolls: the cards are drawn at their own size or smaller to fit both its width and height
-  (never larger, which would blur them), and recent items that do not fit are left out. It opens at a size from the
-  shared game window (`floatingSize`: a fifth of its width, 300-440 px, tall enough for a card plus a rank panel), or the
-  size the player last dragged it to. While it is open the page's panel says the cards are floating, with a button that
+- The floating window is one box for the whole session, so it can sit in a corner of the screen: whatever it shows is
+  drawn at its own size or smaller to fit both its width and height (never larger, which would blur it), centred, and
+  recent items that do not fit are left out; the countdown bar lies over the body rather than resizing it. It opens
+  square inside, its side 28% of the screen's height (280-480 px; the game's UI grows with the screen), or at the size
+  the player last dragged it to (`maplelens.cards.box`). While it is open the page's panel says the cards are floating, with a button that
   closes it.
 
 What measuring taught (1080p Twitch clips, Chrome, `scripts` not needed: a local server and `?report=`):
@@ -561,8 +647,9 @@ What measuring taught (1080p Twitch clips, Chrome, `scripts` not needed: a local
   every band row: `find::Lifts` sums them ahead of time (`bench_find`, 26 ms). A tooltip followed from the last look is
   checked in place (`find::tooltip_at`, ~2 ms) and the whole frame searched every `FULL_SEARCH_EVERY` looks.
 - The Character Info search (60-200 ms) is spread over four bands of the frame, one every 0.3 s; the page looks every
-  quarter second while nothing is followed, every 100 ms while something is, and turns a frame into a bitmap only when
-  it is due (a 60 fps clip made a bitmap of every frame).
+  quarter second while nothing is followed, every 100 ms while something is (a card, or a tooltip the search sees but
+  has not shown yet: `tooltip_in_view`, else an unknown item's five reads took 1.25 s), and turns a frame into a bitmap
+  only when it is due (a 60 fps clip made a bitmap of every frame).
 - wasm SIMD is on (`.cargo/config.toml`); the engine then takes 20-35 ms a frame at 1080p, p95 under 75 ms, no stalls,
   heap flat over three minutes; the whole browser spends ~30% of a core on a 1080p60 clip (about half of it decoding the
   clip), 20% on a static frame at 10 fps, 2% idle.

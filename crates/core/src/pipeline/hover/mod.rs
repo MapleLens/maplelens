@@ -108,6 +108,9 @@ pub struct HoverDetector {
     /// Where the tooltip was found last (no-mouse search) and how many looks since the whole frame was searched.
     last_spot: Option<Point>,
     looks_since_search: u32,
+    /// The last no-mouse search found a tooltip's box, read into a card or not yet (its title still being read, or an
+    /// unknown title not yet read alike enough times).
+    tooltip_in_view: bool,
     /// When set, the capture of every newly recognised tooltip is kept here (debug aid: future test fixtures).
     pub captures: Option<Vec<(String, RgbImage)>>,
 }
@@ -131,6 +134,7 @@ impl HoverDetector {
             font_read: None,
             last_spot: None,
             looks_since_search: 0,
+            tooltip_in_view: false,
             captures: None,
         }
     }
@@ -156,6 +160,12 @@ impl HoverDetector {
 
     pub fn catalog(&self) -> &Arc<Catalog> {
         &self.catalog
+    }
+
+    /// Did the last look without a mouse see a tooltip, shown yet or not? The browser looks at full rate then, so a
+    /// title still being read (or confirmed) is not held back by the slow looks of an idle game.
+    pub fn tooltip_in_view(&self) -> bool {
+        self.tooltip_in_view
     }
 
     pub fn reader_mut(&mut self) -> &mut TextReader {
