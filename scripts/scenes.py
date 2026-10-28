@@ -38,7 +38,7 @@ CHAT = ["hi", "how much for the scroll?", "is this still here", "can u do 50k?",
         "do you have more?", "pm me", "thx", "wow", "100k each?", "i'll take 2", "coming back later", "100% gloves?"]
 
 
-NATURAL = ["Kaedos", "Ravyn", "Smoggy", "Lilith", "Illidan", "Mapler", "Wolfie", "Bambi", "Cloudy", "Dragonslayer",
+NATURAL = ["Kaelor", "Ravella", "Fogbun", "Lilith", "Illidan", "Mapler", "Wolfie", "Bambi", "Cloudy", "Dragonslayer",
            "Mimi", "Luna", "Kiwi", "Momo", "Rinrin", "Yuki", "Sora", "Haru", "Bunny", "Nova", "Zero", "Ilbi", "Lucky",
            "Pinky", "Shadow", "Blaze", "Frost", "Kitty", "Panda", "Tofu", "Mochi", "Boba", "Nyx", "Vex", "Jinx"]
 
