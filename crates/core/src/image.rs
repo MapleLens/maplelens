@@ -30,13 +30,15 @@ impl RgbImage {
 
     /// From 4-byte pixels in the given channel order (`bgra` for GDI captures, else RGBA from a browser canvas).
     pub fn from_4ch(width: usize, height: usize, pixels: &[u8], bgra: bool) -> Self {
-        let mut data = Vec::with_capacity(width * height * 3);
-        for px in pixels.as_chunks::<4>().0.iter().take(width * height) {
-            if bgra {
-                data.extend_from_slice(&[px[2], px[1], px[0]]);
-            } else {
-                data.extend_from_slice(&px[..3]);
-            }
+        // Filled in place, the byte order chosen once: pushing three bytes at a time took 4 ms of a 1080p frame.
+        let source = pixels.as_chunks::<4>().0;
+        let count = (width * height).min(source.len());
+        let mut data = vec![0; width * height * 3];
+        let pairs = data.as_chunks_mut::<3>().0.iter_mut().zip(&source[..count]);
+        if bgra {
+            pairs.for_each(|(out, px)| *out = [px[2], px[1], px[0]]);
+        } else {
+            pairs.for_each(|(out, px)| *out = [px[0], px[1], px[2]]);
         }
         Self { width, height, data }
     }
@@ -347,4 +349,19 @@ pub fn encode_png(image: &RgbImage) -> Vec<u8> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RgbImage;
+
+    #[test]
+    fn four_channel_pixels_drop_alpha_in_either_byte_order() {
+        let pixels = [1, 2, 3, 255, 4, 5, 6, 0, 7, 8, 9, 128, 10, 11, 12, 1];
+        assert_eq!(RgbImage::from_4ch(2, 2, &pixels, false).data, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+        assert_eq!(RgbImage::from_4ch(2, 2, &pixels, true).data, [3, 2, 1, 6, 5, 4, 9, 8, 7, 12, 11, 10]);
+        // Fewer pixels than the size says: the rest is black (the image is always whole).
+        let short = RgbImage::from_4ch(2, 1, &pixels[..4], false);
+        assert_eq!((short.width, short.height, short.data), (2, 1, vec![1, 2, 3, 0, 0, 0]));
+    }
 }

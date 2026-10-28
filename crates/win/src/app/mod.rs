@@ -1,8 +1,10 @@
 //! Wires the detection threads to the overlay windows on the UI thread.
 
+mod drops;
 mod follow;
 mod map;
 mod phone;
+mod pointer;
 mod settings;
 mod status;
 mod training;
@@ -125,6 +127,10 @@ pub struct App {
     training: Option<TrainingUpdate>,
     training_window: LayeredWindow,
     training_card: TrainingCard,
+    /// The map drops panel beside the training card, and a hovered drop's price card.
+    drops: drops::DropsUi,
+    /// The pointer drawn over those cards, and their presses and drags.
+    pointer: pointer::PointerUi,
     /// The game's UI scale as the hover thread measured it off the status bar.
     ui: Arc<maplelens_core::geometry::UiScale>,
     confirmed: Option<String>,
@@ -247,6 +253,8 @@ impl App {
             training: None,
             training_window: LayeredWindow::new()?,
             training_card: None,
+            drops: drops::DropsUi::new()?,
+            pointer: pointer::PointerUi::new()?,
             ui: app_ui,
             confirmed: None,
             enabled,
@@ -303,6 +311,10 @@ impl App {
                 TrayCommand::ToggleExp => {
                     let training_card = !self.settings.training_card;
                     self.update_settings(Settings { training_card, ..self.settings.clone() });
+                }
+                TrayCommand::ToggleDrops => {
+                    let map_drops = !self.settings.map_drops;
+                    self.update_settings(Settings { map_drops, ..self.settings.clone() });
                 }
                 TrayCommand::PauseTraining => {
                     let paused = self.training.as_ref().is_some_and(|(_, t)| t.exp.paused);
@@ -362,8 +374,16 @@ impl App {
         if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.follow_phone())).is_err() {
             crate::error!("phone tick failed");
         }
+        // Presses and drags first: the cards follow them in this tick.
+        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.follow_pointer())).is_err() {
+            crate::error!("pointer tick failed");
+        }
         if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.follow_training())).is_err() {
             crate::error!("training card tick failed");
+        }
+        // After the training card: the panel goes beside it, where it was just put.
+        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.follow_drops())).is_err() {
+            crate::error!("map drops tick failed");
         }
         while let Ok(catalog) = self.catalog_updates.try_recv() {
             let catalog = Arc::new(catalog);

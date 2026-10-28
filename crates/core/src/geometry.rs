@@ -23,6 +23,11 @@ impl Rect {
     pub const fn bottom(&self) -> i32 {
         self.y + self.h
     }
+
+    /// Is `point` on one of the rectangle's pixels (its right and bottom edges are outside)?
+    pub const fn contains(&self, point: Point) -> bool {
+        point.x >= self.x && point.x < self.right() && point.y >= self.y && point.y < self.bottom()
+    }
 }
 
 /// A point in screen pixels (the mouse, a window corner).

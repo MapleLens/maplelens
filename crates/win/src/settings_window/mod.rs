@@ -237,8 +237,14 @@ impl State {
             Control::NotifySales => s.notify_sales = !s.notify_sales,
             Control::NotifyStore => s.notify_store = !s.notify_store,
             Control::TrainingExp => s.training_card = !s.training_card,
-            Control::Corner(corner) if s.training_corner == corner => return,
-            Control::Corner(corner) => s.training_corner = corner,
+            Control::MapDrops => s.map_drops = !s.map_drops,
+            // A corner also puts back cards the player dragged.
+            Control::Corner(corner)
+                if s.training_corner == corner && s.training_at.is_none() && s.drops_at.is_none() =>
+            {
+                return;
+            }
+            Control::Corner(corner) => (s.training_corner, s.training_at, s.drops_at) = (corner, None, None),
             Control::PasteWebhook => return self.paste_webhook(),
             Control::TestWebhook => {
                 if self.current.discord_webhook.is_empty() {

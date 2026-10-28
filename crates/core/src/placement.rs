@@ -78,3 +78,55 @@ pub fn place_in_corner(
     }
     fits_inside(x, y, card, client).then_some((x, y))
 }
+
+/// Top-left of a card opened from a panel in `corner` (a drop's price card): on the panel's side towards the middle of
+/// the client, else the other side, its top level with `top` (the hovered row) as far as `client` allows.
+pub fn place_from_panel(
+    panel: Rect,
+    top: i32,
+    card: (i32, i32),
+    corner: Corner,
+    gap: i32,
+    client: Rect,
+) -> Option<(i32, i32)> {
+    let (width, height) = card;
+    let (inward, outward) = (panel.right() + gap, panel.x - gap - width);
+    let sides = if corner.is_left() { [inward, outward] } else { [outward, inward] };
+    let y = clamp_y(top, height, client);
+    sides.into_iter().map(|x| (x, y)).find(|&(x, y)| fits_inside(x, y, card, client))
+}
+
+/// Top-left of a panel that extends a card in `corner` (the map drops beside the EXP card): on the card's side
+/// towards the middle of the client (else the other side), `gap` from it, level with its top in a top corner and its
+/// bottom in a bottom one, so it grows away from the corner as the card does. None when neither side fits: the card
+/// is never moved to make room.
+pub fn place_beside_card(card: Rect, panel: (i32, i32), corner: Corner, gap: i32, client: Rect) -> Option<(i32, i32)> {
+    let (width, height) = panel;
+    let (right, left) = (card.right() + gap, card.x - gap - width);
+    let sides = if corner.is_left() { [right, left] } else { [left, right] };
+    let y = if corner.is_top() { card.y } else { card.bottom() - height };
+    sides.into_iter().map(|x| (x, y)).find(|&(x, y)| fits_inside(x, y, panel, client))
+}
+
+/// The corner a card at `card` is nearest (its centre's quarter of `client`): which way a panel beside it grows.
+pub fn nearest_corner(card: Rect, client: Rect) -> Corner {
+    let (cx, cy) = (card.x + card.w / 2, card.y + card.h / 2);
+    Corner::of(cy < client.y + client.h / 2, cx < client.x + client.w / 2)
+}
+
+/// A card's top-left at (x, y) as fractions of `client`: where it was dragged, kept when the window is resized.
+pub fn fraction_of(client: Rect, (x, y): (i32, i32)) -> (f32, f32) {
+    ((x - client.x) as f32 / client.w.max(1) as f32, (y - client.y) as f32 / client.h.max(1) as f32)
+}
+
+/// Top-left of a card kept at `fraction` of `client`, moved back inside it where it would stick out; None when the
+/// card is bigger than the client.
+pub fn place_at(client: Rect, card: (i32, i32), (fx, fy): (f32, f32)) -> Option<(i32, i32)> {
+    let (width, height) = card;
+    if width > client.w || height > client.h {
+        return None;
+    }
+    let x = (client.x + (fx * client.w as f32).round() as i32).clamp(client.x, client.right() - width);
+    let y = (client.y + (fy * client.h as f32).round() as i32).clamp(client.y, client.bottom() - height);
+    Some((x, y))
+}

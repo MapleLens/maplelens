@@ -46,7 +46,7 @@ impl LayeredWindow {
         self.hwnd
     }
 
-    #[cfg(test)]
+    /// Where the window was last put, and its size.
     pub fn rect(&self) -> Option<Rect> {
         self.rect
     }

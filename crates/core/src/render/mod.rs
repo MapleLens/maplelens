@@ -3,6 +3,7 @@
 pub mod canvas;
 pub mod card;
 pub mod details;
+pub mod drops_card;
 pub mod font;
 pub mod gamewin;
 pub mod glance;
@@ -10,6 +11,7 @@ pub mod map_card;
 pub mod maple_qr;
 pub mod maple_ui;
 pub mod origin;
+pub mod pointer;
 pub mod range_bar;
 pub mod rank_card;
 pub mod settings_view;

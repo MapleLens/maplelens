@@ -51,6 +51,8 @@ impl App {
             self.rank_window.hide();
             self.map.hide();
             self.training_window.hide();
+            self.drops.hide();
+            self.pointer.hide();
         }
     }
 

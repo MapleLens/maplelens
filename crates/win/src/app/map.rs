@@ -59,6 +59,11 @@ impl MapUi {
         })
     }
 
+    /// The map lookups, shared with the map drops panel.
+    pub fn service(&self) -> &Arc<MapService> {
+        &self.service
+    }
+
     pub fn hide(&mut self) {
         self.hover = None;
         self.shown = None;

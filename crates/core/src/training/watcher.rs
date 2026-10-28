@@ -3,11 +3,12 @@
 //! loop, and hands over the potions' icons (`add_potion_icon`) as it loads them.
 
 use super::kpq::{QuestTracker, Run};
-use super::map_name::MapName;
+use super::map_name::{MapName, same_place};
 use super::potions::{PotionWatcher, Potions};
 use super::session::{Tracker, TrainingView};
 use crate::config;
 use crate::geometry::{Rect, scaled, ui_scale};
+use crate::mapinfo::Location;
 use crate::pipeline::Screen;
 use crate::vision::gauge::read_exp;
 use crate::vision::hud::find_bar;
@@ -39,6 +40,9 @@ pub struct Training {
     pub minimap_right: Option<i32>,
     /// The session's potions from the quickslots.
     pub potions: Potions,
+    /// The map being played, as the minimap names it (its street from a reading of the settled name): what the map
+    /// drops panel looks up.
+    pub location: Option<Location>,
 }
 
 /// "Hidden  Street " -> "Hidden Street"; OCR's stray marks at either end are dropped.
@@ -58,6 +62,8 @@ pub struct TrainingWatcher {
     ocr: Box<dyn ImageOcr + Send>,
     place: MapName,
     map: Option<(String, f64)>,
+    /// The street read with the settled map name ("" until one was).
+    street: String,
     minimap_right: Option<i32>,
     scale: Option<f32>,
     next_exp: f64,
@@ -74,6 +80,7 @@ impl TrainingWatcher {
             ocr,
             place: MapName::default(),
             map: None,
+            street: String::new(),
             minimap_right: None,
             scale: None,
             next_exp: f64::NEG_INFINITY,
@@ -163,8 +170,12 @@ impl TrainingWatcher {
                 _ => None,
             }
         });
-        if let Some((_, map)) = read.filter(|(_, map)| !map.is_empty()) {
+        if let Some((street, map)) = read.filter(|(_, map)| !map.is_empty()) {
             if let Some(settled) = self.place.read(&map) {
+                // A street read with another map's name (one odd read while the settled one holds) is not its own.
+                if same_place(&map, settled) {
+                    self.street = street;
+                }
                 self.map = Some((settled.to_string(), now));
             }
         } else if pointed && let Some((_, seen)) = &mut self.map {
@@ -172,6 +183,7 @@ impl TrainingWatcher {
         }
         if self.map.as_ref().is_some_and(|(_, seen)| now - seen > MAP_KEEP_S) {
             self.map = None;
+            self.street.clear();
             self.place.clear();
         }
         let map = self.map.as_ref().map(|(m, _)| m.clone());
@@ -182,7 +194,8 @@ impl TrainingWatcher {
     pub fn training(&mut self, now: f64) -> Training {
         let exp = self.tracker.view(now, LIVE_S);
         let potions = Potions::new(&exp.session.potions, &self.icons);
-        Training { exp, quest: self.quest.current(now), minimap_right: self.minimap_right, potions }
+        let location = self.map.as_ref().map(|(map, _)| Location::new(&self.street, map));
+        Training { exp, quest: self.quest.current(now), minimap_right: self.minimap_right, potions, location }
     }
 }
 

@@ -46,6 +46,23 @@ const INFO_BAND_OVERLAP: i32 = 24;
 /// Keep the pointer on one item this long and the glance card grows into the full one.
 const EXPAND_DELAY_S: f64 = 1.2;
 
+/// A clock for timing the engine's parts (milliseconds): `performance.now()` in the browser, the process's own natively
+/// (the tests).
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = performance, js_name = now)]
+    fn clock_ms() -> f64;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn clock_ms() -> f64 {
+    use std::sync::OnceLock;
+    use std::time::Instant;
+    static START: OnceLock<Instant> = OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_secs_f64() * 1000.0
+}
+
 /// A rendered card and what it shows, so it is only redrawn when that changes.
 struct Drawn<K> {
     key: K,
@@ -326,10 +343,12 @@ impl Engine {
         now: f64,
         unix_now: f64,
     ) -> String {
+        let t0 = clock_ms();
         let frame = RgbImage::from_4ch(width as usize, height as usize, rgba, false);
         let inset = top_inset.min(height) as i32;
         let bounds = Rect::new(0, inset, width as i32, height as i32 - inset);
         let mut screen = FrameScreen { frame: &frame, origin: Point::default(), cursor: None };
+        let t1 = clock_ms();
         // Without a scale given, it is measured off the status bar ("UI Size: Ideal Ratio" keeps the UI small at
         // any window size), falling back to the window height.
         let hover = if scale > 0.0 {
@@ -340,6 +359,7 @@ impl Engine {
         if let Some(hover) = hover {
             self.last_hover = Some((hover, now));
         }
+        let t2 = clock_ms();
         let scale = if scale > 0.0 { scale } else { self.hover.ui_scale().of(bounds) };
         let known_window = self.last_info.as_ref().is_some_and(|(_, seen)| now - seen <= HIDE_GRACE_S);
         // A known window is re-checked in place (a tiny grab); looking for one is spread over the frame's bands.
@@ -358,21 +378,25 @@ impl Engine {
         {
             self.last_info = Some((info, now));
         }
+        let t3 = clock_ms();
         let hover = self.last_hover.as_ref().filter(|(_, seen)| now - seen <= HIDE_GRACE_S).map(|(h, _)| h.clone());
         let info = self.last_info.as_ref().filter(|(_, seen)| now - seen <= HIDE_GRACE_S).map(|(i, _)| i.clone());
         // The Character Info window's name (checked against the rank list) settles how the name plate is spelled.
         self.shop.suggest_owner(info.as_ref().and_then(|i| i.name.as_deref()));
         self.update_card(hover.as_ref(), now, unix_now);
         self.update_rank_card(info.as_ref(), now, unix_now);
+        let t4 = clock_ms();
         // The shop, when the page asked for it, and only on the frames it is due. It gets the whole frame: it finds its
         // window by template wherever it is, and the page's guess at the title bar (which cycles while nothing else is
         // detected) would move the window under it and make it forget what it had seen.
         let shop_events: Vec<Value> = self.shop.step(|| frame.clone(), now, unix_now).iter().map(event_json).collect();
+        let t5 = clock_ms();
         // EXP off the status bar and the map off the minimap, when due (it paces itself), against the wall clock:
         // sessions are saved with their dates.
         self.training.step(&mut screen, bounds, unix_now);
         let training = self.training.training(unix_now);
         self.update_training_card(&training, unix_now);
+        let t6 = clock_ms();
         let pending_ocr = self.title_ocr.lock().map_or(0, |q| q.waiting())
             + self.name_ocr.lock().map_or(0, |q| q.waiting())
             + self.map_ocr.lock().map_or(0, |q| q.waiting())
@@ -394,6 +418,9 @@ impl Engine {
             "training": training_json(&training),
             "potion_icons": self.training.potion_icons(),
             "training_card": self.training_card.as_ref().map(|c| c.version),
+            // Where the frame's time went (ms): converting the pixels, the tooltip, the Character Info window, the cards,
+            // the shop, the training reads.
+            "parts": [t1 - t0, t2 - t1, t3 - t2, t4 - t3, t5 - t4, t6 - t5],
             "shop": {"status": status_json(self.shop.status()), "owner": self.shop.owner(), "balance": self.shop.balance(), "events": shop_events, "looks": self.shop.looks, "undone": self.shop.undone, "owner_reads": self.shop.owner_reads()},
         })
         .to_string()

@@ -13,6 +13,10 @@ mod capture;
 #[cfg(windows)]
 mod clipboard;
 #[cfg(windows)]
+mod drops;
+#[cfg(windows)]
+mod elevate;
+#[cfg(windows)]
 mod game;
 #[cfg(windows)]
 mod icon;
@@ -214,6 +218,10 @@ fn main() -> std::process::ExitCode {
                 std::process::ExitCode::FAILURE
             }
         };
+    }
+    // Presses on the cards need administrator while the game runs as one (see `elevate`): asked once, here.
+    if !args.shop && elevate::relaunch_elevated() {
+        return std::process::ExitCode::SUCCESS;
     }
     // `--shop` is a read-only diagnostic (no tray, hotkey or windows): it may run beside the app, for comparing.
     if !args.shop && already_running() {
