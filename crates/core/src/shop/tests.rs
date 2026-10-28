@@ -14,6 +14,8 @@ use super::{ListKind, ShopEvent, ShopStatus, chatlog};
 use crate::image::{RgbImage, decode_png};
 use crate::scale_vote::ScaleVote;
 use crate::vision::Mask;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 const ENTER: Point = (1062, 840);
 const SOLD_X: Point = (1505, 246);
@@ -747,8 +749,81 @@ fn fake_observation(rows: Option<Vec<Row>>, balance: u8) -> Observation {
 
 /// The sold list's events for a synthetic observation (no frame behind it).
 fn sold(watcher: &mut ShopWatcher, observation: &Observation) -> Vec<ShopEvent> {
+    sold_at(watcher, observation, 0.0)
+}
+
+fn sold_at(watcher: &mut ShopWatcher, observation: &Observation, now: f64) -> Vec<ShopEvent> {
     let frame = RgbImage::new(1, 1);
-    watcher.sold_events(&View { frame: &frame, scale: 1.0 }, observation)
+    watcher.sold_update(&View { frame: &frame, scale: 1.0 }, observation, now)
+}
+
+/// A row whose glyphs say which sale it is (the browser's OCR reads by glyphs): `ocr_by_width` reads it back.
+fn numbered_row(n: usize) -> Row {
+    let mut row = fake_row(100 + n as u64);
+    for (i, line) in row.lines.iter_mut().enumerate() {
+        line.glyphs = Mask::new(10 * n + i + 1, 3);
+    }
+    row
+}
+
+fn ocr_by_width(width: usize) -> String {
+    let width = width - 8; // OCR is given the glyphs with a 4 px margin
+    match width % 10 {
+        1 => format!("Item {}", width / 10),
+        2 => "Buyer: Tikko".into(),
+        _ => "Number purchased: 1".into(),
+    }
+}
+
+/// OCR as the browser has it: nothing answered until `answering` is set.
+fn late_reader(answering: &Arc<AtomicBool>) -> super::watcher::ReadText {
+    let answering = answering.clone();
+    Box::new(move |mask: &Mask| answering.load(Ordering::Relaxed).then(|| ocr_by_width(mask.width)))
+}
+
+fn items(events: &[ShopEvent]) -> Vec<String> {
+    events
+        .iter()
+        .map(|e| match e {
+            ShopEvent::Sale { item, .. } => item.clone(),
+            other => format!("{other:?}"),
+        })
+        .collect()
+}
+
+#[test]
+fn a_burst_of_sales_is_counted_while_their_text_is_still_being_read() {
+    // One buyer took four items in a few seconds while the browser's OCR had not answered yet. Waiting for the text
+    // before believing the page had let it move four rows on a page of four, which no longer aligns: all four were
+    // lost. The page is followed at once; the sales wait for their text and come in order.
+    let answering = Arc::new(AtomicBool::new(false));
+    let mut watcher = ShopWatcher::new(late_reader(&answering));
+    let mut page: Vec<Row> = (0..4).map(|i| fake_row(1 + i)).collect();
+    sold(&mut watcher, &fake_observation(Some(page.clone()), 10));
+    for n in 1..=4 {
+        page.insert(0, numbered_row(n));
+        page.truncate(4);
+        assert_eq!(sold(&mut watcher, &fake_observation(Some(page.clone()), 10)), [], "sale {n} waits for its text");
+        assert!(watcher.missing_text());
+    }
+    answering.store(true, Ordering::Relaxed);
+    let events = sold(&mut watcher, &fake_observation(Some(page), 10));
+    assert_eq!(items(&events), ["Item 1", "Item 2", "Item 3", "Item 4"]);
+    assert!(!watcher.missing_text());
+}
+
+#[test]
+fn a_sale_whose_text_never_comes_is_told_with_what_the_font_read() {
+    let answering = Arc::new(AtomicBool::new(false));
+    let mut watcher = ShopWatcher::new(late_reader(&answering));
+    let page = vec![fake_row(1), fake_row(2)];
+    sold_at(&mut watcher, &fake_observation(Some(page), 10), 0.0);
+    let page = vec![numbered_row(1), fake_row(1), fake_row(2)];
+    assert_eq!(sold_at(&mut watcher, &fake_observation(Some(page.clone()), 10), 1.0), []);
+    assert_eq!(sold_at(&mut watcher, &fake_observation(Some(page.clone()), 10), 20.0), []);
+    let events = sold_at(&mut watcher, &fake_observation(Some(page), 10), 31.0);
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert!(matches!(events[0], ShopEvent::Sale { .. }));
 }
 
 #[test]
@@ -870,7 +945,7 @@ fn an_hour_of_captures_counts_every_sale_exactly_once() {
 #[cfg_attr(not(fixtures), ignore = "needs the local captures in tests/fixtures")]
 fn the_owner_is_read_off_the_name_plate_and_the_balance_off_the_counter() {
     // The plate's letters are light on dark: the mask handed to the reader is a few letters wide, not the plate's edge.
-    let widths = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let widths = Arc::new(std::sync::Mutex::new(Vec::new()));
     let seen = widths.clone();
     let owner = local_name("owner");
     let plate = owner.clone();
@@ -966,7 +1041,7 @@ fn the_owner_is_found_when_the_reads_differ_only_in_case_and_a_given_name_wins()
     let alternating: String =
         owner.chars().enumerate().map(|(i, c)| if i % 2 == 0 { c.to_ascii_uppercase() } else { c }).collect();
     let ways = [alternating, owner.to_uppercase(), owner.to_lowercase()];
-    let spellings = std::sync::Arc::new(std::sync::Mutex::new(0usize));
+    let spellings = Arc::new(std::sync::Mutex::new(0usize));
     let counter = spellings;
     let read = move |mask: &Mask| {
         if mask.height > 12 {
@@ -1045,7 +1120,7 @@ fn with_status_bar(mut canvas: RgbImage) -> RgbImage {
 #[cfg_attr(not(fixtures), ignore = "needs the local captures in tests/fixtures")]
 fn the_owner_is_read_from_the_status_bar_where_the_name_stands_under_the_job() {
     // The mask given to OCR is the name alone: a few letters wide, not the job above it nor the level box.
-    let widths = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let widths = Arc::new(std::sync::Mutex::new(Vec::new()));
     let seen = widths.clone();
     let owner = local_name("owner");
     let hud = owner.clone();

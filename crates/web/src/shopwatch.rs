@@ -1,8 +1,9 @@
 //! The Store Permit watcher in the browser: the same `ShopWatcher` as the Windows app, fed the shared window's frames.
 //!
-//! Text is read by the page's OCR, which is asynchronous, while the watcher asks for it synchronously. So a frame
-//! whose text is not read yet is undone (the watcher is restored from a copy made before it) and tried again once
-//! the answers are in: the sold list still shows the new rows then. Sales go to the notification connectors; the page
+//! Text is read by the page's OCR, which is asynchronous, while the watcher asks for it synchronously. The watcher
+//! follows its lists at once and holds back the events whose text is not read yet, asking again with the same glyphs
+//! on later looks until the answers are in (undoing such a look instead lost a burst of sales: the page moved on by
+//! more rows than it shows while the counter kept being read). Sales go to the notification connectors; the page
 //! sends the requests this produces (the engine never touches the network). A sold item's picture is that of its own
 //! id; one without an id is searched by name first (`take_picture_lookups` / `picture_found`).
 
@@ -27,7 +28,7 @@ use crate::ocr::{OcrQueue, QueuedOcr};
 const POLL_S: f64 = 1.0;
 /// ...and while none is, a full search of the frame costs too much to do often.
 const IDLE_POLL_S: f64 = 4.0;
-/// After a frame was undone for want of text, try again this soon (the answers take a moment).
+/// While events wait for their text, look again this soon (the answers take a moment).
 const RETRY_S: f64 = 0.3;
 /// Jobs waiting at once: a burst of sales needs three lines read for each, and dropping one starves the watcher.
 const MAX_WAITING_JOBS: usize = 48;
@@ -56,7 +57,7 @@ pub struct ShopRunner {
     /// Until when the waiting batch waits for its pictures.
     pictures_due: Option<f64>,
     announcer: Announcer,
-    /// How many looks were made, and how many of them were undone for want of text (for diagnosing a page).
+    /// How many looks were made, and after how many of them events waited for text (for diagnosing a page).
     pub looks: u32,
     pub undone: u32,
 }
@@ -157,10 +158,12 @@ impl ShopRunner {
     pub fn step(&mut self, frame: impl FnOnce() -> RgbImage, now: f64, unix_now: f64) -> Vec<ShopEvent> {
         let mut events = Vec::new();
         if self.enabled && now >= self.next_poll {
-            let backup = self.ocr_on.then(|| self.watcher.clone());
             self.missed.store(false, Ordering::Relaxed);
             self.looks += 1;
             events = self.watcher.update(&frame(), now);
+            if self.watcher.missing_text() {
+                self.undone += 1;
+            }
             let missed = self.missed.load(Ordering::Relaxed);
             self.next_poll = now
                 + if missed {
@@ -170,19 +173,10 @@ impl ShopRunner {
                 } else {
                     IDLE_POLL_S
                 };
-            match backup {
-                // Undo the frame when a sale or a visitor's text is not in yet; the events come when it has been read.
-                // Text the watcher reads for itself (the owner's name) is asked again on the next look instead, so
-                // the store is followed while the page's OCR is still loading.
-                Some(before) if self.watcher.missing_text() => {
-                    self.undone += 1;
-                    self.watcher = before;
-                    events.clear();
-                }
-                // No text reader: nothing said in the shop can be read, so only what the pixels alone tell is kept.
-                None => events
-                    .retain(|e| matches!(e, ShopEvent::StoreOpened | ShopEvent::StoreClosed | ShopEvent::LostSync(_))),
-                _ => {}
+            // No text reader: nothing said in the shop can be read, so only what the pixels alone tell is kept.
+            if !self.ocr_on {
+                events
+                    .retain(|e| matches!(e, ShopEvent::StoreOpened | ShopEvent::StoreClosed | ShopEvent::LostSync(_)));
             }
         }
         // Every call, events or none: a store found open waits a moment for its owner's name before it is announced.
