@@ -1,0 +1,4 @@
+# Vendored files are kept byte for byte as published: scripts/vendor.mjs checks them against SHA256SUMS, and a
+# line-ending conversion (a CRLF licence turned LF) would fail that check.
+docs/app/vendor/** -text
+docs/app/phone/vendor/** -text
