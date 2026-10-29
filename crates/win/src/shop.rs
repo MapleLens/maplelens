@@ -115,6 +115,11 @@ impl Emit {
     }
 
     fn event(&self, event: &ShopEvent, frame: &RgbImage) {
+        // Without --debug the log still says what the store did (an evening's store is a few hundred lines), but not
+        // who: a player sends the log when something breaks, and it must not carry other players' names.
+        if !crate::log::enabled(crate::log::Level::Debug) {
+            crate::info!("shop: {}", event.kind());
+        }
         self.line(&event.describe());
         if let Some(dir) = &self.debug_dir
             && event.wants_evidence()
@@ -176,6 +181,7 @@ pub fn run(ui: Arc<UiScale>, updates: Option<Sender<ShopUpdate>>, emit: Emit, ca
     let mut watcher = new_watcher();
     let mut source: Option<Source> = None;
     let mut last = ShopUpdate { hwnd: 0, status: ShopStatus::Hidden };
+    let mut last_look = String::new();
     loop {
         let delay = match game::find_game_window() {
             None => {
@@ -196,6 +202,12 @@ pub fn run(ui: Arc<UiScale>, updates: Option<Sender<ShopUpdate>>, emit: Emit, ca
                     let now = paths::uptime();
                     measure_ui(&ui, &frame, client, now);
                     let events = watcher.update(&frame, now);
+                    // What each look saw and why it reported what it did, logged when that changes (a quiet store
+                    // looks the same every second).
+                    if watcher.look() != last_look {
+                        last_look = watcher.look().to_string();
+                        crate::debug!("shop look: {last_look}");
+                    }
                     for event in &events {
                         emit.event(event, &frame);
                     }
@@ -210,6 +222,9 @@ pub fn run(ui: Arc<UiScale>, updates: Option<Sender<ShopUpdate>>, emit: Emit, ca
             status: if source.is_some() { watcher.status() } else { ShopStatus::Hidden },
         };
         if now != last {
+            if now.status != last.status {
+                crate::info!("shop status: {:?} -> {:?}", last.status, now.status);
+            }
             last = now;
             if let Some(updates) = &updates
                 && updates.send(now).is_err()
