@@ -72,12 +72,22 @@ jobs:
           Compress-Archive -Path $name -DestinationPath "$name.zip"
           (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower() + "  $name.zip" | Out-File "$name.zip.sha256" -Encoding ascii
 
+      # The website's download: the same exe, installed for all users (installer/maplelens.iss), with its .sha256.
+      # The updater keeps using the zip above.
+      - name: Installer
+        shell: pwsh
+        run: |
+          $setup = ./scripts/build-installer.ps1 -Version $env:VERSION -Install
+          ./scripts/test-installer.ps1 $setup
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-build
           path: |
             maplelens-v${{ env.VERSION }}-windows.zip
             maplelens-v${{ env.VERSION }}-windows.zip.sha256
+            maplelens-v${{ env.VERSION }}-setup.exe
+            maplelens-v${{ env.VERSION }}-setup.exe.sha256
           if-no-files-found: error
           retention-days: 7
 
@@ -139,5 +149,7 @@ jobs:
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes \
             "maplelens-v$version-windows.zip" \
             "maplelens-v$version-windows.zip.sha256" \
+            "maplelens-v$version-setup.exe" \
+            "maplelens-v$version-setup.exe.sha256" \
             "maplelens-v$version-manifest.json" \
             "maplelens-v$version-manifest.json.sig"

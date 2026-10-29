@@ -42,7 +42,8 @@ impl App {
             return;
         }
         if !install::can_self_update(&self.exe) {
-            // A development build is rebuilt, not swapped: show the release instead.
+            // A development build is rebuilt, not swapped, and Program Files needs the declined prompt: show the
+            // release instead.
             open_page(&update.page_url);
             return;
         }

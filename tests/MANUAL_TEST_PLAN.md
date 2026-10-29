@@ -10,11 +10,12 @@ What a new player meets first, on the published files (not a local build), on a 
 MapleLens (or with `%LOCALAPPDATA%\MapleLens` renamed aside for the test):
 
 - [ ] The website's Download button gets this version's setup; Windows' "protected your PC" box: More info → Run anyway.
-- [ ] The installer asks for no administrator rights, installs to `%LOCALAPPDATA%\Programs\MapleLens`, adds a Start
-      menu entry and starts MapleLens at the end.
+- [ ] The installer asks for administrator once, installs to `C:\Program Files\MapleLens`, adds a Start menu entry and
+      starts MapleLens at the end.
 - [ ] One administrator prompt; then the "MapleLens is running" notification, and the meso coin in the tray (or under ^).
 - [ ] Start it again from the Start menu: no administrator prompt, a box says it is already running.
-- [ ] Exit, start it and say No to the prompt: price cards still show on hover.
+- [ ] Exit, start it and say No to the prompt: price cards still show on hover; Settings offers View release, not
+      Update now (it may not write to Program Files).
 - [ ] Game in front: a price card on hover, the rank panel beside Character Info, a map card on the world map.
 - [ ] Settings → Check now: "You have the latest version."
 - [ ] The previous release, installed the same way, offers this one in the tray; Update now restarts it as this version.

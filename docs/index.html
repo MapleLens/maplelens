@@ -25,7 +25,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lilita+One&display=swap">
-<link rel="stylesheet" href="assets/maple.css?v=f1e7de51ca42">
+<link rel="stylesheet" href="assets/maple.css?v=5faf6343f8c3">
 <style>
 /* ---------- hero: a field map ---------- */
 .hero{position:relative;padding:56px 0 150px;overflow:hidden}
@@ -51,6 +51,7 @@
 .tagline{margin:16px 0 26px;font-size:18px;font-weight:bold;color:#0e2a55;max-width:28em;text-shadow:0 1px 0 #ffffffa0}
 .choices{display:grid;grid-template-columns:repeat(2,max-content);gap:10px 14px;align-items:start}
 .choices .meta{display:block;margin-top:6px;font-size:12px;color:#163866;font-weight:bold;max-width:15em}
+.dl-note{margin:14px 0 0;font-size:12px;color:#163866;font-weight:bold;max-width:34em}
 .hero .win img{display:block;width:100%;height:auto}
 
 section{padding:64px 0 0}
@@ -101,6 +102,7 @@ p.sub{margin:0 0 22px;font-weight:bold;color:#0e2a55;max-width:46em}
 .npc .say p{margin:0 0 14px;font-size:15px}
 .npc .say b{color:#d23a5a}
 .npc .actions{display:flex;flex-wrap:wrap;gap:12px}
+.npc .say .dl-note{margin:12px 0 0;font-size:12.5px;font-weight:normal;color:var(--muted);max-width:none}
 
 /* On a phone the game is not there: what it can do is connect to MapleLens on the computer. */
 @media not all and (max-width:900px) and (pointer:coarse){.mob-only{display:none!important}}
@@ -184,13 +186,15 @@ dialog.connect .win-b{overflow:auto;display:grid;gap:14px}
       <div class="choices desk-only">
         <div>
           <a class="btn js-dl" href="https://github.com/MapleLens/maplelens/releases/latest" rel="noopener"><span class="js-dl-label">Download for Windows</span></a>
-          <span class="meta js-dl-meta">Free &amp; open source · one small exe · Windows 10/11</span>
+          <span class="meta js-dl-meta">Free &amp; open source · Windows 10/11</span>
+          <span class="meta">or the <a class="js-dl-zip" href="https://github.com/MapleLens/maplelens/releases/latest" rel="noopener">portable zip</a>, no install</span>
         </div>
         <div>
           <a class="btn blue" href="app/">Open in browser</a>
           <span class="meta">Nothing to install · Chrome or Edge</span>
         </div>
       </div>
+      <p class="dl-note desk-only">New downloads can get a blue &ldquo;Windows protected your PC&rdquo; box: More info &rarr; Run anyway. Setup asks for administrator once, to install into Program Files. At start MapleLens asks again because the game runs as one; No keeps the prices working, only clicks on its cards need it.</p>
     </div>
     <div class="win">
       <div class="win-h">Price overlay<span class="x">×</span></div>
@@ -223,11 +227,12 @@ dialog.connect .win-b{overflow:auto;display:grid;gap:14px}
             <li>World map: hover a place to see its monsters and NPCs.</li>
             <li>Store watcher: every sale, visitor and chat line of your open shop.</li>
             <li>Tray icon, show/hide hotkey, signed one-click updates.</li>
-            <li>One 5 MB file. No Python, no installer.</li>
+            <li>A ~4 MB installer (or a ~3 MB portable zip). No Python.</li>
           </ul>
           <div class="foot desk-only">
             <a class="btn js-dl" href="https://github.com/MapleLens/maplelens/releases/latest" rel="noopener"><span class="js-dl-label">Download for Windows</span></a>
             <small class="js-dl-meta">Windows 10/11</small>
+            <small>or the <a class="js-dl-zip" href="https://github.com/MapleLens/maplelens/releases/latest" rel="noopener">portable zip</a></small>
           </div>
         </div>
       </div>
@@ -333,6 +338,7 @@ dialog.connect .win-b{overflow:auto;display:grid;gap:14px}
             <a class="btn js-dl" href="https://github.com/MapleLens/maplelens/releases/latest" rel="noopener"><span class="js-dl-label">Download for Windows</span></a>
             <a class="btn blue" href="app/">Open in browser</a>
           </div>
+          <p class="dl-note desk-only">New downloads can get a blue &ldquo;Windows protected your PC&rdquo; box: More info &rarr; Run anyway. Setup asks for administrator once, to install into Program Files. At start MapleLens asks again because the game runs as one; No keeps the prices working, only clicks on its cards need it.</p>
           <div class="actions mob-only"><button class="btn js-connect" type="button">Connect to MapleLens</button></div>
         </div>
       </div>
@@ -381,7 +387,7 @@ dialog.connect .win-b{overflow:auto;display:grid;gap:14px}
   </div>
 </footer>
 
-<script src="assets/site.js?v=f1e7de51ca42"></script>
-<script type="module" src="assets/demo.js?v=f1e7de51ca42"></script>
+<script src="assets/site.js?v=5faf6343f8c3"></script>
+<script type="module" src="assets/demo.js?v=5faf6343f8c3"></script>
 </body>
 </html>

@@ -21,6 +21,8 @@ mod game;
 #[cfg(windows)]
 mod icon;
 #[cfg(windows)]
+mod installer;
+#[cfg(windows)]
 mod instance;
 #[cfg(windows)]
 mod layered;
@@ -238,6 +240,11 @@ fn main() -> std::process::ExitCode {
     // The previous version's file stays locked until that process has fully exited.
     let exe = update::install::current_exe();
     std::thread::spawn(move || update::install::cleanup_leftovers(&exe, 20, std::time::Duration::from_millis(500)));
+    if let Some(dir) = paths::exe_dir()
+        && installer::sync_version(installer::ENTRY, &dir, env!("CARGO_PKG_VERSION"))
+    {
+        info!("installed apps entry set to {}", env!("CARGO_PKG_VERSION"));
+    }
     let path = args.snapshot.clone().unwrap_or_else(paths::snapshot_file);
     let catalog = app::build_catalog(&path);
     match app::App::new(catalog, args.snapshot.is_none(), args.debug, first_start) {

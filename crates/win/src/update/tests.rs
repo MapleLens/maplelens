@@ -291,9 +291,25 @@ fn leftovers_are_cleaned_up() {
 
 #[test]
 fn only_an_installed_exe_updates_itself() {
-    assert!(install::can_self_update(std::path::Path::new(r"C:\Games\MapleLens\maplelens.exe")));
-    assert!(!install::can_self_update(std::path::Path::new(r"C:\src\maplelens\target\release\maplelens.exe")));
-    assert!(!install::can_self_update(std::path::Path::new(r"C:\Games\MapleLens\maplelens (1).exe")));
+    assert!(install::is_release_copy(std::path::Path::new(r"C:\Games\MapleLens\maplelens.exe")));
+    assert!(!install::is_release_copy(std::path::Path::new(r"C:\src\maplelens\target\release\maplelens.exe")));
+    assert!(!install::is_release_copy(std::path::Path::new(r"C:\Games\MapleLens\maplelens (1).exe")));
+}
+
+#[test]
+fn an_exe_updates_itself_only_where_it_may_write() {
+    let dir = std::env::temp_dir().join(format!("maplelens-writable-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    assert!(install::can_self_update(&dir.join("maplelens.exe")));
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0, "the probe is removed");
+    assert!(!install::can_self_update(&dir.join("missing").join("maplelens.exe")));
+    std::fs::remove_dir_all(&dir).unwrap();
+    // Program Files: only administrators may write there (the test does not run elevated).
+    if let Some(program_files) = std::env::var_os("ProgramFiles")
+        && !crate::elevate::is_elevated()
+    {
+        assert!(!install::can_self_update(&std::path::Path::new(&program_files).join("maplelens.exe")));
+    }
 }
 
 /// The real exe, built by `cargo build --release -p maplelens`, if it is there.

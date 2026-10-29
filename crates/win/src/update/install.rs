@@ -22,11 +22,27 @@ pub fn current_exe() -> PathBuf {
     std::env::current_exe().unwrap_or_else(|_| PathBuf::from(EXE_NAME))
 }
 
-/// Only an installed exe replaces itself: a development build (under cargo's `target`) is rebuilt instead, and
-/// a renamed exe would not be found again by the relaunch.
+/// Only an installed exe replaces itself, and only where this process may write: installed for every account
+/// (Program Files), a copy whose administrator prompt was declined shows the release page instead.
 pub fn can_self_update(exe: &Path) -> bool {
+    is_release_copy(exe) && exe.parent().is_some_and(can_write_in)
+}
+
+/// A development build (under cargo's `target`) is rebuilt instead, and a renamed exe would not be found again by
+/// the relaunch.
+pub fn is_release_copy(exe: &Path) -> bool {
     let named = exe.file_name().is_some_and(|n| n.eq_ignore_ascii_case(EXE_NAME));
     named && !exe.ancestors().any(|dir| dir.file_name().is_some_and(|n| n == "target"))
+}
+
+/// The swap renames the exe aside and moves the new one in, so it needs to create files in its folder.
+fn can_write_in(dir: &Path) -> bool {
+    let probe = dir.join(format!("maplelens.write-test.{}", std::process::id()));
+    let created = std::fs::OpenOptions::new().write(true).create_new(true).open(&probe).is_ok();
+    if created {
+        let _ = std::fs::remove_file(&probe);
+    }
+    created
 }
 
 /// The previous version's file stays locked until that process has fully exited, so keep trying for a while.

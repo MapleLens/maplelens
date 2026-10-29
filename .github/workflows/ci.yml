@@ -112,6 +112,13 @@ jobs:
           New-Item -ItemType Directory -Force target/release | Out-Null
           Copy-Item target/debug/maplelens.exe target/release/maplelens.exe
       - run: cargo test --workspace --locked
+      # A broken installer/maplelens.iss fails here rather than on a tag: compiled around the dev exe, installed,
+      # refused while "running", uninstalled (release.yml does the same with the release exe).
+      - name: Installer
+        shell: pwsh
+        run: |
+          $setup = ./scripts/build-installer.ps1 -Exe target/debug/maplelens.exe -OutDir target/installer -Install
+          ./scripts/test-installer.ps1 $setup
 
   msrv:
     name: Minimum Rust (1.88)
