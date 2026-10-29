@@ -178,8 +178,9 @@ jobs:
       # The relay's routes, crypto and abuse cases (relay/push/test), against in-memory Durable Objects.
       - run: npm test
         working-directory: relay/push
-      # The self-hosted Tesseract and jsQR are byte for byte what scripts/vendor.mjs checked against npm's integrity.
-      - run: node scripts/vendor.mjs --check
+      # The self-hosted Tesseract, jsQR and pwa-install are byte for byte the pinned packages on npm (downloaded again
+      # and compared: a change to a vendored file and its SHA256SUMS together fails here).
+      - run: node scripts/vendor.mjs --verify
       # No page of the site loads a script from another server (they share one origin with the player's secrets).
       - name: No third-party scripts in the site
         run: |

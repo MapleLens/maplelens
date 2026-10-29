@@ -70,16 +70,41 @@ pub fn relaunch_elevated() -> bool {
     started.0 as isize > 32
 }
 
-/// An argument as the C runtime splits command lines: quoted when it has a space or a quote.
+/// An argument as the C runtime splits command lines: quoted when it has a space or a quote. Backslashes are plain
+/// letters there except before a quote, where they escape in pairs, so those are doubled: `C:\My Dir\` quoted as is
+/// would end in `\"`, an escaped quote, and run on into the next argument.
 fn quote(argument: &str) -> String {
     if !argument.is_empty() && !argument.contains([' ', '\t', '"']) {
         return argument.to_string();
     }
-    format!("\"{}\"", argument.replace('"', "\\\""))
+    let mut quoted = String::from('"');
+    let mut backslashes = 0;
+    for c in argument.chars() {
+        match c {
+            '\\' => backslashes += 1,
+            '"' => {
+                quoted.extend(std::iter::repeat_n('\\', backslashes * 2 + 1));
+                quoted.push('"');
+                backslashes = 0;
+            }
+            c => {
+                quoted.extend(std::iter::repeat_n('\\', backslashes));
+                quoted.push(c);
+                backslashes = 0;
+            }
+        }
+    }
+    quoted.extend(std::iter::repeat_n('\\', backslashes * 2));
+    quoted.push('"');
+    quoted
 }
 
 #[cfg(test)]
 mod tests {
+    use windows::Win32::Foundation::{HLOCAL, LocalFree};
+    use windows::Win32::UI::Shell::CommandLineToArgvW;
+    use windows::core::HSTRING;
+
     use super::quote;
 
     #[test]
@@ -87,5 +112,41 @@ mod tests {
         assert_eq!(quote("--debug"), "--debug");
         assert_eq!(quote(r"C:\My Games\list.json"), r#""C:\My Games\list.json""#);
         assert_eq!(quote(""), r#""""#);
+        assert_eq!(quote(r"C:\My Dir\"), r#""C:\My Dir\\""#);
+        assert_eq!(quote(r#"say \"hi\""#), r#""say \\\"hi\\\"""#);
+    }
+
+    /// The arguments after the program's name, as Windows splits `line`.
+    fn split(line: &str) -> Vec<String> {
+        let line = HSTRING::from(line);
+        let mut count = 0;
+        // SAFETY: a NUL-terminated string that outlives the call; the array Windows returns is read within its count
+        // and freed once, after its strings are copied.
+        unsafe {
+            let argv = CommandLineToArgvW(&line, &mut count);
+            assert!(!argv.is_null());
+            let all = std::slice::from_raw_parts(argv, count as usize);
+            let arguments = all.iter().skip(1).map(|a| a.to_string().unwrap()).collect();
+            let _ = LocalFree(Some(HLOCAL(argv.cast())));
+            arguments
+        }
+    }
+
+    #[test]
+    fn every_argument_reaches_the_elevated_copy_as_it_was() {
+        let arguments = [
+            "--snapshot",
+            r"C:\My Dir\",
+            r"C:\Dir\",
+            "",
+            r#"say "hi""#,
+            r#"a\"b"#,
+            r"\\server\share dir\\",
+            "tab\there",
+            r#"ends in a quote""#,
+            r"\",
+        ];
+        let line: Vec<String> = arguments.iter().map(|a| quote(a)).collect();
+        assert_eq!(split(&format!("maplelens.exe {}", line.join(" "))), arguments);
     }
 }

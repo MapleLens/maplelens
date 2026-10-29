@@ -2,8 +2,13 @@
 // decoder and the iPhone install card for the phone app (docs/app/phone/vendor/jsqr-<version>/, pwa-install-<version>/). No code or data from a CDN runs in these pages:
 // they share one origin, whose storage holds the player's Discord webhook and phone key.
 //
-//   node scripts/vendor.mjs           download the pinned packages, check them, copy what the pages use
-//   node scripts/vendor.mjs --check   check the copied files against each folder's SHA256SUMS (CI)
+//   node scripts/vendor.mjs            download the pinned packages, check them, copy what the pages use
+//   node scripts/vendor.mjs --check    check the copied files against each folder's SHA256SUMS (offline)
+//   node scripts/vendor.mjs --verify   --check, then download the pinned packages again and compare the copied files
+//                                      with theirs byte for byte (CI)
+//
+// --check alone proves the files and SHA256SUMS agree, which a change to both passes; --verify proves they are what
+// npm holds for the pinned integrity, so a vendored file can only change with a version that is on npm.
 //
 // Each package is fetched with `npm pack --ignore-scripts` (nothing of it runs) and must match the sha512 below,
 // which is the npm registry's own integrity for that exact version. Updating: change a version and its integrity
@@ -81,12 +86,10 @@ function check(OUT) {
   console.log(`${listed.length} files match ${SUMS}`);
 }
 
-function vendor({ out: OUT, packages: PACKAGES }) {
+/** Each package fetched from npm and checked against its pinned integrity; `use(pkg, dir)` gets its unpacked folder. */
+function fetchPackages(PACKAGES, use) {
   const work = mkdtempSync(join(tmpdir(), "vendor-"));
   try {
-    rmSync(OUT, { recursive: true, force: true });
-    mkdirSync(OUT, { recursive: true });
-    const sums = [];
     for (const pkg of PACKAGES) {
       const dir = mkdtempSync(join(work, "pkg-"));
       // The name and version are this file's constants, never input.
@@ -94,20 +97,45 @@ function vendor({ out: OUT, packages: PACKAGES }) {
       const integrity = `sha512-${createHash("sha512").update(readFileSync(join(dir, tarball))).digest("base64")}`;
       if (integrity !== pkg.integrity) throw new Error(`${pkg.name}@${pkg.version}: integrity ${integrity}, expected ${pkg.integrity}`);
       execFileSync("tar", ["xzf", tarball], { cwd: dir });
-      for (const [from, to] of Object.entries(pkg.files)) {
-        copyFileSync(join(dir, "package", from), join(OUT, to));
-        sums.push(`${sha256(join(OUT, to))}  ${to}`);
-      }
+      use(pkg, join(dir, "package"));
       console.log(`${pkg.name}@${pkg.version}: integrity ok`);
     }
-    writeFileSync(join(OUT, "SHA256SUMS"), `${sums.sort((a, b) => a.slice(66).localeCompare(b.slice(66))).join("\n")}\n`);
-    check(OUT);
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
 }
 
+function vendor({ out: OUT, packages: PACKAGES }) {
+  rmSync(OUT, { recursive: true, force: true });
+  mkdirSync(OUT, { recursive: true });
+  const sums = [];
+  fetchPackages(PACKAGES, (pkg, dir) => {
+    for (const [from, to] of Object.entries(pkg.files)) {
+      copyFileSync(join(dir, from), join(OUT, to));
+      sums.push(`${sha256(join(OUT, to))}  ${to}`);
+    }
+  });
+  writeFileSync(join(OUT, "SHA256SUMS"), `${sums.sort((a, b) => a.slice(66).localeCompare(b.slice(66))).join("\n")}\n`);
+  check(OUT);
+}
+
+function verify({ out: OUT, packages: PACKAGES }) {
+  check(OUT);
+  const expected = PACKAGES.flatMap(pkg => Object.values(pkg.files)).sort();
+  const present = readdirSync(OUT).filter(f => f !== "SHA256SUMS").sort();
+  if (JSON.stringify(present) !== JSON.stringify(expected)) throw new Error(`${OUT} holds ${present}, the packages give ${expected}`);
+  fetchPackages(PACKAGES, (pkg, dir) => {
+    for (const [from, to] of Object.entries(pkg.files)) {
+      if (!readFileSync(join(dir, from)).equals(readFileSync(join(OUT, to)))) {
+        throw new Error(`${to} is not ${pkg.name}@${pkg.version}'s ${from}`);
+      }
+    }
+  });
+  console.log(`${OUT}: every file is its pinned package's`);
+}
+
 for (const set of SETS) {
   if (process.argv.includes("--check")) check(set.out);
+  else if (process.argv.includes("--verify")) verify(set);
   else vendor(set);
 }

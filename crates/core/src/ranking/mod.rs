@@ -37,17 +37,12 @@ pub fn look_alikes(name: &str, max: usize) -> Vec<String> {
     flips.into_iter().take(max).map(spelled).collect()
 }
 
-/// The request URL for `name`.
+/// The request URL for `name`. Everything but letters and digits (all a character's name can hold) is
+/// percent-encoded, '.' too: a read of ".." would otherwise be a path step out of `characters/`.
 pub fn rank_url(name: &str) -> String {
     let quoted: String = name
         .bytes()
-        .map(|b| {
-            if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) {
-                (b as char).to_string()
-            } else {
-                format!("%{b:02X}")
-            }
-        })
+        .map(|b| if b.is_ascii_alphanumeric() { (b as char).to_string() } else { format!("%{b:02X}") })
         .collect();
     format!("{API_URL}{quoted}?fields={API_FIELDS}")
 }

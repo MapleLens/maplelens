@@ -32,6 +32,9 @@ fn response_is_unwrapped_and_the_name_quoted() {
     assert!(matches!(parse_response(&json!({"data": raw()}).to_string()), Fetched::Found(r) if r.name == "masterball"));
     assert!(matches!(parse_response("<html>"), Fetched::Failed(_)));
     assert!(rank_url("a b").contains("/characters/a%20b?fields="));
+    assert!(rank_url("..").contains("/characters/%2E%2E?fields="));
+    assert!(rank_url("a/../b?x#").contains("/characters/a%2F%2E%2E%2Fb%3Fx%23?fields="));
+    assert!(rank_url("Maple123").contains("/characters/Maple123?fields="));
 }
 
 #[test]
