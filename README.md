@@ -87,7 +87,7 @@ Open a player's **Character Info** window and the ranking panel appears beside i
 ### Windows app (recommended)
 
 1. Download `maplelens-vX.Y.Z-setup.exe` from the [latest release](https://github.com/MapleLens/maplelens/releases/latest) and run it.
-   It installs for your Windows account only, adds MapleLens to the Start menu and starts it.
+   It adds MapleLens to the Start menu and starts it.
 2. Start MapleStory Classic and MapleLens (Start menu). A meso coin appears in the tray (bottom right).
 3. Click the game, open your inventory or a shop and **hover an item**. 🎉
 

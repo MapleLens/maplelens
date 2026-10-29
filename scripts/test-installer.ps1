@@ -1,6 +1,6 @@
 # Install, check and uninstall the Windows installer silently: `./scripts/test-installer.ps1 maplelens-vX.Y.Z-setup.exe`
 #
-# Into a scratch folder, for this user, leaving nothing installed: Setup refuses while MapleLens runs (the app's own
+# Into a scratch folder, leaving nothing installed (per user or per machine, as installer/maplelens.iss says): Setup refuses while MapleLens runs (the app's own
 # mutex, and one this user cannot open, as when the app runs as administrator); the files, the uninstall entry, the
 # Start Menu shortcut and the installed exe's --version; then the uninstaller removes the app's own files too (the log,
 # the updater's leftovers) and its "Start with Windows" entry, and keeps the player's data in %LOCALAPPDATA%\MapleLens.
@@ -11,14 +11,17 @@ $ErrorActionPreference = 'Stop'
 $Setup = (Resolve-Path $Setup).Path
 if ((Split-Path $Setup -Leaf) -notmatch '^maplelens-v(.+)-setup\.exe$') { throw "not an installer's name: $Setup" }
 $version = $Matches[1]
-# installer/maplelens.iss AppId; Inno Setup adds "_is1".
-$entry = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{702546F1-91F5-4C7A-BED5-11F8C72791DC}_is1'
+# installer/maplelens.iss AppId; Inno Setup adds "_is1", under HKCU per user and HKLM per machine.
+$uninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{702546F1-91F5-4C7A-BED5-11F8C72791DC}_is1'
+$entries = "HKCU:\$uninstallKey", "HKLM:\$uninstallKey"
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 # main.rs `already_running`.
 $mutexName = 'Local\MapleLens.SingleInstance'
-$shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'MapleLens.lnk'
-if (Test-Path $entry) { throw "MapleLens is installed for this user ($((Get-ItemProperty $entry).InstallLocation))" }
-if (Test-Path $shortcut) { throw "a MapleLens shortcut exists already: $shortcut" }
+$shortcuts = 'Programs', 'CommonPrograms' | ForEach-Object { Join-Path ([Environment]::GetFolderPath($_)) 'MapleLens.lnk' }
+foreach ($entry in $entries) {
+    if (Test-Path $entry) { throw "MapleLens is installed here already ($((Get-ItemProperty $entry).InstallLocation))" }
+}
+foreach ($shortcut in $shortcuts) { if (Test-Path $shortcut) { throw "a MapleLens shortcut exists already: $shortcut" } }
 
 # A runner's %TEMP% can be an 8.3 path, which Setup writes out long.
 $temp = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [IO.Path]::GetTempPath() }
@@ -84,10 +87,12 @@ try {
     foreach ($file in 'maplelens.exe', 'LICENSE', 'README.md', 'unins000.exe') {
         Check (Test-Path (Join-Path $dir $file)) "installed $file"
     }
+    $entry = $entries | Where-Object { Test-Path $_ } | Select-Object -First 1
+    Check ($null -ne $entry) "uninstall entry ($entry)"
     $installed = Get-ItemProperty $entry
     Check ($installed.DisplayVersion -eq $version) "uninstall entry version $($installed.DisplayVersion)"
     Check ($installed.InstallLocation.TrimEnd('\') -eq $dir) "uninstall entry location $($installed.InstallLocation)"
-    Check (Test-Path $shortcut) 'Start Menu shortcut'
+    Check (@($shortcuts | Where-Object { Test-Path $_ }).Count -eq 1) 'Start Menu shortcut'
     $reported = (& $exe --version | Out-String).Trim()
     Check ($reported -eq "maplelens $version") "installed exe reports '$reported'"
     $uninstaller = Join-Path $dir 'unins000.exe'
@@ -108,7 +113,7 @@ try {
     Check ($uninstall.ExitCode -eq 0) "uninstaller succeeds (exit code $($uninstall.ExitCode))"
     Check (Wait-Gone $dir) 'install folder removed, with the log and the updater leftovers'
     Check (-not (Test-Path $entry)) 'uninstall entry removed'
-    Check (-not (Test-Path $shortcut)) 'Start Menu shortcut removed'
+    Check (-not ($shortcuts | Where-Object { Test-Path $_ })) 'Start Menu shortcut removed'
     Check ($null -eq (Get-ItemProperty $runKey -ErrorAction SilentlyContinue).MapleLens) 'Start with Windows entry removed'
     Check (Test-Path $marker) "player data kept ($data)"
 }

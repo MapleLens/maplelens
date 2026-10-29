@@ -285,9 +285,12 @@ the updater's and the portable copy; `maplelens-vX.Y.Z-setup.exe` (+ `.sha256`, 
 buttons offer (`docs/assets/site.js` takes the `-setup.exe` asset, else the zip). `scripts/build-installer.ps1` builds
 it (release.yml around the release exe, ci.yml around the dev one) and `scripts/test-installer.ps1` installs, checks
 and uninstalls it silently in both.
-- **Per user, without administrator**: `%LOCALAPPDATA%\Programs\MapleLens` (`PrivilegesRequired=lowest`). The updater
-  renames `maplelens.exe` aside and moves the new one in, and the log goes next to the exe, so the folder must be the
-  player's to write: in Program Files neither would work. The exe keeps its name (`can_self_update`).
+- **Who it installs for** is `PrivilegesRequired`, the one switch (`{autopf}`, the shortcuts and the uninstall entry
+  follow it). Now `lowest`: per user, in `%LOCALAPPDATA%\Programs\MapleLens`, no prompt. The folder is the player's to
+  write, as the updater (renames `maplelens.exe` aside, moves the new one in) and the log need, but so it is for any
+  program the player runs, and MapleLens asks for administrator at start: such a program could replace the exe before
+  the next prompt (the security review's finding). `admin` (Program Files) closes that; the app could then update
+  itself only while elevated. The exe keeps its name (`can_self_update`).
 - The installer is never the update path (rule 7 is unchanged): the app updates from the zip, and at start sets the
   installed apps entry to its own version when that entry installed its folder (`win/src/installer.rs`). The entry is
   found by the script's `AppId`, which must never change (a new installer upgrades an old install in place by it).

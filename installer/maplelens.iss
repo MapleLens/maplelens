@@ -4,9 +4,8 @@
 ;   cargo build --release -p maplelens
 ;   ./scripts/build-installer.ps1          (or: ISCC /DAppVersion=X.Y.Z installer\maplelens.iss, into target\installer)
 ;
-; Per user, without administrator: the self-updater (crates/win/src/update/install.rs) swaps maplelens.exe in place
-; and the log is written next to it (log.rs), so the folder must be the player's to write. The zip and its signed
-; manifest stay what the updater downloads; this only puts the same exe in a folder with shortcuts and an uninstaller.
+; The zip and its signed manifest stay what the updater downloads; this only puts the same exe in a folder with
+; shortcuts and an uninstaller. Who it is installed for is PrivilegesRequired below, the one switch.
 
 #if Ver < EncodeVer(6, 6, 0)
   #error Inno Setup 6.6 or later is needed (WizardStyle "dynamic")
@@ -39,8 +38,12 @@ AppCopyright=Copyright (c) 2026 MapleLens contributors
 VersionInfoVersion={#NumericVersion}
 VersionInfoProductName=MapleLens
 VersionInfoDescription=MapleLens Setup
+; "lowest": this Windows account, in %LOCALAPPDATA%\Programs\MapleLens, no prompt. The folder is the player's to
+; write, as the self-updater (update/install.rs swaps maplelens.exe in place) and the log (log.rs) need, but so it is
+; for any program the player runs, and MapleLens asks to run as administrator at start (elevate.rs). "admin": every
+; account, in Program Files, which only administrators can write. {autopf}, {autoprograms}, {autodesktop} and the
+; uninstall entry (HKCU or HKLM) follow it.
 PrivilegesRequired=lowest
-; Under lowest privileges this is %LOCALAPPDATA%\Programs\MapleLens.
 DefaultDirName={autopf}\MapleLens
 DisableDirPage=auto
 DisableProgramGroupPage=yes
