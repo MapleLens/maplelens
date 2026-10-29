@@ -33,6 +33,22 @@ impl Observation {
     pub(super) fn chat_agrees(&self, other: &Self) -> bool {
         self.chat_live == other.chat_live && lists_agree(&self.chat, &other.chat, lines::same)
     }
+
+    /// What was seen, for a log line: "sold 4 rows, chat 14 lines" ("covered" or "scrolled back" where so).
+    pub(super) fn describe(&self) -> String {
+        let part = |name: &str, count: Option<usize>, unit: &str, live: bool| match count {
+            None => format!("{name} not read (closed or covered)"),
+            Some(n) if live => format!("{name} {n} {unit}"),
+            Some(n) => format!("{name} {n} {unit} scrolled back"),
+        };
+        let sold = part(
+            "sold",
+            self.sold.as_ref().map(|rows| rows.iter().filter(|r| !r.is_total).count()),
+            "rows",
+            self.sold_live,
+        );
+        format!("{sold}, {}", part("chat", self.chat.as_ref().map(Vec::len), "lines", self.chat_live))
+    }
 }
 
 fn lists_agree<T>(a: &Option<Vec<T>>, b: &Option<Vec<T>>, same: fn(&T, &T) -> bool) -> bool {
