@@ -5,4 +5,5 @@ pub mod kpq;
 pub mod map_name;
 pub mod potions;
 pub mod session;
+pub mod towns;
 pub mod watcher;
