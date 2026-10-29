@@ -2,7 +2,8 @@
 //! `scripts/shop_watch.py` saves them): what the Rust watcher reports, line for line like the Python replay, to
 //! compare the two. `MAPLELENS_SHOP_FRAMES=<folder> cargo test --release -p maplelens shop_replay -- --ignored
 //! --nocapture`. The watcher measures the UI scale off the shop window itself. `MAPLELENS_SHOP_REPEAT=3` looks at each
-//! frame three times (frames a minute apart, like `D:\MapleLensCaptures`).
+//! frame three times (frames a minute apart, like `D:\MapleLensCaptures`). `MAPLELENS_SHOP_LOOKS=1` also prints what
+//! each look saw and decided, whenever that changes (`ShopWatcher::look`, the app's `--debug` log line).
 
 use std::time::Instant;
 
@@ -14,8 +15,12 @@ use std::sync::Arc;
 
 use crate::{paths, refresh, shop};
 
-/// `20261024_025123` -> (seconds since midnight, a monotonic stamp for the watcher's clock).
+/// `shop_20261024_025123` -> (seconds since midnight, a monotonic stamp for the watcher's clock); `live_<unix seconds>`
+/// (`live_frames`' captures) -> the time of day in UTC and the Unix seconds.
 fn stamp(name: &str) -> Option<(u64, f64)> {
+    if let Some(unix) = name.strip_prefix("live_").and_then(|rest| rest.split('.').next()?.parse::<u64>().ok()) {
+        return Some((unix % 86_400, unix as f64));
+    }
     let digits = name.strip_prefix("shop_")?.split('.').next()?;
     let (date, time) = digits.split_once('_')?;
     let part = |range: std::ops::Range<usize>| time.get(range)?.parse::<u64>().ok();
@@ -38,6 +43,7 @@ fn shop_replay() {
         watcher.set_catalog(Arc::new(catalog));
     }
     let (mut frames, mut total_ms, mut worst_ms) = (0usize, 0.0f64, 0.0f64);
+    let (looks, mut last_look) = (std::env::var("MAPLELENS_SHOP_LOOKS").is_ok(), String::new());
     for path in files {
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         let Some((seconds, now)) = stamp(&name) else { continue };
@@ -51,6 +57,10 @@ fn shop_replay() {
         let mut events = Vec::new();
         for k in 0..repeat {
             events.extend(watcher.update(&frame, now + k as f64));
+            if looks && watcher.look() != last_look {
+                last_look = watcher.look().to_string();
+                println!("{:02}:{:02}:{:02} look: {last_look}", seconds / 3600, seconds / 60 % 60, seconds % 60);
+            }
         }
         let ms = start.elapsed().as_secs_f64() * 1000.0;
         (frames, total_ms, worst_ms) = (frames + 1, total_ms + ms, worst_ms.max(ms));

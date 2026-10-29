@@ -604,6 +604,45 @@ fn opening_is_announced_and_visiting_stores_are_ignored() {
     assert_eq!(Feed::new().show_n(&visiting, 4, true), []);
 }
 
+/// `name`'s frame with the store's buttons as they are while it is being set up.
+fn being_set_up(name: &str) -> RgbImage {
+    let mut setup = frame(name);
+    splice(&mut setup, &frame("buttons_setup"), (361, 300, 719, 480));
+    setup
+}
+
+#[test]
+#[cfg_attr(not(fixtures), ignore = "needs the local captures in tests/fixtures")]
+fn visitors_right_after_opening_are_news_when_the_store_was_seen_being_set_up() {
+    let dread = [ShopEvent::PlayerEntered("DreadLancer".into()), ShopEvent::PlayerLeft("DreadLancer".into())];
+    let font_only = || Feed { watcher: ShopWatcher::new(Box::new(|_: &Mask| Some(String::new()))), now: 0.0 };
+    // Seen set up with the page as it was, then open a line later: that line is news, the page before it is not.
+    let mut feed = font_only();
+    feed.show_n(&being_set_up("025420"), 3, false);
+    assert_eq!(feed.show_n(&frame("025520"), 3, false), dread);
+    // Its page covered while it was set up: everything after the page's first line (the owner entering) is news.
+    let mut covered = being_set_up("025420");
+    let (x, y, w, h) = layout::chat_log(ENTER);
+    fill(&mut covered, (x as usize, y as usize, (x + w) as usize, (y + h) as usize), 128);
+    let mut feed = font_only();
+    feed.show_n(&covered, 3, false);
+    let page = chatlog::read_lines(&at1(&frame("025520")), ENTER).expect("a readable page");
+    assert_eq!(feed.show_n(&frame("025520"), 3, false).len(), page.len() - 1);
+    // A store found already open has only history on its page.
+    assert_eq!(font_only().show_n(&frame("025520"), 3, false), []);
+}
+
+#[test]
+#[cfg_attr(not(fixtures), ignore = "needs the local captures in tests/fixtures")]
+fn each_look_says_what_it_saw() {
+    let mut feed = Feed::new();
+    feed.show(&frame("025123"));
+    let look = feed.watcher.look().to_string();
+    assert!(look.contains("store Some(Open)") && look.contains("chat: no change"), "{look}");
+    feed.show(&black());
+    assert!(feed.watcher.look().starts_with("no shop window"), "{}", feed.watcher.look());
+}
+
 #[test]
 #[cfg_attr(not(fixtures), ignore = "needs the local captures in tests/fixtures")]
 fn our_store_going_back_to_not_open_is_a_closing() {

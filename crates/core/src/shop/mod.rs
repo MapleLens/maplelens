@@ -88,6 +88,22 @@ impl ShopEvent {
         }
     }
 
+    /// What happened without whom or what: for a log a player may send, which must not carry other players' names.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Sale { .. } => "sale",
+            Self::SaleUnseen { .. } => "sale while Sold Items was closed",
+            Self::AmbiguousSale => "sale, count unknown",
+            Self::PlayerEntered(_) => "visitor entered",
+            Self::PlayerLeft(_) => "visitor left",
+            Self::ChatMessage(_) => "chat line",
+            Self::StoreOpened => "store opened",
+            Self::StoreClosed => "store closed",
+            Self::LostSync(ListKind::Sold) => "sold list lost sync",
+            Self::LostSync(ListKind::Chat) => "chat lost sync",
+        }
+    }
+
     /// Cases worth keeping a screenshot of when something looks off.
     pub fn wants_evidence(&self) -> bool {
         matches!(self, Self::LostSync(_) | Self::AmbiguousSale)
