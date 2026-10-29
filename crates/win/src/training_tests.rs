@@ -137,3 +137,43 @@ fn live_quickslots() {
         println!("look {look} ({:?}): {named:?}", started.elapsed());
     }
 }
+
+/// `cargo test -p maplelens live_towns -- --ignored --nocapture`: the town list (`training::towns`) against MapleStory
+/// Classic World's map data (maplestory.io, every map's details: about 35 MB). No map with monsters may be taken for a
+/// town (a player training there would lose the card), and every name listed must be a town without monsters; the
+/// data's towns the list lacks are printed, for a new region's towns to be added.
+#[test]
+#[ignore = "needs the network"]
+fn live_towns() {
+    use maplelens_core::training::map_name::same_place;
+    use maplelens_core::training::towns::{TOWNS, is_town};
+    use serde_json::Value;
+
+    // Classic World's own data, which the item pictures come from too (the map helper's is GMS v40's).
+    let get = |path: &str| -> Option<Value> {
+        let url = format!("{}/{path}", maplelens_core::config::ITEM_API);
+        let mut response = crate::net::agent(60).get(&url).call().ok()?;
+        if response.status().as_u16() != 200 {
+            return None;
+        }
+        let text = response.body_mut().with_config().limit(16 << 20).read_to_string().ok()?;
+        serde_json::from_str(&text).ok()
+    };
+    let list = get("map?count=2000").expect("the map list");
+    let ids: Vec<u64> = list.as_array().expect("a list").iter().filter_map(|m| m["id"].as_u64()).collect();
+    let maps: Vec<Value> =
+        crate::maps::client::in_parallel(&ids, |id| get(&format!("map/{id}"))).into_iter().flatten().collect();
+    println!("{} maps of {} listed", maps.len(), ids.len());
+    assert!(maps.len() * 10 >= ids.len() * 9, "too few maps answered");
+    let name = |m: &Value| m["name"].as_str().unwrap_or_default().to_string();
+    let quiet = |m: &Value| m["mobs"].as_array().is_none_or(Vec::is_empty);
+    let town = |m: &Value| m["isTown"].as_bool() == Some(true) && quiet(m);
+    let wrong: Vec<String> = maps.iter().filter(|m| !quiet(m) && is_town(&name(m))).map(name).collect();
+    assert!(wrong.is_empty(), "maps with monsters taken for towns: {wrong:?}");
+    for listed in TOWNS {
+        assert!(maps.iter().any(|m| town(m) && same_place(listed, &name(m))), "{listed}: no such town in the data");
+    }
+    for m in maps.iter().filter(|m| town(m) && !is_town(&name(m))) {
+        println!("  a town not listed: {} ({})", name(m), m["id"]);
+    }
+}

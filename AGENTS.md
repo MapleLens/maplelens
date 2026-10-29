@@ -141,7 +141,8 @@ crates/core/src/          platform-free; everything here is unit-testable
                           frame in, events out)
   training/               session (Tracker: EXP gains, level ups, deaths, idle time, rates, potion tallies, history JSON),
                           potions (candidates, PotionWatcher: quickslots -> totals per item, Potions), kpq (stages,
-                          Cloto's answers, combinations, QuestTracker), watcher (TrainingWatcher: frames in, Training out)
+                          Cloto's answers, combinations, QuestTracker), towns (where EXP is no training), watcher
+                          (TrainingWatcher: frames in, Training out)
   placement.rs, settings.rs, hotkey.rs (naming and building the show/hide combo)
 crates/win/src/           the Windows app (only this crate talks to Win32)
   main.rs                 CLI, --screenshot; instance.rs: one copy at a time (checked before the elevation
@@ -200,6 +201,19 @@ seconds) so the history has dates; the platform keeps `Tracker::to_json` (traini
   keeps coming; a minute without EXP or a move to another map (not paused) ends the session into the history, and
   so does a gap over 30 minutes unseen. A session starts at its first EXP, and so does the card (`is_training`: a
   player training wants it at once); its rates fill in after 10 s of play (`MIN_RATE_S`).
+- **Towns** (`training::towns`): EXP gained in a town is a quest handed in, not training, and a single one had shown
+  the card in Kerning City. On a town map the bar is followed (leaving does not count what was gained there; a level
+  up there is learnt, not counted) but nothing counts, potions included, so no session starts, and neither the card
+  nor the web's Training panel shows. Walking into a town ends the session like any move, and so does a town read
+  after its EXP (the minimap still being read when a quest was handed in). Towns are a list of names compared like the
+  map's readings (`same_place`), not map data: the browser has none, and the Windows app's arrives after the map is
+  read. The list is the towns and their buildings that MapleStory Classic World's data (maplestory.io, MCW) marks a
+  town and that have no monsters (51 names, Maple Island and Victoria Island); the data's jump quests and events are
+  left out, and so is the Mushroom Garden it marks a town although 34 monsters live there. The closest hunting
+  ground scores 69 against a town (90 counts). A map not listed, or none read (the minimap closed for two minutes,
+  or not read yet), is a field: an unknown name never hides the card from a player training. A new region's towns go in
+  the list; `live_towns` (win, `-- --ignored`, ~35 MB) checks that no map with monsters is taken for a town and
+  prints the data's towns the list lacks.
 - **Map** (`vision::minimap` + OCR): the title's two lines are cut as grey "whiteness" images, not masks (a mask broke
   "Street" into "Stl eet"), and OCR'd with a wide white border (tight, Windows OCR read nothing at Ideal Ratio). Readings
   settle in `training::map_name`: the look-alikes of I folded (l, 1, |), the last word kept apart when it is a numeral,
@@ -219,7 +233,7 @@ seconds) so the history has dates; the platform keeps `Tracker::to_json` (traini
   only when its count changes (or every 10 s); totals per item count once two looks agree; a slot gone unreadable
   holds its item's total back for 5 s (a window or the pointer over it), and an item dragged out of the quickslots
   is no longer followed. The session counts a total that falls as used and one that rises as picked up (buying from
-  an NPC reads as picked up).
+  an NPC reads as picked up, except in a town's shop, where nothing counts).
 - **Party quest** (`training::kpq`): stages by map name (fuzzy, letters and digits only), a run from the first stage
   until the party has been off the quest's maps for a minute. Facts (Cloto's answers, combinations) are written out in
   our own words. There is no real KPQ capture yet: the stage path was checked on a synthetic minimap (Tahoma Bold

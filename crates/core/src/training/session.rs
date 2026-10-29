@@ -5,8 +5,9 @@
 //! is into the current level, so a big drop in the share is a level up (the rest of the old level plus the new
 //! EXP is gained), and a small drop is EXP lost by dying. Time counts only while the bar is seen and EXP keeps
 //! coming, and a minute without EXP (town, shopping, AFK) or a move to another map ends the session: the next EXP
-//! starts a new one, so the rates are always those of the training going on now, here. A pause holds the session as
-//! it is. The level's size (EXP
+//! starts a new one, so the rates are always those of the training going on now, here. EXP gained in a town (a
+//! quest handed in, an event) is no training: it is followed but never counted, so no session starts there. A pause
+//! holds the session as it is. The level's size (EXP
 //! over share) tells characters apart: a change in it that is not a level up is another character, and counts
 //! nothing.
 
@@ -14,6 +15,7 @@ use std::collections::{HashMap, VecDeque};
 
 use serde::{Deserialize, Serialize};
 
+use super::towns::is_town;
 use crate::vision::gauge::ExpReading;
 
 /// Reads in a row that must agree before a new value counts.
@@ -125,6 +127,8 @@ pub struct Tracker {
     candidate: Option<(ExpReading, u32)>,
     paused: bool,
     map: Option<String>,
+    /// The map is a town: nothing gained there counts.
+    town: bool,
     /// Gains of the last `RECENT_S`, and the time that counted in the same window.
     recent: VecDeque<(f64, u64)>,
     recent_time: VecDeque<(f64, f64)>,
@@ -213,14 +217,22 @@ impl Tracker {
         self.minute = (0, 0);
     }
 
-    /// The map the player is on, when known: gains and time go to it. Moving to another map ends the session (not
-    /// while paused); an unknown map (the minimap hidden a moment) changes nothing.
+    /// The map the player is on, when known: gains and time go to it. Moving to another map, or into a town, ends the
+    /// session (not while paused). No map (the minimap not read for a while, or not yet) keeps the last one for the
+    /// move, but counts as a field: a player training with the minimap closed still has a session.
     pub fn set_map(&mut self, map: Option<String>, now: f64) {
-        let Some(map) = map else { return };
+        let Some(map) = map else {
+            self.town = false;
+            return;
+        };
         let moved = self.map.as_deref().is_some_and(|was| !same_map(was, &map));
-        if moved && !self.paused {
+        let town = is_town(&map);
+        // A town settled before any map was (a quest handed in while the minimap was still being read) ends what
+        // its EXP had started.
+        if (moved || (town && !self.town)) && !self.paused {
             self.new_session(now);
         }
+        self.town = town;
         self.map = Some(map);
     }
 
@@ -229,7 +241,7 @@ impl Tracker {
     /// unseen (the totals moved meanwhile).
     pub fn observe_potions(&mut self, now: f64, totals: &HashMap<u32, u32>, name: impl Fn(u32) -> String) {
         self.expire(now);
-        let counted = !self.paused && self.potions_seen.is_some_and(|at| now - at <= OBSERVED_GAP_S);
+        let counted = !self.paused && !self.town && self.potions_seen.is_some_and(|at| now - at <= OBSERVED_GAP_S);
         for (&id, &total) in totals {
             let was = self.potion_totals.insert(id, total);
             let Some(was) = was.filter(|&was| counted && was != total) else { continue };
@@ -270,6 +282,15 @@ impl Tracker {
         if gap > NEW_SESSION_GAP_S {
             self.new_session(now);
             self.begin(now, reading);
+            return;
+        }
+        if self.town {
+            // Nothing counts, but the bar is followed so what was gained here is not counted after leaving; the
+            // level's size is learnt afresh, as the gain may have been a level up.
+            if reading != last.reading {
+                self.rebase(reading);
+            }
+            self.last = Some(Seen { at: now, reading });
             return;
         }
         let counted = gap <= OBSERVED_GAP_S && !self.paused;

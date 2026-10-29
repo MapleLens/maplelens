@@ -248,6 +248,89 @@ fn moving_to_another_map_ends_the_session() {
     assert_eq!(tracker.history().len(), 1);
 }
 
+/// EXP gained in a town (a quest handed in) starts no session and shows no card; the same on a field does.
+#[test]
+fn exp_in_a_town_is_no_training() {
+    let both = Show { exp: true, quest: true };
+    let card = |tracker: &mut Tracker, t: f64| {
+        let training = Training { exp: tracker.view(t, 10.0), ..Training::default() };
+        (has_content(&training, both), render_training_card(common::fonts(), &training, both, t, 1.0).is_some())
+    };
+    let mut tracker = Tracker::new();
+    let mut t = 0.0;
+    tracker.set_map(Some("Kerning City".into()), t);
+    feed(&mut tracker, &mut t, 1_000, share(1_000));
+    feed(&mut tracker, &mut t, 1_233, share(1_233));
+    let view = tracker.view(t, 10.0);
+    assert!(view.live);
+    assert_eq!((view.session.gained, view.session.active_s), (0, 0.0));
+    assert_eq!(card(&mut tracker, t), (false, false));
+    // Out to a field: the town's EXP is not counted there, the field's is, and the card shows.
+    tracker.set_map(Some("Kerning City Middle Forest I".into()), t);
+    feed(&mut tracker, &mut t, 1_233, share(1_233));
+    feed(&mut tracker, &mut t, 1_333, share(1_333));
+    assert_eq!(tracker.view(t, 10.0).session.gained, 100);
+    assert_eq!(card(&mut tracker, t), (true, true));
+    assert!(tracker.history().is_empty(), "the town made no session");
+}
+
+#[test]
+fn walking_into_town_ends_the_session() {
+    let mut tracker = Tracker::new();
+    let mut t = 0.0;
+    tracker.set_map(Some("Henesys Hunting Ground I".into()), t);
+    feed(&mut tracker, &mut t, 1_000, share(1_000));
+    feed(&mut tracker, &mut t, 1_500, share(1_500));
+    tracker.set_map(Some("Henesys".into()), t);
+    assert_eq!(tracker.history().len(), 1);
+    assert_eq!(tracker.history()[0].gained, 500);
+    // A quest handed in there that levels the character up: nothing counts, and the new level's size is learnt.
+    feed(&mut tracker, &mut t, 1_900, share(1_900));
+    feed(&mut tracker, &mut t, 400, 100);
+    let view = tracker.view(t, 10.0);
+    assert_eq!((view.session.gained, view.session.levels), (0, 0));
+    // Back on a field, the next kill counts from the town's last reading.
+    tracker.set_map(Some("Henesys Hunting Ground II".into()), t);
+    feed(&mut tracker, &mut t, 1_200, 300);
+    let session = tracker.view(t, 10.0).session;
+    assert_eq!((session.gained, session.levels), (800, 0));
+    assert_eq!(tracker.history().len(), 1);
+}
+
+#[test]
+fn a_town_read_late_ends_what_its_exp_started() {
+    let mut tracker = Tracker::new();
+    let mut t = 0.0;
+    // A quest's EXP before the minimap was read: a field for all the tracker knows.
+    feed(&mut tracker, &mut t, 1_000, share(1_000));
+    feed(&mut tracker, &mut t, 1_500, share(1_500));
+    assert_eq!(tracker.view(t, 10.0).session.gained, 500);
+    tracker.set_map(Some("Free Market <3>".into()), t);
+    assert_eq!(tracker.view(t, 10.0).session.gained, 0);
+}
+
+#[test]
+fn an_unread_map_counts_as_a_field() {
+    let mut tracker = Tracker::new();
+    let mut t = 0.0;
+    tracker.set_map(Some("Ellinia".into()), t);
+    feed(&mut tracker, &mut t, 1_000, share(1_000));
+    // The minimap closed long enough for the watcher to forget the town: EXP counts, so training is never hidden.
+    tracker.set_map(None, t);
+    feed(&mut tracker, &mut t, 1_100, share(1_100));
+    assert_eq!(tracker.view(t, 10.0).session.gained, 100);
+}
+
+#[test]
+fn potions_bought_in_a_town_do_not_count() {
+    let mut tracker = Tracker::new();
+    tracker.set_map(Some("Ellinia".into()), 0.0);
+    let totals = |n| std::collections::HashMap::from([(2_000_000, n)]);
+    tracker.observe_potions(0.0, &totals(10), |_| "Red Potion".into());
+    tracker.observe_potions(1.0, &totals(110), |_| "Red Potion".into());
+    assert!(tracker.view(1.0, 10.0).session.potions.is_empty());
+}
+
 #[test]
 fn a_pause_holds_the_session_however_long() {
     let mut tracker = Tracker::new();
