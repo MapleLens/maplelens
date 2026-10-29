@@ -2,3 +2,9 @@
 # which every browser from 2021 on supports. Applies to the wasm build only (scripts/build-web.ps1 and CI alike).
 [target.wasm32-unknown-unknown]
 rustflags = ["-C", "target-feature=+simd128"]
+
+# The C runtime linked into maplelens.exe instead of loaded as VCRUNTIME140.dll: that DLL is not one Windows always
+# takes from System32, so a copy dropped beside the exe would run as administrator (crates/win/src/elevate.rs), and a
+# PC without the Visual C++ runtime could not start the app at all.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

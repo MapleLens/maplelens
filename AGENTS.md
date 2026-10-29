@@ -39,8 +39,10 @@ MAPLELENS_NAMES=debug/names MAPLELENS_NAME_LABELS=<labels.tsv> cargo test --rele
 ```
 
 CI (`.github/workflows/ci.yml`) runs all of these in parallel jobs, each restoring its dependencies' build from a
-cache (rust-cache; keyed on the lock file, toolchain and env, so keep `env` identical in `release.yml`); workspace lints in
-`Cargo.toml` include `undocumented_unsafe_blocks`, so an `unsafe` without a `// SAFETY:` comment fails the build.
+cache (rust-cache; keyed on the lock file, toolchain and env). `release.yml` builds without one (nothing a CI job wrote
+reaches what it signs) and signs in a job of its own (`scripts/sign-release.sh`: the key never meets the build). Actions
+are pinned to full commit SHAs. Workspace lints in `Cargo.toml` include `undocumented_unsafe_blocks`, so an `unsafe`
+without a `// SAFETY:` comment fails the build.
 
 Run tests, clippy and fmt before declaring work done. Never claim an overlay change works without either a test or
 a screenshot of the running overlay over the game (`maplelens --screenshot OUT.png` draws the cards in).
@@ -276,6 +278,11 @@ starts itself again with the "runas" verb (the Windows prompt), same arguments a
   (`startup.rs`), it asks then.
 - Being elevated raises what a compromised update could do: one more reason rule 7 (the signed update chain) must
   never weaken. Do not add anything that needs elevation for its own sake.
+- Every program the player runs can write the exe's folder (unzipped in Downloads, often), %TEMP% and
+  %LOCALAPPDATA%\MapleLens, and the elevated app must not trust what it finds there: DLLs load from System32 only
+  (`/DEPENDENTLOADFLAG` in build.rs, the static C runtime in .cargo/config.toml, `elevate::restrict_dll_search`
+  first in `main`), an update is verified and unpacked in memory (never through a file in %TEMP%), the staged exe is
+  written as a new file, and the clipboard's text is read only as far as its block goes.
 - Not a manifest `requireAdministrator`: Windows does not start such programs from the Run key at sign-in, and the
   prompt could not be declined into a working app.
 

@@ -256,3 +256,24 @@ fn preview_settings_window() {
     let out = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/settings_window.png");
     std::fs::write(out, maplelens_core::image::encode_png(&frame)).unwrap();
 }
+
+#[test]
+fn capture_and_ocr_work_with_libraries_from_system32_only() {
+    // What `main` does first: the libraries Windows loads for drawing, capture and OCR must all be found there.
+    crate::elevate::restrict_dll_search();
+    let settings = SettingsWindow::new(icon::load(None), false);
+    settings.show(Settings::default()).unwrap();
+    app::tests_pump();
+    if crate::wgc::WindowCapture::supported() {
+        let mut capture = crate::wgc::WindowCapture::new(settings.hwnd()).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while capture.latest().unwrap().is_none() {
+            assert!(std::time::Instant::now() < deadline, "no frame within 3 s");
+            app::tests_pump();
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+    if crate::ocr::available() {
+        assert!(crate::ocr::WindowsOcr::new(false).is_some());
+    }
+}
