@@ -226,6 +226,15 @@ impl Catalog {
         (!self.lost_gender_mark(text, &item)).then_some(item)
     }
 
+    /// Whether a read is `name` itself (punctuation, an enhancement mark and a gender letter aside), not a near name.
+    /// Capital I and lowercase l are one bar in the game's fonts ('LakeIis Statue'), so they count as one letter.
+    pub fn reads_as(read: &str, name: &str) -> bool {
+        let bar = |text: &str| key(&text.replace('I', "l"));
+        let read = clean_title(&without_enhancement(read));
+        [read.clone(), without_gender(&read)].iter().any(|candidate| bar(candidate) == bar(name))
+            && (!has_number(name) || same_numbers(&read, name))
+    }
+
     /// A read with brackets but no gender letter ('Red Cloth Pants ()') for an item that exists with and without
     /// one: the letter was lost, and which of the two it was cannot be told. (An enhancement mark has brackets too.)
     fn lost_gender_mark(&self, text: &str, item: &Item) -> bool {

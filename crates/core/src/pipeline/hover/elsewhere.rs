@@ -3,11 +3,44 @@
 
 use super::{Hover, HoverDetector, Placement, looks_like_title};
 use crate::config;
-use crate::geometry::{Point, Rect, scaled};
+use crate::geometry::{Point, Rect, scaled, ui_scale};
+use crate::image::RgbImage;
+use crate::market::catalog::{Catalog, ratio};
 use crate::pipeline::{Screen, grab_normalised};
 use crate::vision::find;
 use crate::vision::locate::candidate_tops;
 use crate::vision::reader::find_bullet;
+use crate::vision::tooltip::measure_width;
+
+/// How far (UI scale 1) a spot may be from a bullet's corner and still be that tooltip.
+const INSIDE_MARGIN: i32 = 8;
+/// "UI Size: Ideal Ratio" draws the UI at this scale whatever the window's size (from 1440 px high, at twice it).
+const IDEAL_RATIO_SCALE: f32 = 0.641;
+const IDEAL_RATIO_DOUBLED_FROM: i32 = 1440;
+/// Letters a title beside a bullet has at least (the shortest item names, "Saw", "Fan").
+const MIN_TITLE_LETTERS: usize = 3;
+/// A read at the other UI size names an item fuzzily only this close to its name, and as long as it.
+const OTHER_SCALE_MIN_RATIO: f64 = 90.0;
+const LENGTH_SLACK: usize = 1;
+/// How often (seconds) the search looks at the window's other UI size.
+const OTHER_SCALE_EVERY_S: f64 = 1.0;
+/// Two scales this close are the same UI size.
+const SAME_SCALE: f32 = 0.02;
+
+/// The scale a search pass reads at: the voted one, or the window's other UI size, where a read needs proof.
+#[derive(Clone, Copy)]
+enum AtScale {
+    Voted(f32),
+    Other(f32),
+}
+
+/// The window's other UI size than `scale`: its default (the height's) or Ideal Ratio, unless both are one.
+fn other_ui_scale(bounds: Rect, scale: f32) -> Option<f32> {
+    let default = ui_scale(bounds);
+    let ideal = if bounds.h >= IDEAL_RATIO_DOUBLED_FROM { 2.0 * IDEAL_RATIO_SCALE } else { IDEAL_RATIO_SCALE };
+    let other = if (scale - default).abs() < SAME_SCALE { ideal } else { default };
+    ((other - scale).abs() >= SAME_SCALE).then_some(other)
+}
 
 impl HoverDetector {
     /// Look for a known item's tooltip the game slid up to fit on screen.
@@ -41,7 +74,7 @@ impl HoverDetector {
             }
             let image = strip.crop(0, row, strip.width, row + config::TOOLTIP_CAPTURE_SIZE.1 as usize);
             self.reader.allow_ocr(super::tooltip_evidence(&image));
-            let title = self.reader.read_title(&image, config::TOOLTIP_TITLE_WIDTH as usize, 1);
+            let title = self.reader.read_title(&image, super::title_width(&image), 1);
             let (Some(item), crafted) = self.lookup(&image, &title) else { continue };
             let at =
                 Placement { pushed_up_height: Some(bounds.bottom() - screen_top), crafted, ..Placement::default() };
@@ -53,40 +86,113 @@ impl HoverDetector {
     /// No mouse position (the browser): find the tooltip anywhere in the game, and read it the same way.
     pub(super) fn search(&mut self, screen: &mut dyn Screen, bounds: Rect, scale: f32, now: f64) -> Option<Hover> {
         let frame = screen.grab(bounds);
-        let (w, h) = (scaled(config::TOOLTIP_CAPTURE_SIZE.0, scale), scaled(config::TOOLTIP_CAPTURE_SIZE.1, scale));
         // A tooltip found a moment ago is first looked for where it was: a few hundred pixels instead of the whole
         // frame (the cost of a look drops from ~30 ms to ~2). The whole frame is still searched every few looks,
         // for a compare tooltip or a new one, and at once when the old spot holds no tooltip any more.
-        let spots = match self.last_spot {
+        let followed = match self.last_spot {
             Some(spot)
                 if self.looks_since_search < config::FULL_SEARCH_EVERY && find::tooltip_at(&frame, scale, spot) =>
             {
                 self.looks_since_search += 1;
-                vec![spot]
+                Some(spot)
             }
-            _ => {
-                self.looks_since_search = 0;
-                find::find_tooltips(&frame, scale)
-            }
+            _ => None,
         };
         self.last_spot = None;
-        self.tooltip_in_view = !spots.is_empty();
-        for spot in spots {
+        if let Some(spot) = followed {
+            return self.read_spots(&frame, bounds, AtScale::Voted(scale), &[spot], &[], now);
+        }
+        self.looks_since_search = 0;
+        let (spots, bullets) = (find::find_tooltips(&frame, scale), find::bullet_spots(&frame, scale));
+        self.tooltip_in_view = !spots.is_empty() || !bullets.is_empty();
+        if let Some(hover) = self.read_spots(&frame, bounds, AtScale::Voted(scale), &spots, &bullets, now) {
+            return Some(hover);
+        }
+        // Just after the player switches UI Size the voted scale is still the old one for a few seconds (it needs
+        // several readings), and nothing is found at it. The window draws its UI at one of two scales only, so the
+        // other one is looked at by the bullet search now and then (it doubles the cost of a look), and a title read
+        // there counts only with proof the tooltip is drawn at that scale: read at 0.64, a scroll drawn at 0.9 had come
+        // out as "...Scroll: " and a fuzzy match named another grade.
+        if now - self.other_scale_at < OTHER_SCALE_EVERY_S {
+            return None;
+        }
+        self.other_scale_at = now;
+        let other = other_ui_scale(bounds, scale)?;
+        let bullets = find::bullet_spots(&frame, other);
+        self.tooltip_in_view |= !bullets.is_empty();
+        self.read_spots(&frame, bounds, AtScale::Other(other), &[], &bullets, now)
+    }
+
+    /// The first of `spots` (found by fill and borders) and of `bullets`' corners that reads as a tooltip.
+    fn read_spots(
+        &mut self,
+        frame: &RgbImage,
+        bounds: Rect,
+        at: AtScale,
+        spots: &[Point],
+        bullets: &[Point],
+        now: f64,
+    ) -> Option<Hover> {
+        let (AtScale::Voted(scale) | AtScale::Other(scale)) = at;
+        let (w, h) = (scaled(config::TOOLTIP_CAPTURE_SIZE.0, scale), scaled(config::TOOLTIP_CAPTURE_SIZE.1, scale));
+        // A spot inside a tooltip whose bullet shows (its icon box's edge, a body line's row) is not a tooltip of its
+        // own: its "title" is the end of the real one ("Snail Shell" off "Blue Snail Shell", a wrong price live).
+        let margin = scaled(INSIDE_MARGIN, scale);
+        let inside = |spot: Point| {
+            bullets.iter().any(|c| {
+                (spot.x - c.x).abs().max((spot.y - c.y).abs()) > margin
+                    && (c.x - margin..c.x + scaled(config::TOOLTIP_WIDTHS[1], scale)).contains(&spot.x)
+                    && (c.y - margin..c.y + scaled(config::TOOLTIP_MAX_HEIGHT, scale)).contains(&spot.y)
+            })
+        };
+        // Then the bullets' corners the fill search did not find: over a busy backdrop it finds no band or border.
+        let near = |a: Point, b: Point| (a.x - b.x).abs().max((a.y - b.y).abs()) <= margin;
+        let by_bullet = bullets.iter().filter(|c| !spots.iter().any(|s| near(**c, *s))).map(|c| (*c, true));
+        let candidates: Vec<(Point, bool)> = spots.iter().map(|s| (*s, false)).chain(by_bullet).collect();
+        for (spot, bullet_only) in candidates {
             let native = frame.crop(spot.x as usize, spot.y as usize, (spot.x + w) as usize, (spot.y + h) as usize);
             let image = if (scale - 1.0).abs() > 0.01 { native.resized(1.0 / scale) } else { native };
-            self.reader.allow_ocr(true); // found by its fill and borders
-            let title = self.reader.read_title(&image, config::TOOLTIP_TITLE_WIDTH as usize, 1);
-            let (item, crafted) = if self.last_title.as_deref() == Some(title.as_str()) {
+            let has_bullet = find_bullet(&image, 0).is_some();
+            if (bullet_only && !has_bullet) || (!has_bullet && inside(spot)) {
+                continue;
+            }
+            self.reader.allow_ocr(true); // found by its fill and borders, or by its bullet
+            let title = self.reader.read_title(&image, super::title_width(&image), 1);
+            // A bullet-like mark with no title beside it is not a title's bullet: the lookup's other reads (the crafted
+            // row lower down) had named a store list's row there, and every later empty read kept that item.
+            if bullet_only && title.chars().filter(|c| c.is_alphanumeric()).count() < MIN_TITLE_LETTERS {
+                continue;
+            }
+            let (item, crafted) = if !title.is_empty() && self.last_title.as_deref() == Some(title.as_str()) {
                 (self.last_item.clone(), self.last_crafted)
             } else {
                 self.lookup(&image, &title)
             };
+            // A corner found by its bullet alone counts only when its title names an item: no unknown-title card.
+            if bullet_only && item.is_none() {
+                continue;
+            }
+            // At a scale the tooltip may not be drawn at, the read must be the item's very name, a misread of it as long
+            // as it (a letter or two off: "Satety Charm"), or the tooltip's right border must stand where one of the
+            // game's widths puts it at that scale (it does not at a wrong one). A read shorter than the name is what a
+            // wrong scale gives: the end cut off, and a fuzzy match completing it with another grade.
+            let named = || {
+                item.as_ref().is_some_and(|it| {
+                    Catalog::reads_as(&title, &it.name)
+                        || (title.chars().count().abs_diff(it.name.chars().count()) <= LENGTH_SLACK
+                            && ratio(&title, &it.name) >= OTHER_SCALE_MIN_RATIO)
+                })
+            };
+            if matches!(at, AtScale::Other(_)) && !(named() || measure_width(&image, &config::TOOLTIP_WIDTHS).is_some())
+            {
+                continue;
+            }
             if item.is_none() {
                 // The bullet in front of the title is what tells a tooltip from any other stable text on a dark
                 // blue background (a slide's heading read "EARRINGS" for a minute). A spot without one (a line inside
                 // a tooltip, found too) is passed over before it touches the count below: its read in the same
                 // look had reset the tooltip's own every time, and an item with no price never showed.
-                if find_bullet(&image, 0).is_none() || !looks_like_title(&title) {
+                if !has_bullet || !looks_like_title(&title) {
                     continue;
                 }
                 // As with a mouse: a title that names nothing shows a "no data" card only once it has read the same

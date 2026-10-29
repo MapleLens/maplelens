@@ -365,3 +365,15 @@ fn several_look_alike_misreads_in_one_name_still_find_it() {
     // Wrong letters that are not look-alikes cost full price: this is nothing, not Iron Axe.
     assert_eq!(found(&catalog, "Iron Qxz"), None);
 }
+
+#[test]
+fn a_read_is_a_name_itself_only_letter_for_letter() {
+    // Capital I and lowercase l are one bar in the game's fonts.
+    assert!(Catalog::reads_as("LakeIis Statue", "Lakelis Statue"));
+    assert!(Catalog::reads_as("Work Gloves (+4)", "Work Gloves"));
+    assert!(Catalog::reads_as("Green Knucklevest (M)", "Green Knucklevest"));
+    // A near name is not the name: the grade of a scroll, a letter lost.
+    assert!(!Catalog::reads_as("One-Handed Sword Attack Scroll: ", "One-Handed Sword Attack Scroll: Chaos"));
+    assert!(!Catalog::reads_as("Snail Shel", "Snail Shell"));
+    assert!(!Catalog::reads_as("Snail Shell", "Blue Snail Shell"));
+}

@@ -98,6 +98,8 @@ pub struct HoverDetector {
     /// Where the tooltip was found last (no-mouse search) and how many looks since the whole frame was searched.
     last_spot: Option<Point>,
     looks_since_search: u32,
+    /// When the search last looked for tooltips at the window's other UI size (`now`'s clock).
+    other_scale_at: f64,
     /// The last no-mouse search found a tooltip's box, read into a card or not yet (its title still being read, or an
     /// unknown title not yet read alike enough times).
     tooltip_in_view: bool,
@@ -122,6 +124,7 @@ impl HoverDetector {
             unknown_streak: 0,
             last_spot: None,
             looks_since_search: 0,
+            other_scale_at: f64::NEG_INFINITY,
             tooltip_in_view: false,
             captures: None,
         }
@@ -190,7 +193,7 @@ impl HoverDetector {
         };
         let image = grab_normalised(screen, area, scale);
         self.reader.allow_ocr(tooltip_evidence(&image));
-        let title = self.reader.read_title(&image, config::TOOLTIP_TITLE_WIDTH as usize, 1);
+        let title = self.reader.read_title(&image, title_width(&image), 1);
         let same_title = self.last_title.as_deref() == Some(title.as_str());
         let unchanged = same_title
             && match self.last_reads.clone() {
@@ -273,7 +276,7 @@ impl HoverDetector {
 
     /// The item named by `title` (the one-line read of the tooltip in `image`), and whether it is player-crafted.
     fn lookup(&mut self, image: &RgbImage, title: &str) -> (Option<Arc<Item>>, bool) {
-        let width = config::TOOLTIP_TITLE_WIDTH as usize;
+        let width = title_width(image);
         let shift = config::TOOLTIP_CRAFTED_SHIFT as usize;
         // Crafted before wrapped: the wrapped read's two rows reach down into a crafted item's title and would
         // match it without knowing the tooltip is taller.
@@ -288,6 +291,18 @@ impl HoverDetector {
         let wrapped = self.reader.read_title(image, width, 2);
         if let Some(item) = self.match_read(image, &wrapped) {
             return (Some(item), false);
+        }
+        // A long name in a wide tooltip whose width could not be told runs past the narrow read. The wide read counts
+        // only as the same title read further: what the narrow one read is how it starts.
+        let wide = config::TOOLTIP_WIDTHS[1] as usize;
+        if width < wide && !title.trim().is_empty() {
+            let further = self.reader.read_title(image, wide, 1);
+            if further.len() > title.len()
+                && further.starts_with(title.trim_end())
+                && let Some(item) = self.match_read(image, &further)
+            {
+                return (Some(item), false);
+            }
         }
         // OCR filled in the atlas's unknown glyphs and lost letters doing it: the atlas's read, gaps and all.
         if let Some(own) = self.reader.atlas_title(image, width)
@@ -308,7 +323,7 @@ impl HoverDetector {
 
     /// The crafted-row and two-line reads of `image` (cached by mask in the reader, so cheap to repeat).
     fn other_reads(&mut self, image: &RgbImage) -> (String, String) {
-        let width = config::TOOLTIP_TITLE_WIDTH as usize;
+        let width = title_width(image);
         let crafted = self.reader.read_title_at(image, width, 1, config::TOOLTIP_CRAFTED_SHIFT as usize);
         (crafted, self.reader.read_title(image, width, 2))
     }
@@ -379,6 +394,13 @@ impl HoverDetector {
 /// Does `image` show a tooltip by its look: a title bullet (at the usual row or a crafted item's) or the blue fill?
 /// Without it only an atlas read can name an item (`HoverDetector::credible`), so OCR is not asked: over a busy
 /// scene, reading every frame's scenery with OCR cost a fifth of a CPU core for answers that could never count.
+/// How far a title may run in the tooltip at the capture's top-left: its own width. A long name in a wide tooltip
+/// ("One-Handed Sword Attack Scroll: Greater" at 1080p) runs past the narrow width, and a read cut there names
+/// nothing. Wide tooltips never have a compare tooltip beside them; when the width cannot be told, the narrow one.
+fn title_width(image: &RgbImage) -> usize {
+    measure_width(image, &config::TOOLTIP_WIDTHS).unwrap_or(config::TOOLTIP_TITLE_WIDTH) as usize
+}
+
 fn tooltip_evidence(image: &RgbImage) -> bool {
     find_bullet(image, 0).is_some()
         || find_bullet(image, config::TOOLTIP_CRAFTED_SHIFT as usize).is_some()
