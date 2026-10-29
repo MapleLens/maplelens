@@ -42,8 +42,10 @@
 /* The browser's pull to refresh and rubber band are off (pull.js draws its own); the sky shows wherever it peeks. */
 html{overscroll-behavior-y:none;background:var(--sky-1)}
 body{min-height:100vh;min-height:100dvh;padding:0 0 max(24px,env(safe-area-inset-bottom));background:linear-gradient(var(--sky-1),var(--sky-2) 420px,var(--sky-3) 900px,#eaf7ff)}
-/* One column no wider than the screen: a long one-line title shortens with an ellipsis instead of widening the page. */
-main{max-width:480px;margin:0 auto;padding:0 14px;display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
+/* One column no wider than the screen. Every grid here names its columns minmax(0,...): an unnamed column is as wide
+   as its widest line, so one long item name ("Earring DEX Scroll: Intermediate") widened the page and it panned
+   sideways. What still overflows is cut at the edge rather than scrolled to (clip, unlike hidden, keeps the tabs sticky). */
+main{max-width:480px;margin:0 auto;padding:0 14px;display:grid;grid-template-columns:minmax(0,1fr);gap:14px;overflow-x:clip}
 button{font:inherit}
 .bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;padding:max(10px,env(safe-area-inset-top)) 16px 10px;
   background:linear-gradient(#4b5878,#2c3247);border-bottom:2px solid #11152a;box-shadow:0 2px 0 #7f8db0 inset;color:#fff}
@@ -57,7 +59,7 @@ button{font:inherit}
 #install-landing{margin-top:18px}
 #install-landing:not([hidden])+.onboard{padding-top:0}
 .onboard h1{font-size:36px;line-height:1.05;margin:4px 0 0;text-align:center}
-.win-b{display:grid;gap:14px}
+.win-b{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
 .win-b p{margin:0}
 .big{font-size:22px;padding:12px 22px;width:100%}
 .note{font-size:13px;color:var(--muted);min-height:1.4em;margin:0}
@@ -67,7 +69,7 @@ button{font:inherit}
 
 /* the dashboard */
 #dashboard{padding-top:14px}
-.hero{background:var(--card);border:2px solid var(--win-edge);border-radius:14px;padding:16px;display:grid;gap:12px;
+.hero{background:var(--card);border:2px solid var(--win-edge);border-radius:14px;padding:16px;display:grid;grid-template-columns:minmax(0,1fr);gap:12px;
   box-shadow:0 0 0 2px #fff inset,0 12px 26px -12px rgba(20,40,80,.55)}
 .hero .top{display:flex;align-items:flex-start;gap:10px}
 .hero .who{flex:1;min-width:0}
@@ -99,18 +101,20 @@ button{font:inherit}
 .chip{display:inline-flex;align-items:center;gap:6px;background:#eef3ff;border:1px solid #c9d4f2;border-radius:999px;padding:3px 10px 3px 3px;font-size:13px;font-weight:bold}
 .chip i{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--title-2);color:#fff;font:bold 12px Tahoma,sans-serif;font-style:normal}
 .empty-line{font-size:13px;color:var(--muted)}
-.tabs{display:grid;grid-template-columns:repeat(3,1fr);background:#ffffff8c;border:1px solid var(--line);border-radius:12px;padding:4px;gap:4px;position:sticky;top:calc(max(10px,env(safe-area-inset-top)) + 62px);z-index:4;backdrop-filter:blur(6px)}
+.tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));background:#ffffff8c;border:1px solid var(--line);border-radius:12px;padding:4px;gap:4px;position:sticky;top:calc(max(10px,env(safe-area-inset-top)) + 62px);z-index:4;backdrop-filter:blur(6px)}
 .tabs button{border:0;border-radius:9px;background:none;padding:8px 4px;font:bold 13px Tahoma,sans-serif;color:var(--muted);cursor:pointer}
 .tabs button[aria-selected="true"]{background:#fff;color:var(--ink);box-shadow:0 1px 4px rgba(20,40,80,.25)}
 .tabs .n{display:inline-block;min-width:18px;margin-left:4px;padding:0 5px;border-radius:9px;background:var(--win-2);font-size:11px;line-height:18px}
-.list{display:grid;gap:8px}
+.list{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
 .day{font:bold 12px Tahoma,sans-serif;color:var(--win-dark);text-transform:uppercase;letter-spacing:.06em;margin:6px 4px 0}
 .row{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
 .slot{flex:none;display:grid;place-items:center;width:44px;height:44px;border-radius:9px;background:linear-gradient(#f4f6fb,#dde3ef);border:1px solid #b9c2d6;box-shadow:0 1px 0 #fff inset}
 .slot img{width:32px;height:32px;object-fit:contain;image-rendering:pixelated}
 .slot.q{font:22px "Lilita One",Tahoma,sans-serif;color:var(--idle)}
 .row .what,.session .what{flex:1;min-width:0}
-.row .what b,.session .what b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.session .what b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* An item's name is what the row is about: two lines of it rather than "Earring DEX Scroll: Interm...". */
+.row .what b{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden;overflow-wrap:anywhere;line-height:1.3}
 .row .what span,.session .what span{font-size:12px;color:var(--muted)}
 .row .gain,.session .gain{flex:none;font:bold 15px Tahoma,sans-serif;color:var(--gold);font-variant-numeric:tabular-nums}
 .bubble{background:var(--card);border:1px solid var(--line);border-radius:4px 14px 14px 14px;padding:8px 12px;max-width:92%}
@@ -131,7 +135,7 @@ button{font:inherit}
 .waiting p{margin:0 0 6px;color:var(--muted);font-size:14px}
 
 /* the store closed: a shuttered stall while MapleLens waits for the next one, then the stores before it */
-.closed-card{display:grid;justify-items:center;gap:4px;text-align:center;padding:4px 4px 2px}
+.closed-card{display:grid;grid-template-columns:minmax(0,1fr);justify-items:center;gap:4px;text-align:center;padding:4px 4px 2px}
 .closed-card svg{width:150px;height:104px;overflow:visible}
 .closed-card .sign{transform-box:fill-box;transform-origin:50% 0;animation:swing 3.2s ease-in-out infinite}
 @keyframes swing{25%{transform:rotate(3deg)}75%{transform:rotate(-3deg)}}
@@ -172,7 +176,7 @@ button{font:inherit}
 
 /* settings sheet */
 dialog.sheet{width:100%;max-width:480px;margin:auto auto 0;padding:0;border:0;border-radius:18px 18px 0 0;background:var(--win);
-  box-shadow:0 -10px 30px rgba(0,0,0,.35);max-height:88dvh}
+  box-shadow:0 -10px 30px rgba(0,0,0,.35);max-height:88dvh;overflow-x:hidden}
 dialog.sheet::backdrop{background:#0d153080}
 dialog.sheet[open]{animation:up .22s ease-out}
 @keyframes up{from{transform:translateY(40px);opacity:.4}}
@@ -181,7 +185,7 @@ dialog.sheet[open]{animation:up .22s ease-out}
 .sheet header{display:flex;align-items:center;padding:8px 16px 4px}
 .sheet header h2{flex:1;margin:0;font:24px "Lilita One",Tahoma,sans-serif}
 .sheet .close{color:var(--win-dark);border-color:var(--win-2);background:#fff}
-.sheet .body{padding:6px 16px max(18px,env(safe-area-inset-bottom));display:grid;gap:14px}
+.sheet .body{padding:6px 16px max(18px,env(safe-area-inset-bottom));display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
 .group{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
 .group h3{margin:0;padding:10px 14px 0;font:bold 11px Tahoma,sans-serif;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
 .item{display:flex;align-items:center;gap:10px;padding:12px 14px;border-top:1px solid var(--line)}
@@ -410,6 +414,6 @@ dialog.sheet[open]{animation:up .22s ease-out}
 </dialog>
 
 <div class="toast" id="toast" role="status" hidden></div>
-<script type="module" src="phone.js?v=832ca1c0ab00"></script>
+<script type="module" src="phone.js?v=8025fec1eb7a"></script>
 </body>
 </html>
