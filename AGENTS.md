@@ -301,7 +301,9 @@ it alone in the console.
 - Overnight at Ideal Ratio 1200p (412 frames a minute apart, the store open 6 hours): 254 visitors in and out, 4
   sales; the chat pages, chained by their overlap, never lost a line between frames. Replayed (each frame looked at
   twice), the watcher reports every one (main had lost the two after opening); the live app's store book agreed with
-  the frames on all 76 visitor lines it still held, and on the 4 sales, buyers, counts and mesos.
+  the frames on all 76 visitor lines it still held, and on the 4 sales, buyers, counts and mesos. Live (`--shop
+  --debug`, 30 minutes beside frames 5 s apart): 40 of 40 visitor lines and 2 of 2 sales (the app's store book had
+  the same two), 99 look lines; a changed chat page waited one look for the next to agree 32 times, as it should.
   `chat_frames -- DIR --text` prints each page as the fonts read it, to label by eye.
 - The shop finds itself and its own scale (`markers`): the lime SOLD ITEMS button with the orange CLOSE STORE button
   80 px (scaled) below it, the same width, found as colour runs on the frame as captured (a pointer-sized gap in a
