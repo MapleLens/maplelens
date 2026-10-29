@@ -313,9 +313,13 @@ fn map_drops(fonts: &Fonts, out: &std::path::Path, exp_card: &RgbaImage) {
         wide: false,
         source: "demo data",
     };
-    let note = format!("Very rare drop · 0.03% a kill · {}", drops.mobs[0].name);
+    // As NiaDB has it: no chance of its own (rarity by price), OSMLib's reference rate on its own line.
+    let as_found = drops::Shown { chance: None, rarity: drops::Rarity::of(None, drop.price), ..drop.clone() };
+    let note = drops::note(&as_found, &drops.mobs[0].name);
+    let rate = drops::rate_note(&as_found, &drops.mobs[0].name, false).unwrap_or_default();
     let credit = &drops.mobs[0].credit;
-    let heading = Heading { name: &drop.name, note: &note, colour: colour(drop.rarity), source: credit };
+    let heading =
+        Heading { name: &drop.name, note: &note, colour: colour(as_found.rarity), rate: &rate, source: credit };
     save(&render_named_card(fonts, &spec, &heading), &out.join("drops_price_card.png"));
 }
 

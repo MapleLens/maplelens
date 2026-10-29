@@ -1,9 +1,9 @@
-//! The map drops panel's data: NiaDB's monster list and each monster's confirmed drops (meowdb.com, used with the
-//! site's permission), and the dropped items' icons (maplestory.io's Classic data, like the sale pictures;
-//! cache\icons\item). Everything is kept in cache\meowdb and shown from there at once, a copy older than a week too
-//! (it is refreshed behind it). A map's monsters missing from it are fetched together; once the panel has shown in a
-//! run, while nothing is asked, the site thread gathers every listed monster's drops ahead, one request every two
-//! seconds, so a map met later needs no request at all. Before it shows, nothing is fetched.
+//! The map drops panel's data: NiaDB's monster list, each monster's confirmed drops and the reference drop rates its
+//! page shows (meowdb.com, used with the site's permission; the rates are OSMLib's), and the dropped items' icons
+//! (maplestory.io's Classic data, like the sale pictures; cache\icons\item). Everything is kept in cache\meowdb and
+//! shown from there at once, a copy older than a week too (it is refreshed behind it). A map's monsters missing from
+//! it are fetched together; once the panel has shown in a run, while nothing is asked, the site thread gathers every
+//! listed monster's drops and rates ahead, one request every two seconds, so a map met later needs no request at all. Before it shows, nothing is fetched.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -26,7 +26,8 @@ use crate::{paths, potions};
 
 /// New monsters are rare, and players confirm drops slowly: both are read again weekly, behind the copy shown.
 const FRESH: Duration = Duration::from_secs(7 * 24 * 3600);
-/// Between two requests gathering ahead (a family-run fansite): every monster in about seven minutes, once a week.
+/// Between two requests gathering ahead (a family-run fansite): every monster's drops and page in about a quarter of
+/// an hour, once a week.
 const REQUEST_GAP: Duration = Duration::from_secs(2);
 /// A monster whose drops could not be fetched is not tried again before this.
 const RETRY: Duration = Duration::from_secs(5 * 60);
@@ -45,6 +46,8 @@ struct Known {
     monsters: Vec<Monster>,
     /// By the site's monster ID.
     drops: HashMap<u32, Vec<Drop>>,
+    /// The reference rates on each monster's page (by the site's monster ID), by the game's item ID.
+    rates: HashMap<u32, Vec<(u32, f64)>>,
 }
 
 pub struct DropBook {
@@ -99,7 +102,9 @@ impl DropBook {
             let Some(monster) = meowdb::find(&known.monsters, mob) else { continue };
             match known.drops.get(&monster.id) {
                 Some(drops) => {
-                    table.insert(mob.id, Listed { drops: drops.clone(), credit: meowdb::credit(monster.id) });
+                    let rates = known.rates.get(&monster.id).map_or(&[][..], Vec::as_slice);
+                    let drops = meowdb::with_rates(drops.clone(), rates);
+                    table.insert(mob.id, Listed { drops, credit: meowdb::credit(monster.id) });
                 }
                 None if self.asked.borrow_mut().insert(Some(monster.id)) => missing.push(monster.id),
                 None => {}
@@ -185,25 +190,18 @@ impl Site {
         }
     }
 
-    /// The list and every monster's drops as last saved, whatever their age: shown at once.
+    /// The list and every monster's drops and rates as last saved, whatever their age: shown at once. A monster is
+    /// gathered when both are fresh (drops saved before the rates were read get them at the next gathering).
     fn load_disk(&mut self) {
         let monsters = std::fs::read_to_string(dir().join("monsters.json"))
             .map(|t| meowdb::monsters_from_json(&t))
             .unwrap_or_default();
-        let mut drops = HashMap::new();
-        for entry in std::fs::read_dir(dir().join("drops")).into_iter().flatten().flatten() {
-            let path = entry.path();
-            let id = path.file_stem().and_then(|s| s.to_str()).and_then(|s| s.parse::<u32>().ok());
-            let parsed = std::fs::read_to_string(&path).ok().and_then(|t| meowdb::parse_drops(&t).ok());
-            if let (Some(id), Some(list)) = (id, parsed) {
-                if is_fresh(&path) {
-                    self.gathered.insert(id);
-                }
-                drops.insert(id, list);
-            }
-        }
-        crate::info!("map drops: {} monsters and {} drop lists on disk", monsters.len(), drops.len());
-        *lock(&self.known) = Known { monsters, drops };
+        let (drops, fresh_drops) = read_folder("drops", |t| meowdb::parse_drops(t).ok());
+        let (rates, fresh_rates) = read_folder("rates", |t| Some(meowdb::rates_from_json(t)));
+        self.gathered.extend(fresh_drops.intersection(&fresh_rates));
+        let (listed, rated) = (drops.len(), rates.len());
+        crate::info!("map drops: {} monsters, {listed} drop lists and {rated} rate lists on disk", monsters.len());
+        *lock(&self.known) = Known { monsters, drops, rates };
         self.learnt();
     }
 
@@ -234,7 +232,7 @@ impl Site {
 
     /// A map's monsters at once: the player is waiting for them.
     fn fetch_together(&mut self, ids: &[u32]) {
-        let results = in_parallel(ids, |&id| (id, fetch_drops(id)));
+        let results = in_parallel(ids, |&id| (id, fetch_monster(id, Duration::ZERO)));
         self.last_request = Some(Instant::now());
         for (id, result) in results {
             self.store(id, result);
@@ -255,17 +253,23 @@ impl Site {
                 std::thread::sleep(wait);
             }
             self.last_request = Some(Instant::now());
-            let result = fetch_drops(id);
+            let result = fetch_monster(id, REQUEST_GAP);
+            self.last_request = Some(Instant::now());
             self.store(id, result);
         }
     }
 
-    fn store(&mut self, id: u32, result: Result<Vec<Drop>, NetError>) {
+    fn store(&mut self, id: u32, result: Result<Fetched, NetError>) {
         match result {
-            Ok(drops) => {
+            Ok(Fetched { drops, rates }) => {
                 self.failed.remove(&id);
                 self.gathered.insert(id);
-                lock(&self.known).drops.insert(id, drops);
+                let mut known = lock(&self.known);
+                known.drops.insert(id, drops);
+                if let Some(rates) = rates {
+                    known.rates.insert(id, rates);
+                }
+                drop(known);
                 self.learnt();
             }
             Err(error) => {
@@ -281,12 +285,48 @@ impl Site {
     }
 }
 
-/// One monster's drops from the site, saved as it answered.
-fn fetch_drops(id: u32) -> Result<Vec<Drop>, NetError> {
+/// A monster's drops, and its page's reference rates when the page answered.
+struct Fetched {
+    drops: Vec<Drop>,
+    rates: Option<Vec<(u32, f64)>>,
+}
+
+/// One monster's drops from the site, saved as it answered, then (`gap` later) the rates on its page, saved as read
+/// (not the page). The drops count without the rates: a missing page is asked again at the next gathering.
+fn fetch_monster(id: u32, gap: Duration) -> Result<Fetched, NetError> {
     let body = potions::fetch(&meowdb::drops_url(id))?;
     let drops = meowdb::parse_drops(&String::from_utf8_lossy(&body)).map_err(NetError)?;
     save(&dir().join("drops").join(format!("{id}.json")), &body);
-    Ok(drops)
+    std::thread::sleep(gap);
+    let rates = match potions::fetch(&meowdb::monster_url(id)) {
+        Ok(page) => {
+            let rates = meowdb::rates_from_page(&String::from_utf8_lossy(&page));
+            save(&dir().join("rates").join(format!("{id}.json")), meowdb::rates_to_json(&rates).as_bytes());
+            Some(rates)
+        }
+        Err(error) => {
+            crate::warn!("map drops: the rates on monster {id}'s page are unavailable ({error})");
+            None
+        }
+    };
+    Ok(Fetched { drops, rates })
+}
+
+/// Every `<monster id>.json` in a cache folder, read by `parse`, and the IDs of those saved within the week.
+fn read_folder<T>(name: &str, parse: impl Fn(&str) -> Option<T>) -> (HashMap<u32, T>, HashSet<u32>) {
+    let (mut read, mut fresh) = (HashMap::new(), HashSet::new());
+    for entry in std::fs::read_dir(dir().join(name)).into_iter().flatten().flatten() {
+        let path = entry.path();
+        let id = path.file_stem().and_then(|s| s.to_str()).and_then(|s| s.parse::<u32>().ok());
+        let parsed = std::fs::read_to_string(&path).ok().and_then(|t| parse(&t));
+        if let (Some(id), Some(value)) = (id, parsed) {
+            if is_fresh(&path) {
+                fresh.insert(id);
+            }
+            read.insert(id, value);
+        }
+    }
+    (read, fresh)
 }
 
 fn dir() -> PathBuf {
@@ -334,7 +374,7 @@ mod tests {
     use maplelens_core::drops::meowdb;
     use maplelens_core::mapinfo::Mob;
 
-    /// NiaDB's real monster list and one monster's drops, through the parsers (two requests):
+    /// NiaDB's real monster list and one monster's drops and page, through the parsers (three requests):
     /// `cargo test -p maplelens live_meowdb -- --ignored --nocapture`.
     #[test]
     #[ignore = "needs the network"]
@@ -350,5 +390,14 @@ mod tests {
         let drops = meowdb::parse_drops(&String::from_utf8_lossy(&body)).expect("readable");
         println!("{} (site id {}): {:?}", monster.name, monster.id, drops.iter().map(|d| &d.name).collect::<Vec<_>>());
         assert!(drops.iter().any(|d| d.name == "Orange Mushroom Cap"));
+        std::thread::sleep(super::REQUEST_GAP);
+        let page = crate::potions::fetch(&meowdb::monster_url(monster.id)).expect("its page");
+        let rates = meowdb::rates_from_page(&String::from_utf8_lossy(&page));
+        let drops = meowdb::with_rates(drops, &rates);
+        for drop in drops.iter().filter(|d| d.rate.is_some()) {
+            println!("  {} {:?}", drop.name, drop.rate.map(maplelens_core::drops::one_in_text));
+        }
+        assert!(!rates.is_empty(), "the page has its reference rates");
+        assert!(drops.iter().any(|d| d.name == "Orange Mushroom Cap" && d.rate.is_some_and(|r| r > 0.1)));
     }
 }
