@@ -137,6 +137,9 @@ pub struct ShopWatcher {
     // The shop's contents: a closed shop's lists mean nothing to the next one.
     sold: Option<Vec<Row>>,
     chat: Option<Vec<Line>>,
+    /// Our store was seen being set up (None: it was not): the chat page as last seen then, empty when it was covered.
+    /// The store's chat log starts at its owner entering, so what the first open look finds after that is news.
+    set_up: Option<Vec<Line>>,
     balance: Option<RgbImage>,
     balance_value: Option<i64>,
     /// Tries made to read the counter's first value (it is read only to have something to compare with).
@@ -168,6 +171,8 @@ pub struct ShopWatcher {
     missing_text: bool,
     /// Lines already read by the shop's font.
     texts: text::Cache,
+    /// What the last look saw and made of it, in words (`look`).
+    look: String,
 }
 
 impl ShopWatcher {
@@ -186,6 +191,7 @@ impl ShopWatcher {
             status_frames: 0,
             sold: None,
             chat: None,
+            set_up: None,
             balance: None,
             balance_value: None,
             baseline_tries: 0,
@@ -205,6 +211,7 @@ impl ShopWatcher {
             held: Vec::new(),
             missing_text: false,
             texts: text::Cache::default(),
+            look: String::new(),
         }
     }
 
@@ -249,6 +256,13 @@ impl ShopWatcher {
     /// True while the shop window is on screen (the caller may poll faster then).
     pub fn sees_shop(&self) -> bool {
         self.located.is_some()
+    }
+
+    /// What the last update saw and why it reported what it did, in one line for a log: where the shop was, the
+    /// store's state, each list (rows, live or scrolled, believed or not, what was new) and the status. The same
+    /// words look after look while nothing changes, so a caller can log it only when it changes.
+    pub fn look(&self) -> &str {
+        &self.look
     }
 
     /// The UI scale the shop window is drawn at, measured off it (None while it is not on screen).
@@ -317,6 +331,7 @@ impl ShopWatcher {
     fn read_frame(&mut self, frame: &RgbImage, now: f64) -> Vec<Held> {
         if frame.is_empty() {
             // Minimized or mid-resize: nothing to read, and nothing has closed.
+            self.look = "empty frame (minimized?): no news".into();
             return Vec::new();
         }
         let before = self.located;
@@ -326,6 +341,7 @@ impl ShopWatcher {
         });
         if located.is_none() && before.is_some_and(|b| layout::window_remains(frame, &b)) {
             // Something covers the buttons (a tooltip, the pointer) but the window is still there: no news.
+            self.look = "buttons not found, the chat page still where it was (covered?): no news".into();
             return Vec::new();
         }
         self.located = located;
@@ -339,13 +355,23 @@ impl ShopWatcher {
             let events = self.follow_state(None, now);
             self.follow_status(None);
             self.last = None;
+            self.set_up = None;
+            self.look = match self.away_since.filter(|_| self.was_open) {
+                Some(since) => format!(
+                    "no shop window; our store counts as closed after {STORE_VANISHED_AFTER:.0} s of this, {:.0} s so far",
+                    now - since
+                ),
+                None => "no shop window".into(),
+            };
             return events.into_iter().map(Held::Event).collect();
         };
         let view = View { frame, scale: located.scale };
         let enter = located.anchors.enter.expect("a located shop has its ENTER anchor");
+        let at = format!("shop at ({}, {}), scale {:.3}", located.marker.x, located.marker.y, located.scale);
         let reading = read_state(&view, enter);
         if reading == StoreState::Unknown {
             // Something covers the buttons: no news about the state.
+            self.look = format!("{at}; buttons unreadable (covered?): no news");
             return Vec::new();
         }
         let mut events: Vec<Held> = self.follow_state(Some(reading), now).into_iter().map(Held::Event).collect();
@@ -356,16 +382,44 @@ impl ShopWatcher {
         self.follow_status(Some(&observation));
         self.respell_owner_from_chat(&view, observation.chat.as_deref().unwrap_or(&[]));
         let previous = self.last.replace(observation.clone());
-        let Some(previous) = previous else { return events };
+        let state = format!("{at}; buttons {reading:?}, store {:?}; status {:?}", self.state, self.status);
+        let Some(previous) = previous else {
+            self.look = format!("{state}; {}; first look: nothing to compare with", observation.describe());
+            return events;
+        };
+        if self.state == Some(StoreState::NotOpen) && reading == StoreState::NotOpen {
+            // Our store being set up: its chat page is where the open store's starts.
+            let page = observation.chat.clone().filter(|_| observation.chat_live && observation.chat_agrees(&previous));
+            match (page, &mut self.set_up) {
+                (Some(page), set_up) => *set_up = Some(page),
+                (None, set_up) => _ = set_up.get_or_insert_with(Vec::new),
+            }
+        } else if !matches!(self.state, Some(StoreState::NotOpen | StoreState::Open)) {
+            self.set_up = None;
+        }
         if self.state != Some(StoreState::Open) || Some(reading) != self.state {
+            self.look = format!("{state}; {}; not our open store: lists not followed", observation.describe());
             return events;
         }
-        if observation.sold_agrees(&previous) {
-            events.extend(self.sold_events(&view, &observation));
-        }
-        if observation.chat_agrees(&previous) {
-            events.extend(self.chat_events(&view, &observation));
-        }
+        let sold = if observation.sold_agrees(&previous) {
+            let held = self.sold_events(&view, &observation);
+            let told = describe_held(&held);
+            events.extend(held);
+            told
+        } else {
+            "changed since the last look: believed once the next look agrees".into()
+        };
+        let chat = if observation.chat_agrees(&previous) {
+            let held = self.chat_events(&view, &observation);
+            let told = describe_held(&held);
+            events.extend(held);
+            told
+        } else {
+            "changed since the last look: believed once the next look agrees".into()
+        };
+        let waiting =
+            if self.held.is_empty() { String::new() } else { format!("; {} waiting for text", self.held.len()) };
+        self.look = format!("{state}; {}; sold list: {sold}; chat: {chat}{waiting}", observation.describe());
         events
     }
 
@@ -756,7 +810,16 @@ impl ShopWatcher {
 
     fn chat_events(&mut self, view: &View<'_>, obs: &Observation) -> Vec<Held> {
         let Some(chat) = obs.chat.as_ref().filter(|_| obs.chat_live) else { return Vec::new() };
-        let Some(known) = self.chat.replace(chat.clone()) else { return Vec::new() };
+        let set_up = self.set_up.take();
+        let Some(known) = self.chat.replace(chat.clone()) else {
+            // First sight of the page: history, unless we saw this store being set up. Then the page as it was (or,
+            // covered then, its first line: the owner entering) is where the news starts: visitors in the seconds
+            // before the open store was confirmed had been lost (live, two in the minute after opening).
+            let Some(page) = set_up else { return Vec::new() };
+            let start = if page.is_empty() { chat[..chat.len().min(1)].to_vec() } else { page };
+            let added = new_at_back(&start, chat, lines::same).unwrap_or(0);
+            return chat[chat.len() - added..].iter().map(|line| Held::Chat(self.line_read(view, line))).collect();
+        };
         let Some(added) = new_at_back(&known, chat, lines::same) else {
             return vec![Held::Event(ShopEvent::LostSync(ListKind::Chat))];
         };
@@ -822,6 +885,35 @@ fn vote(reads: &[String], hint: Option<&String>) -> Option<String> {
     }
     let most = spellings.iter().map(|&(_, n)| n).max().unwrap_or(0);
     spellings.iter().find(|&&(_, n)| n == most).map(|&(s, _)| s.clone())
+}
+
+/// What a list's part of a look found, for the log line.
+fn describe_held(held: &[Held]) -> String {
+    let mut parts = Vec::new();
+    for entry in held {
+        match entry {
+            Held::Event(ShopEvent::LostSync(_)) => {
+                parts.push("no longer lines up with the last page: lost".to_string());
+            }
+            Held::Event(event) => parts.push(event.describe()),
+            Held::Sales { rows, counter, ambiguous } => {
+                parts.push(format!("{} new rows", rows.len()));
+                if counter.is_some() {
+                    parts.push("counter moved".into());
+                }
+                if *ambiguous {
+                    parts.push("one repeated row: how many sold is unknown".into());
+                }
+            }
+            Held::Unseen { .. } => parts.push("closed, counter moved: a sale not seen".into()),
+            Held::Chat(_) => {}
+        }
+    }
+    let lines = held.iter().filter(|h| matches!(h, Held::Chat(_))).count();
+    if lines > 0 {
+        parts.push(format!("{lines} new lines"));
+    }
+    if parts.is_empty() { "no change".into() } else { parts.join(", ") }
 }
 
 /// When one sale is all there is, the counter's gain is its price; with several the gain is theirs together and goes to

@@ -33,7 +33,7 @@ cargo run --release -p maplelens-core --example build_shop_font -- --init C:/Win
                                                 # relearn the shop fonts from tests/fixtures/shop_text.tsv (--fold K/5, --check)
 cargo run -p maplelens-core --example shop_lines -- OUT_DIR   # every distinct text line in the shop fixtures, to label
 cargo test --release -p maplelens live_shop_text -- --ignored --nocapture   # the live store read by the fonts and by OCR
-cargo run --release -p maplelens-core --example chat_frames -- FRAMES_DIR   # per frame: chat lines found, scroll thumb (locate_frames: scale, markers)
+cargo run --release -p maplelens-core --example chat_frames -- FRAMES_DIR [--text]   # per frame: chat lines found, scroll thumb, the lines' text (locate_frames: scale, markers)
 MAPLELENS_NAMES=debug/names MAPLELENS_NAME_LABELS=<labels.tsv> cargo test --release -p maplelens name_bench -- --ignored --nocapture
                                                 # Character Info names on saved windows (--debug saves them)
 ```
@@ -291,6 +291,18 @@ it alone in the console.
   else's store and ours while being set up are ignored. Closed = back to its set-up buttons for `STORE_GONE_AFTER` (5 s), or no shop window at all for
   `STORE_VANISHED_AFTER` (60 s): switching resolution, ratio or full screen hides the window 15-30 s, and a 5 s close
   announced a false closing and reopening each time.
+- A chat page first seen is history, except in a store seen being set up: its log starts at the owner entering, so
+  the set-up page (or, covered then, the open page's first line) is where the news starts. Visitors in the seconds
+  before the open store was confirmed were lost otherwise (two in the minute after opening, overnight).
+- Each look says what it saw and why (`ShopWatcher::look`: where the shop is, the store's state, each list's rows,
+  believed or not, what was new, the status). The app logs it with `--debug` whenever it changes; without, the log
+  keeps each event's kind (`ShopEvent::kind`, no names: players send their log) and every change of the pill.
+  `shop_replay` prints it with `MAPLELENS_SHOP_LOOKS=1`; it also reads `live_frames`' captures (`live_<unix>.png`).
+- Overnight at Ideal Ratio 1200p (412 frames a minute apart, the store open 6 hours): 254 visitors in and out, 4
+  sales; the chat pages, chained by their overlap, never lost a line between frames. Replayed (each frame looked at
+  twice), the watcher reports every one (main had lost the two after opening); the live app's store book agreed with
+  the frames on all 76 visitor lines it still held, and on the 4 sales, buyers, counts and mesos.
+  `chat_frames -- DIR --text` prints each page as the fonts read it, to label by eye.
 - The shop finds itself and its own scale (`markers`): the lime SOLD ITEMS button with the orange CLOSE STORE button
   80 px (scaled) below it, the same width, found as colour runs on the frame as captured (a pointer-sized gap in a
   run is bridged: the pointer over a button splits every row of it). The button's width gives the scale to ~1%,
