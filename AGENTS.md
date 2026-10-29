@@ -15,6 +15,8 @@ cargo deny check                                # advisories, licences, sources 
 cargo +1.88 check --workspace --all-targets     # the minimum Rust version still builds
 cargo run -p maplelens -- --debug               # the Windows app; writes maplelens.log, saves captures to debug\
 ./scripts/build-web.ps1                         # rebuild docs/app/pkg (commit it) after changing core or web
+./scripts/build-installer.ps1                   # maplelens-vX.Y.Z-setup.exe (Inno Setup 7, or 6.6+) around target/release/maplelens.exe
+./scripts/test-installer.ps1 SETUP.exe          # silent install into a scratch folder, checks, uninstall (CI runs it)
 cargo run -p maplelens-core --example build_atlas    # rebuild the glyph atlases from vision::samples
 cargo run --release -p maplelens-core --example bench_search   # browser-path detection timings
 cargo run -p maplelens-core --example render_cards -- OUT_DIR     # sample cards as PNGs, for a visual check
@@ -275,6 +277,30 @@ starts itself again with the "runas" verb (the Windows prompt), same arguments a
   never weaken. Do not add anything that needs elevation for its own sake.
 - Not a manifest `requireAdministrator`: Windows does not start such programs from the Run key at sign-in, and the
   prompt could not be declined into a working app.
+
+## The installer (`installer/maplelens.iss`)
+
+A release has two downloads of the same exe. `maplelens-vX.Y.Z-windows.zip` (+ `.sha256`, and the signed manifest) is
+the updater's and the portable copy; `maplelens-vX.Y.Z-setup.exe` (+ `.sha256`, Inno Setup) is what the website's
+buttons offer (`docs/assets/site.js` takes the `-setup.exe` asset, else the zip). `scripts/build-installer.ps1` builds
+it (release.yml around the release exe, ci.yml around the dev one) and `scripts/test-installer.ps1` installs, checks
+and uninstalls it silently in both.
+- **Per user, without administrator**: `%LOCALAPPDATA%\Programs\MapleLens` (`PrivilegesRequired=lowest`). The updater
+  renames `maplelens.exe` aside and moves the new one in, and the log goes next to the exe, so the folder must be the
+  player's to write: in Program Files neither would work. The exe keeps its name (`can_self_update`).
+- The installer is never the update path (rule 7 is unchanged): the app updates from the zip, and at start sets the
+  installed apps entry to its own version when that entry installed its folder (`win/src/installer.rs`). The entry is
+  found by the script's `AppId`, which must never change (a new installer upgrades an old install in place by it).
+- A running copy is never replaced or removed: Setup and the uninstaller look for the app's mutex by creating it (an
+  elevated copy's cannot be opened, which `AppMutex` would read as not running) and ask the player to exit it from the
+  tray; silent, they stop. The finish page starts the app as the player (`shellexec`); it asks for elevation itself.
+- Uninstalling removes the app's own files next to it (the log and its rotations, the updater's leftovers) and the
+  "Start with Windows" value when it starts that copy. `%LOCALAPPDATA%\MapleLens` stays unless the player says Yes
+  (default No, never asked when silent).
+- Neither download is code-signed: SmartScreen warns on both.
+- Why Inno Setup (7; checked October 2026): MSIX needs a code-signing certificate (unsigned, it installs only in
+  developer mode); Velopack brings its own updater and folder layout, which would replace the signed update chain;
+  a per-user MSI (WiX) is awkward for one exe; NSIS would do, with a clumsier script language.
 
 ## Store Permit watcher (`core/src/shop`)
 

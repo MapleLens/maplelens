@@ -72,12 +72,22 @@ jobs:
           UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
         run: ./target/release/maplelens.exe --sign-release "maplelens-v$env:VERSION-windows.zip"
 
+      # The website's download: the same exe, installed per user (installer/maplelens.iss), with its .sha256. The
+      # updater keeps using the zip above.
+      - name: Installer
+        shell: pwsh
+        run: |
+          $setup = ./scripts/build-installer.ps1 -Version $env:VERSION -Install
+          ./scripts/test-installer.ps1 $setup
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             maplelens-v${{ env.VERSION }}-windows.zip
             maplelens-v${{ env.VERSION }}-windows.zip.sha256
+            maplelens-v${{ env.VERSION }}-setup.exe
+            maplelens-v${{ env.VERSION }}-setup.exe.sha256
             maplelens-v${{ env.VERSION }}-manifest.json
             maplelens-v${{ env.VERSION }}-manifest.json.sig
           generate_release_notes: true

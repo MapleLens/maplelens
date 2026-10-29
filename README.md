@@ -86,9 +86,14 @@ Open a player's **Character Info** window and the ranking panel appears beside i
 
 ### Windows app (recommended)
 
-1. Download `maplelens-vX.Y.Z-windows.zip` from the [latest release](https://github.com/MapleLens/maplelens/releases/latest) and unzip it anywhere.
-2. Start MapleStory Classic, then double‑click **`maplelens.exe`**. A meso coin appears in the tray (bottom right).
+1. Download `maplelens-vX.Y.Z-setup.exe` from the [latest release](https://github.com/MapleLens/maplelens/releases/latest) and run it.
+   It installs for your Windows account only, adds MapleLens to the Start menu and starts it.
+2. Start MapleStory Classic and MapleLens (Start menu). A meso coin appears in the tray (bottom right).
 3. Click the game, open your inventory or a shop and **hover an item**. 🎉
+
+Rather not install? `maplelens-vX.Y.Z-windows.zip` is the same program, portable: unzip it anywhere and
+double‑click **`maplelens.exe`**. To remove the installed one, use **Settings → Apps → Installed apps → MapleLens**;
+your settings and history in `%LOCALAPPDATA%\MapleLens` stay unless you say so.
 
 > Windows may show a blue "Windows protected your PC" box for a new download. Click **More info → Run anyway**.
 > The source is all here; the release is built by GitHub Actions from this repository.
@@ -110,8 +115,9 @@ refused.
 | `--screenshot OUT.png [--wait S] [--blur X,Y,W,H]` | Save a picture of the game with MapleLens's cards drawn in, for docs and bug reports |
 | `--version` | Print the version |
 
-MapleLens always writes warnings and errors to `maplelens.log` next to `maplelens.exe`. If something breaks, send
-that file along with your report. Settings, cached prices and learnt letters live in `%LOCALAPPDATA%\MapleLens`.
+MapleLens always writes warnings and errors to `maplelens.log` next to `maplelens.exe` (installed:
+`%LOCALAPPDATA%\Programs\MapleLens`). If something breaks, send that file along with your report. Settings, cached
+prices and learnt letters live in `%LOCALAPPDATA%\MapleLens`.
 
 ### In your browser
 
@@ -244,7 +250,10 @@ git commit -am "Release 0.2.1"; git tag v0.2.1; git push --follow-tags
 
 Pushing a `v*.*.*` tag runs `.github/workflows/release.yml`: format and lint checks, tests, a release build, a
 `--version` smoke test, then a GitHub Release with `maplelens-vX.Y.Z-windows.zip` (exe, README, LICENSE), its
-SHA-256 and the signed update manifest (`maplelens-vX.Y.Z-manifest.json` + `.sig`) the in-app updater requires.
+SHA-256 and the signed update manifest (`maplelens-vX.Y.Z-manifest.json` + `.sig`) the in-app updater requires, plus
+the installer the website offers, `maplelens-vX.Y.Z-setup.exe` and its `.sha256` (`installer/maplelens.iss`, Inno
+Setup; `./scripts/build-installer.ps1` builds it locally, `./scripts/test-installer.ps1` installs, checks and
+uninstalls it silently).
 Signing uses the `UPDATE_SIGNING_KEY` Actions secret; `maplelens --make-update-key BACKUP_PATH` creates a key once
 (it stores the secret through `gh` and prints the public key for `crates/win/src/update/mod.rs`). Tags containing `-` (e.g. `v0.3.0-rc1`) are marked pre-release. No price data is ever bundled. `ci.yml`
 runs the same checks plus the WebAssembly build on every push and PR.
