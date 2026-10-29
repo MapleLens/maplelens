@@ -32,7 +32,7 @@ Hover an item, see what it is worth. No injection, no memory reading, no game fi
 | 💎 **Map drops** | On a field, a panel beside the EXP card (as tall as it) shows every monster on the map and the map's ten most valuable drops, framed in their rarity's colour (by market price). Point at a drop for its price card; click a monster for its page with every drop it is known for. Drag the panel or the EXP card anywhere in the game (pick a corner in **Settings → Training** to put them back). Windows app only. Drop lists are the ones players confirmed in Classic on [NiaDB](https://meowdb.com/msclassic/monsters), used with its permission; they are kept in `%LOCALAPPDATA%\MapleLens\cache\meowdb`, so a map seen once shows at once. Switch it off with **Map drops** in the settings or the tray. |
 | 🏆 **Player rank panel** | Open a player's **Character Info** window and a panel in the game's own style (pink labels, beige boxes) appears beside it with their world, job and fame rank from the public [classicrank.com API](https://classicrank.com/developer) (no key; cached, rate‑limit friendly). Hides if there is no room inside the game. |
 | 🔤 **Reads the game's own letters** | Titles are read by matching the game font's glyphs, so names come out exactly and the same every frame. Letters it has not seen yet fall back to OCR once and are learnt for next time. |
-| 🌐 **Two ways to run it** | A 5 MB Windows app that draws the card right beside the tooltip, or the same engine compiled to WebAssembly in your browser, with nothing to install. |
+| 🌐 **Two ways to run it** | A small Windows app that draws the card right beside the tooltip, or the same engine compiled to WebAssembly in your browser, with nothing to install. |
 | 🧭 **Smart placement** | Right of the tooltip; left near the screen edge; below for equipment compare (two tooltips). |
 | 🎨 **Truly translucent** | Per‑pixel alpha like the game's own box (see‑through fill, solid text), Tahoma font, same borders and bullet, drawn sharp at the game's size. |
 | 👀 **Glance first, details on dwell** | Hover and you get the answer at once: price, trend, week sparkline, where the price sits in its range, how it sells. Keep the pointer on the item for ~1 s and the card grows into the full view. |
@@ -86,9 +86,14 @@ Open a player's **Character Info** window and the ranking panel appears beside i
 
 ### Windows app (recommended)
 
-1. Download `maplelens-vX.Y.Z-windows.zip` from the [latest release](https://github.com/MapleLens/maplelens/releases/latest) and unzip it anywhere.
-2. Start MapleStory Classic, then double‑click **`maplelens.exe`**. A meso coin appears in the tray (bottom right).
+1. Download `maplelens-vX.Y.Z-setup.exe` from the [latest release](https://github.com/MapleLens/maplelens/releases/latest) and run it.
+   It adds MapleLens to the Start menu and starts it.
+2. Start MapleStory Classic and MapleLens (Start menu). A meso coin appears in the tray (bottom right).
 3. Click the game, open your inventory or a shop and **hover an item**. 🎉
+
+Rather not install? `maplelens-vX.Y.Z-windows.zip` is the same program, portable: unzip it anywhere and
+double‑click **`maplelens.exe`**. To remove the installed one, use **Settings → Apps → Installed apps → MapleLens**;
+your settings and history in `%LOCALAPPDATA%\MapleLens` stay unless you say so.
 
 > Windows may show a blue "Windows protected your PC" box for a new download. Click **More info → Run anyway**.
 > The source is all here; the release is built by GitHub Actions from this repository.
@@ -110,8 +115,10 @@ refused.
 | `--screenshot OUT.png [--wait S] [--blur X,Y,W,H]` | Save a picture of the game with MapleLens's cards drawn in, for docs and bug reports |
 | `--version` | Print the version |
 
-MapleLens always writes warnings and errors to `maplelens.log` next to `maplelens.exe`. If something breaks, send
-that file along with your report. Settings, cached prices and learnt letters live in `%LOCALAPPDATA%\MapleLens`.
+MapleLens always writes warnings and errors to `maplelens.log` next to `maplelens.exe` (installed:
+`C:\Program Files\MapleLens`), or in `%LOCALAPPDATA%\MapleLens` when it may not write there (installed, with the
+administrator prompt declined). If something breaks, send that file along with your report. Settings, cached
+prices and learnt letters live in `%LOCALAPPDATA%\MapleLens`.
 
 ### In your browser
 
@@ -134,12 +141,25 @@ Prices come from MesoWatch (with their permission: fetched at most once every 30
 
 | Problem | What to do |
 |---|---|
-| Nothing appears when I hover | The game must be the **front window** (click on it). Run both the game and MapleLens the normal way (not one "as administrator" and the other not). |
+| I started it and nothing happened | MapleLens lives in the tray: look for the meso coin by the clock (Windows 11 may tuck it under the **^** arrow). Its cards only show while MapleStory is the front window. |
+| Nothing appears when I hover | The game must be the **front window** (click on it). If you said No to the administrator prompt, prices still work; restart MapleLens and say Yes if they don't. |
 | The card says "No price data" | That item has no sales on MesoWatch yet, or the name was misread. Hover again; send `maplelens.log` if it keeps happening. |
 | Only Emerald Ore and Tree Branch show prices | That is demo mode: the price list could not be loaded (no internet?). The web version asks MesoWatch at most every 30 minutes, so give it that long. |
 | A new item's name reads with `?` | MapleLens has not seen one of its letters yet. With an OCR language installed (Windows: **Settings → Time & language → Language & region**, English), it reads it once and learns it. |
 | The card is in the wrong place | Only the default UI layout is calibrated. Tooltips flipped to the other side of the mouse (near the right/bottom screen edge) are not supported yet. |
-| Browser: no card | Choose the game's own window in the share dialog, and try **Settings → Game window** (full screen vs windowed). |
+| Browser: no card | In the share dialog choose the game's own **window** (not the whole screen or a tab). The cards' header says whether it is watching the game, and what to do if not. |
+
+### Why does it ask to run as administrator?
+
+MapleStory's launcher starts the game as administrator, and while such a window is in front Windows hides its mouse
+clicks from programs that are not (it still shows where the pointer is). MapleLens never hooks the mouse and its cards
+let every click through to the game, so the only way it can see you click a monster in the map drops panel or drag a
+card is to run the same way. So it asks once when it starts.
+
+Say **No** and everything else still works: price cards, the map helper, ranks, the store watcher, the EXP tracker.
+Only clicking and dragging its cards needs it. Running as administrator changes nothing about what MapleLens does
+(it still only reads screen pixels), and it is why updates are only ever installed from a release signed by this
+project and checked before they run.
 
 ## ⚠️ Can I get banned?
 
@@ -194,8 +214,9 @@ crates/
 ├── win/     the Windows app: GDI capture, layered overlay window, tray, settings window, Windows OCR, updates
 └── web/     the WebAssembly engine behind the browser version
 docs/        the website (GitHub Pages) and the web app (docs/app), including the compiled engine (docs/app/pkg)
-tests/       real game captures (fixtures) and the old Python version's answers on them (golden)
-scripts/     bump-version.ps1, build-web.ps1
+relay/       the phone notification relay (Cloudflare Worker) and maple.observer's redirect to the site
+tests/       the old Python version's answers on the fixtures (golden; the captures stay local) and the manual test plan
+scripts/     bump-version.ps1, build-web.ps1 (+ stamp-web.ps1), vendor.mjs, stream-bench.ps1
 ```
 
 See [AGENTS.md](AGENTS.md) for architecture rules and how to extend it.
@@ -244,7 +265,13 @@ git commit -am "Release 0.2.1"; git tag v0.2.1; git push --follow-tags
 
 Pushing a `v*.*.*` tag runs `.github/workflows/release.yml`: format and lint checks, tests, a release build, a
 `--version` smoke test, then a GitHub Release with `maplelens-vX.Y.Z-windows.zip` (exe, README, LICENSE), its
-SHA-256 and the signed update manifest (`maplelens-vX.Y.Z-manifest.json` + `.sig`) the in-app updater requires.
-Signing uses the `UPDATE_SIGNING_KEY` Actions secret; `maplelens --make-update-key BACKUP_PATH` creates a key once
-(it stores the secret through `gh` and prints the public key for `crates/win/src/update/mod.rs`). Tags containing `-` (e.g. `v0.3.0-rc1`) are marked pre-release. No price data is ever bundled. `ci.yml`
+SHA-256 and the signed update manifest (`maplelens-vX.Y.Z-manifest.json` + `.sig`) the in-app updater requires, plus
+the installer the website offers, `maplelens-vX.Y.Z-setup.exe` and its `.sha256` (`installer/maplelens.iss`, Inno
+Setup; `./scripts/build-installer.ps1` builds it locally, `./scripts/test-installer.ps1` installs, checks and
+uninstalls it silently).
+Signing runs in a job of its own (`scripts/sign-release.sh`, OpenSSL: nothing of the build runs beside the key) with
+the `UPDATE_SIGNING_KEY` secret of the `release` environment; `maplelens --make-update-key BACKUP_PATH` creates a key
+once (it stores the secret through `gh` and prints the public key for `crates/win/src/update/mod.rs`), and
+`maplelens --sign-release ZIP` signs the same way locally. Versions are plain X.Y.Z: a tag like `v0.3.0-rc1` fails at
+signing. No price data is ever bundled. `ci.yml`
 runs the same checks plus the WebAssembly build on every push and PR.

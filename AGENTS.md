@@ -15,6 +15,8 @@ cargo deny check                                # advisories, licences, sources 
 cargo +1.88 check --workspace --all-targets     # the minimum Rust version still builds
 cargo run -p maplelens -- --debug               # the Windows app; writes maplelens.log, saves captures to debug\
 ./scripts/build-web.ps1                         # rebuild docs/app/pkg (commit it) after changing core or web
+./scripts/build-installer.ps1                   # maplelens-vX.Y.Z-setup.exe (Inno Setup 7, or 6.6+) around target/release/maplelens.exe
+./scripts/test-installer.ps1 SETUP.exe          # silent install into a scratch folder, checks, uninstall (CI runs it)
 cargo run -p maplelens-core --example build_atlas    # rebuild the glyph atlases from vision::samples
 cargo run --release -p maplelens-core --example bench_search   # browser-path detection timings
 cargo run -p maplelens-core --example render_cards -- OUT_DIR     # sample cards as PNGs, for a visual check
@@ -39,8 +41,10 @@ MAPLELENS_NAMES=debug/names MAPLELENS_NAME_LABELS=<labels.tsv> cargo test --rele
 ```
 
 CI (`.github/workflows/ci.yml`) runs all of these in parallel jobs, each restoring its dependencies' build from a
-cache (rust-cache; keyed on the lock file, toolchain and env, so keep `env` identical in `release.yml`); workspace lints in
-`Cargo.toml` include `undocumented_unsafe_blocks`, so an `unsafe` without a `// SAFETY:` comment fails the build.
+cache (rust-cache; keyed on the lock file, toolchain and env). `release.yml` builds without one (nothing a CI job wrote
+reaches what it signs) and signs in a job of its own (`scripts/sign-release.sh`: the key never meets the build). Actions
+are pinned to full commit SHAs. Workspace lints in `Cargo.toml` include `undocumented_unsafe_blocks`, so an `unsafe`
+without a `// SAFETY:` comment fails the build.
 
 Run tests, clippy and fmt before declaring work done. Never claim an overlay change works without either a test or
 a screenshot of the running overlay over the game (`maplelens --screenshot OUT.png` draws the cards in).
@@ -140,7 +144,8 @@ crates/core/src/          platform-free; everything here is unit-testable
                           Cloto's answers, combinations, QuestTracker), watcher (TrainingWatcher: frames in, Training out)
   placement.rs, settings.rs, hotkey.rs (naming and building the show/hide combo)
 crates/win/src/           the Windows app (only this crate talks to Win32)
-  main.rs                 CLI, single instance, --screenshot
+  main.rs                 CLI, --screenshot; instance.rs: one copy at a time (checked before the elevation
+                          prompt) and the message boxes a start can end with
   app/                    UI loop: tray/settings events; follow.rs: card cache, placement from the live cursor
   workers.rs              hover / info / rank threads; refresh.rs: hourly validated snapshot updates
   game.rs                 game window, client rect, foreground, cursor, DPI awareness
@@ -236,9 +241,11 @@ is not shown), only on a field. Setting `map_drops` (settings window and tray). 
   matched by name and level (`meowdb::find`; two Stirges share both: the closer EXP wins). It has no drop chances,
   so rarity comes from the market price (`Rarity::of`); a source with chances would colour by them.
 - Requests: everything is kept in `cache\meowdb` and shown from there at once, even when over a week old (then
-  refreshed behind it). A map's monsters not on disk are fetched together, in parallel (the player is waiting); while
-  nothing is asked, the site thread gathers every listed monster's drops ahead, one request every 2 s (about seven
-  minutes, weekly), so a map met later needs no request. A failure waits 5 minutes. Never bundle or commit its data
+  refreshed behind it). A map's monsters not on disk are fetched together, in parallel (the player is waiting); once
+  the panel has shown in a run, while nothing is asked, the site thread gathers every listed monster's drops ahead,
+  one request every 2 s (about seven minutes, weekly), so a map met later needs no request. Before the panel shows,
+  nothing is fetched (not even the list): every new install gathering at its first start, map drops used or not,
+  would flood the site after a public launch. A failure waits 5 minutes. Never bundle or commit its data
   (tests use hand-written stand-ins); `live_meowdb` checks the real pages.
 - **Credit, as the site asks:** "NiaDB" with the exact page used, written out where it cannot be a link: the panel's
   foot names `meowdb.com/msclassic/monsters`, a monster's page and a hovered drop's card its own page.
@@ -273,8 +280,42 @@ starts itself again with the "runas" verb (the Windows prompt), same arguments a
   (`startup.rs`), it asks then.
 - Being elevated raises what a compromised update could do: one more reason rule 7 (the signed update chain) must
   never weaken. Do not add anything that needs elevation for its own sake.
+- Every program the player runs can write the exe's folder (unzipped in Downloads, often), %TEMP% and
+  %LOCALAPPDATA%\MapleLens, and the elevated app must not trust what it finds there: DLLs load from System32 only
+  (`/DEPENDENTLOADFLAG` in build.rs, the static C runtime in .cargo/config.toml, `elevate::restrict_dll_search`
+  first in `main`), an update is verified and unpacked in memory (never through a file in %TEMP%), the staged exe is
+  written as a new file, and the clipboard's text is read only as far as its block goes.
 - Not a manifest `requireAdministrator`: Windows does not start such programs from the Run key at sign-in, and the
   prompt could not be declined into a working app.
+
+## The installer (`installer/maplelens.iss`)
+
+A release has two downloads of the same exe. `maplelens-vX.Y.Z-windows.zip` (+ `.sha256`, and the signed manifest) is
+the updater's and the portable copy; `maplelens-vX.Y.Z-setup.exe` (+ `.sha256`, Inno Setup) is what the website's
+buttons offer (`docs/assets/site.js` takes the `-setup.exe` asset, else the zip). `scripts/build-installer.ps1` builds
+it (release.yml around the release exe, ci.yml around the dev one) and `scripts/test-installer.ps1` installs, checks
+and uninstalls it silently in both.
+- **Who it installs for** is `PrivilegesRequired`, the one switch (`{autopf}`, the shortcuts and the uninstall entry
+  follow it). It is `admin`: every account, in `C:\Program Files\MapleLens`, one prompt at install. MapleLens asks for
+  administrator at start, so its exe must sit where only administrators can write: per user (`lowest`,
+  `%LOCALAPPDATA%\Programs\MapleLens`, no prompt) any program the player runs could replace it before the next prompt
+  (the security review's finding). The updater (renames `maplelens.exe` aside, moves the new one in) therefore works
+  only in an elevated copy: `can_self_update` also asks whether the exe's folder takes a new file, and a copy whose
+  prompt was declined offers View release instead. The log then goes to the data folder (`log.rs`). The exe keeps its
+  name (`can_self_update`).
+- The installer is never the update path (rule 7 is unchanged): the app updates from the zip, and at start sets the
+  installed apps entry to its own version when that entry installed its folder (`win/src/installer.rs`). The entry is
+  found by the script's `AppId`, which must never change (a new installer upgrades an old install in place by it).
+- A running copy is never replaced or removed: Setup and the uninstaller look for the app's mutex by creating it (an
+  elevated copy's cannot be opened, which `AppMutex` would read as not running) and ask the player to exit it from the
+  tray; silent, they stop. The finish page starts the app as the player (`shellexec`); it asks for elevation itself.
+- Uninstalling removes the app's own files next to it (the log and its rotations, the updater's leftovers) and the
+  "Start with Windows" value when it starts that copy. `%LOCALAPPDATA%\MapleLens` stays unless the player says Yes
+  (default No, never asked when silent).
+- Neither download is code-signed: SmartScreen warns on both.
+- Why Inno Setup (7; checked October 2026): MSIX needs a code-signing certificate (unsigned, it installs only in
+  developer mode); Velopack brings its own updater and folder layout, which would replace the signed update chain;
+  a per-user MSI (WiX) is awkward for one exe; NSIS would do, with a clumsier script language.
 
 ## Store Permit watcher (`core/src/shop`)
 

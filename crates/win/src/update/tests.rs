@@ -99,6 +99,21 @@ fn a_wrong_key_tampered_bytes_or_garbage_signature_are_refused() {
     assert!(verify_manifest(&data, b"not base64!", &public()).is_err());
 }
 
+/// A release's manifest, signature and zip checked as the app checks them: `MAPLELENS_MANIFEST` is the .json (its .sig
+/// and the zip beside it), and `MAPLELENS_PUBLIC_KEY` another key than the app's, to try scripts/sign-release.sh with
+/// a throwaway one: `cargo test -p maplelens release_files_verify -- --ignored --nocapture`.
+#[test]
+#[ignore = "checks the release files named in MAPLELENS_MANIFEST"]
+fn release_files_verify() {
+    let Ok(path) = std::env::var("MAPLELENS_MANIFEST") else { return };
+    let key = std::env::var("MAPLELENS_PUBLIC_KEY").unwrap_or_else(|_| super::PUBLIC_KEY.to_string());
+    let (data, signature) = (std::fs::read(&path).unwrap(), std::fs::read(format!("{path}.sig")).unwrap());
+    let manifest = verify_manifest(&data, &signature, &key).unwrap();
+    println!("{manifest:?}");
+    let zip = std::fs::read(std::path::Path::new(&path).with_file_name(&manifest.asset)).unwrap();
+    assert_eq!((zip.len() as u64, sha256_hex(&zip)), (manifest.size, manifest.sha256));
+}
+
 #[test]
 fn the_built_in_key_is_a_valid_ed25519_key() {
     let raw = STANDARD.decode(super::PUBLIC_KEY).unwrap();
@@ -157,6 +172,32 @@ fn only_https_github_hosts_are_fetched() {
     }
 }
 
+#[test]
+fn a_redirect_the_allow_list_accepts_goes_where_the_client_would_connect() {
+    // Each is read one way by a naive host check and maybe another by a URL parser: whenever `check_url` lets one
+    // through, the HTTP client must either refuse it or connect to that same allowed host.
+    for url in [
+        r"https://evil.example\@github.com/x",
+        "https://evil.example%40github.com/x",
+        "https://github.com@evil.example/x",
+        "https://github.com:443@evil.example/x",
+        "https://github.com#@evil.example/x",
+        "https://github.com?@evil.example/x",
+        "https://github.com\t.evil.example/x",
+        "https://github.com./x",
+        "https://GITHUB.com/x",
+        "https://[::1]/x",
+    ] {
+        if check_url(url).is_err() {
+            continue;
+        }
+        if let Ok(parsed) = url.parse::<ureq::http::Uri>() {
+            let host = parsed.host().unwrap_or_default();
+            assert!(super::net::ALLOWED_HOSTS.contains(&host), "{url:?} is checked as allowed but goes to {host:?}");
+        }
+    }
+}
+
 fn temp_dir(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("maplelens-update-test-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -166,13 +207,11 @@ fn temp_dir(name: &str) -> std::path::PathBuf {
 
 #[test]
 fn downloads_must_match_size_and_hash_exactly() {
-    let dir = temp_dir("download");
     let payload = vec![b'x'; 1000];
-    let good = dir.join("good.zip");
-    stream(&mut payload.as_slice(), &good, 1000, &sha256_hex(&payload), &mut |_, _| {}).unwrap();
-    assert_eq!(std::fs::read(&good).unwrap(), payload);
+    let good = stream(&mut payload.as_slice(), 1000, &sha256_hex(&payload), &mut |_, _| {}).unwrap();
+    assert_eq!(good, payload);
     for (size, digest) in [(1000, "0".repeat(64)), (999, sha256_hex(&payload)), (1001, sha256_hex(&payload))] {
-        assert!(stream(&mut payload.as_slice(), &dir.join("bad.zip"), size, &digest, &mut |_, _| {}).is_err());
+        assert!(stream(&mut payload.as_slice(), size, &digest, &mut |_, _| {}).is_err());
     }
 }
 
@@ -181,40 +220,49 @@ fn make_update(version: &str) -> Update {
     Update { version: version.into(), manifest, url: "u".into(), page_url: "p".into() }
 }
 
-fn make_zip(path: &std::path::Path, members: &[(&str, &[u8])]) {
-    let mut zip = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
+fn make_zip(members: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     for (name, data) in members {
         zip.start_file(*name, zip::write::SimpleFileOptions::default()).unwrap();
         zip.write_all(data).unwrap();
     }
-    zip.finish().unwrap();
+    zip.finish().unwrap().into_inner()
 }
 
 #[test]
 fn only_the_expected_exe_is_taken_from_the_zip() {
     let dir = temp_dir("zip");
-    let (archive, target) = (dir.join("a.zip"), dir.join("out.exe"));
-    make_zip(
-        &archive,
-        &[
-            ("maplelens-v0.2.0-windows/maplelens.exe", b"EXE"),
-            ("maplelens-v0.2.0-windows/README.md", b"r"),
-            ("../evil.exe", b"bad"),
-        ],
-    );
+    let target = dir.join("out.exe");
+    let archive = make_zip(&[
+        ("maplelens-v0.2.0-windows/maplelens.exe", b"EXE"),
+        ("maplelens-v0.2.0-windows/README.md", b"r"),
+        ("../evil.exe", b"bad"),
+    ]);
     install::extract_exe(&archive, &make_update("0.2.0"), &target).unwrap();
     assert_eq!(std::fs::read(&target).unwrap(), b"EXE");
     assert!(!dir.parent().unwrap().join("evil.exe").exists());
 
-    make_zip(&archive, &[("maplelens-v0.2.0-windows\\maplelens.exe", b"EXE2")]); // backslashes are fine
+    let archive = make_zip(&[("maplelens-v0.2.0-windows\\maplelens.exe", b"EXE2")]); // backslashes are fine
     install::extract_exe(&archive, &make_update("0.2.0"), &target).unwrap();
     assert_eq!(std::fs::read(&target).unwrap(), b"EXE2");
 
-    make_zip(&archive, &[("other/maplelens.exe", b"EXE")]);
+    let archive = make_zip(&[("other/maplelens.exe", b"EXE")]);
     assert!(install::extract_exe(&archive, &make_update("0.2.0"), &target).is_err());
     assert!(!target.exists());
-    std::fs::write(&archive, b"not a zip").unwrap();
-    assert!(install::extract_exe(&archive, &make_update("0.2.0"), &target).is_err());
+    assert!(install::extract_exe(b"not a zip", &make_update("0.2.0"), &target).is_err());
+}
+
+#[test]
+fn the_staged_exe_is_a_new_file_never_written_through_a_link_left_at_its_name() {
+    let dir = temp_dir("link");
+    let (victim, target) = (dir.join("victim.dll"), dir.join(NEW_NAME));
+    std::fs::write(&victim, b"keep").unwrap();
+    // Another program made the staged name a hard link to a file of its choosing.
+    std::fs::hard_link(&victim, &target).unwrap();
+    let archive = make_zip(&[("maplelens-v0.2.0-windows/maplelens.exe", b"EXE")]);
+    install::extract_exe(&archive, &make_update("0.2.0"), &target).unwrap();
+    assert_eq!(std::fs::read(&target).unwrap(), b"EXE");
+    assert_eq!(std::fs::read(&victim).unwrap(), b"keep");
 }
 
 #[test]
@@ -243,9 +291,25 @@ fn leftovers_are_cleaned_up() {
 
 #[test]
 fn only_an_installed_exe_updates_itself() {
-    assert!(install::can_self_update(std::path::Path::new(r"C:\Games\MapleLens\maplelens.exe")));
-    assert!(!install::can_self_update(std::path::Path::new(r"C:\src\maplelens\target\release\maplelens.exe")));
-    assert!(!install::can_self_update(std::path::Path::new(r"C:\Games\MapleLens\maplelens (1).exe")));
+    assert!(install::is_release_copy(std::path::Path::new(r"C:\Games\MapleLens\maplelens.exe")));
+    assert!(!install::is_release_copy(std::path::Path::new(r"C:\src\maplelens\target\release\maplelens.exe")));
+    assert!(!install::is_release_copy(std::path::Path::new(r"C:\Games\MapleLens\maplelens (1).exe")));
+}
+
+#[test]
+fn an_exe_updates_itself_only_where_it_may_write() {
+    let dir = std::env::temp_dir().join(format!("maplelens-writable-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    assert!(install::can_self_update(&dir.join("maplelens.exe")));
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0, "the probe is removed");
+    assert!(!install::can_self_update(&dir.join("missing").join("maplelens.exe")));
+    std::fs::remove_dir_all(&dir).unwrap();
+    // Program Files: only administrators may write there (the test does not run elevated).
+    if let Some(program_files) = std::env::var_os("ProgramFiles")
+        && !crate::elevate::is_elevated()
+    {
+        assert!(!install::can_self_update(&std::path::Path::new(&program_files).join("maplelens.exe")));
+    }
 }
 
 /// The real exe, built by `cargo build --release -p maplelens`, if it is there.

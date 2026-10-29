@@ -5,8 +5,16 @@
 
 /** MapleLens's relay (a Cloudflare Worker kept outside this repo): MesoWatch's list.json sends no CORS headers, so a page
  *  cannot read it directly. The relay asks MesoWatch at most every 30 minutes itself and is rate limited per client.
- *  `?prices=URL` points a test page at a copy instead. */
+ *  `?prices=URL` points a test page at a copy instead, on a page served from this computer only: on the site, a link
+ *  carrying it would have the player's page keep someone else's prices (and use up its one request in 30 minutes). */
 export const PRICES_URL = "https://prices.maple.observer/prices.json";
+const LOCAL = /^(localhost|127\.0\.0\.1|\[::1\])$/;
+
+/** Where the list comes from: the relay, or a test page's own copy. */
+export function pricesUrl(location) {
+  const asked = LOCAL.test(location.hostname) && new URLSearchParams(location.search).get("prices");
+  return asked || PRICES_URL;
+}
 /** The permission's condition: never more often than this. */
 export const MIN_GAP_MS = 30 * 60 * 1000;
 const CACHE_KEY = "maplelens.prices.v1";
@@ -33,7 +41,7 @@ function lastAttempt() {
 
 export class Prices {
   /** @param {(json: string) => Promise<number>} load  hands a price list to the engine; resolves to its item count */
-  constructor(load, { url = new URLSearchParams(location.search).get("prices") || PRICES_URL, now = () => Date.now() } = {}) {
+  constructor(load, { url = pricesUrl(location), now = () => Date.now() } = {}) {
     this.load = load;
     this.url = url;
     this.now = now;

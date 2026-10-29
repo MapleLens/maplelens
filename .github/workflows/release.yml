@@ -1,15 +1,20 @@
 name: Release
 
 # Push a tag like v0.2.0 (see scripts/bump-version.ps1) to build maplelens.exe and publish a GitHub Release.
+#
+# Every installed copy, running as administrator, updates itself to what this signs, so the signing key and the token
+# that writes releases are each held by a job that runs as little as possible:
+# - build compiles and tests (every dependency's build script runs here) and holds neither;
+# - sign holds UPDATE_SIGNING_KEY and runs no third-party action and nothing of the build: OpenSSL signs
+#   (scripts/sign-release.sh);
+# - publish holds contents: write and runs only the GitHub CLI.
+# Actions are pinned to full commit SHAs (the comment names the version): a moved tag cannot change what runs here.
 on:
   push:
     tags: ["v*.*.*"]
 
-permissions:
-  contents: write
+permissions: {}
 
-# Exactly ci.yml's env block: rust-cache keys on every CARGO*/RUST* variable, and this job restores the cache CI's
-# release-cache job saves on main.
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
@@ -17,18 +22,20 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  release:
+  build:
     runs-on: windows-latest
+    permissions:
+      contents: read
+    # No build cache: a cache restored from main is written by whatever runs in any of its jobs, and this build is
+    # what gets signed.
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
           components: clippy, rustfmt
-      # CI's release-cache job keeps this warm on main (a tag's own cache would reach no later run, so none is saved).
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: release
-          save-if: false
 
       - name: Check the tag matches the code version
         shell: bash
@@ -42,7 +49,7 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       # (cargo-deny-action is a container action, which Windows runners cannot run.)
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: cargo-deny
       - name: Dependencies (advisories, licences, sources)
@@ -65,20 +72,84 @@ jobs:
           Compress-Archive -Path $name -DestinationPath "$name.zip"
           (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower() + "  $name.zip" | Out-File "$name.zip.sha256" -Encoding ascii
 
-      # The in-app updater only trusts a manifest signed with the key behind update::PUBLIC_KEY; this fails the
-      # release if the secret is missing or does not match it.
-      - name: Sign the update manifest
-        env:
-          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
-        run: ./target/release/maplelens.exe --sign-release "maplelens-v$env:VERSION-windows.zip"
+      # The website's download: the same exe, installed for all users (installer/maplelens.iss), with its .sha256.
+      # The updater keeps using the zip above.
+      - name: Installer
+        shell: pwsh
+        run: |
+          $setup = ./scripts/build-installer.ps1 -Version $env:VERSION -Install
+          ./scripts/test-installer.ps1 $setup
 
-      - name: Publish release
-        uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          files: |
+          name: release-build
+          path: |
             maplelens-v${{ env.VERSION }}-windows.zip
             maplelens-v${{ env.VERSION }}-windows.zip.sha256
-            maplelens-v${{ env.VERSION }}-manifest.json
-            maplelens-v${{ env.VERSION }}-manifest.json.sig
-          generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
+            maplelens-v${{ env.VERSION }}-setup.exe
+            maplelens-v${{ env.VERSION }}-setup.exe.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  # The in-app updater only trusts a manifest signed with the key behind update::PUBLIC_KEY; this fails the release if
+  # the secret is missing or does not match it.
+  sign:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # Protection rules on this environment (a required reviewer, v* tags only) and the secret kept there rather than
+    # in the repository keep the key from any other workflow.
+    environment: release
+    steps:
+      # Only the signing script and the file with the app's public key.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/sign-release.sh
+            crates/win/src/update/mod.rs
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-build
+          path: dist
+      - name: Sign the update manifest
+        working-directory: dist
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        # The version is the tag's (the build job checked it matches the code), never something the build said.
+        run: bash ../scripts/sign-release.sh "${GITHUB_REF_NAME#v}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-manifest
+          path: |
+            dist/maplelens-v*-manifest.json
+            dist/maplelens-v*-manifest.json.sig
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [build, sign]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Publish release
+        working-directory: dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes \
+            "maplelens-v$version-windows.zip" \
+            "maplelens-v$version-windows.zip.sha256" \
+            "maplelens-v$version-setup.exe" \
+            "maplelens-v$version-setup.exe.sha256" \
+            "maplelens-v$version-manifest.json" \
+            "maplelens-v$version-manifest.json.sig"

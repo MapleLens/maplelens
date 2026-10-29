@@ -5,7 +5,7 @@ use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL};
 use windows::Win32::System::DataExchange::{
     CloseClipboard, EmptyClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard, SetClipboardData,
 };
-use windows::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock};
+use windows::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock};
 
 /// Clipboard format of UTF-16 text.
 const CF_UNICODETEXT: u32 = 13;
@@ -15,8 +15,8 @@ const MAX_CHARS: usize = 4096;
 /// The clipboard's text, or None when it holds none (or another program is using the clipboard).
 pub fn text() -> Option<String> {
     // SAFETY: the clipboard is opened for this call only and closed on every path; the global memory block is locked
-    // while read and holds a NUL-terminated UTF-16 string, as CF_UNICODETEXT promises, and the scan stops at the NUL or
-    // at MAX_CHARS, whichever comes first.
+    // while read, and only as many units as the block holds (its size, asked, capped at MAX_CHARS) are read. The text
+    // is not trusted to end in a NUL: any program can put it there, and this one may be running as administrator.
     unsafe {
         IsClipboardFormatAvailable(CF_UNICODETEXT).ok()?;
         OpenClipboard(None).ok()?;
@@ -27,17 +27,20 @@ pub fn text() -> Option<String> {
             if pointer.is_null() {
                 return None;
             }
-            let mut length = 0;
-            while length < MAX_CHARS && *pointer.add(length) != 0 {
-                length += 1;
-            }
-            let text = String::from_utf16_lossy(std::slice::from_raw_parts(pointer, length));
+            let units = MAX_CHARS.min(GlobalSize(global) / 2);
+            let text = up_to_nul(std::slice::from_raw_parts(pointer, units));
             let _ = GlobalUnlock(global);
             Some(text)
         })();
         let _ = CloseClipboard();
         text
     }
+}
+
+/// The text in a clipboard block: up to its first NUL, or all of it when it has none.
+fn up_to_nul(block: &[u16]) -> String {
+    let length = block.iter().position(|&unit| unit == 0).unwrap_or(block.len());
+    String::from_utf16_lossy(&block[..length])
 }
 
 /// Puts `text` on the clipboard; false when another program holds it.
@@ -65,5 +68,18 @@ pub fn set_text(text: &str) -> bool {
         }
         let _ = CloseClipboard();
         set
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::up_to_nul;
+
+    #[test]
+    fn a_block_without_its_nul_is_read_to_its_end_and_no_further() {
+        let wide = |text: &str| text.encode_utf16().collect::<Vec<u16>>();
+        assert_eq!(up_to_nul(&[wide("https://x"), vec![0], wide("after")].concat()), "https://x");
+        assert_eq!(up_to_nul(&wide("no terminator")), "no terminator");
+        assert_eq!(up_to_nul(&[]), "");
     }
 }
