@@ -65,6 +65,7 @@ fn a_long_list_ends_in_a_count_of_the_rest_inside_the_panel() {
         item: i,
         name: format!("Item {i}"),
         chance: None,
+        rate: None,
         price: None,
         rarity: Rarity::Common,
     });
@@ -168,6 +169,7 @@ fn the_named_card_is_the_price_card_under_the_item_s_name() {
         name: &item.name,
         note: "Very rare drop · 0.03% a kill · Orange Mushroom",
         colour: colour(Rarity::VeryRare),
+        rate: "",
         source: "",
     };
     let plain = render_card(fonts(), &spec);
@@ -175,7 +177,10 @@ fn the_named_card_is_the_price_card_under_the_item_s_name() {
     assert_eq!(named.width, plain.width);
     assert!(named.height > plain.height, "the note takes a line of its own");
     let credited = Heading { source: "NiaDB · meowdb.com/msclassic/monsters/9", ..heading };
-    assert!(render_named_card(fonts(), &spec, &credited).height > named.height, "and the source one more");
+    let credited_card = render_named_card(fonts(), &spec, &credited);
+    assert!(credited_card.height > named.height, "and the source one more");
+    let rated = Heading { rate: "About 1 in 3,300 a kill · OSMLib, GMS rate", ..credited };
+    assert!(render_named_card(fonts(), &spec, &rated).height > credited_card.height, "and a known rate one more");
     let bare = render_named_card(fonts(), &spec, &Heading { note: "", ..heading });
     assert_eq!(bare.height, plain.height);
     assert_ne!(bare, plain);

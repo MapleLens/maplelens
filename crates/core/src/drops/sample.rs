@@ -19,7 +19,8 @@ pub fn map() -> MapInfo {
 
 /// The sample field's drops, credited like NiaDB's (the site's IDs are its own: 9, 7 and 6).
 pub fn table() -> DropTable {
-    let drop = |item, name: &str, chance| Drop { item, name: name.into(), chance: Some(chance) };
+    // The reference rate is the chance here: the sample stands for a source that has both.
+    let drop = |item, name: &str, chance| Drop { item, name: name.into(), chance: Some(chance), rate: Some(chance) };
     let lists = [
         (
             1_210_102,

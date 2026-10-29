@@ -257,8 +257,16 @@ impl App {
                 wide: false,
                 source,
             };
-            let note = drops::note(drop, &content.droppers(drop.item).join(", "));
-            let heading = Heading { name: &drop.name, note: &note, colour: colour(drop.rarity), source: &mob.credit };
+            let droppers = content.droppers(drop.item);
+            let note = drops::note(drop, &droppers.join(", "));
+            let rate = drops::rate_note(drop, &mob.name, droppers.len() > 1).unwrap_or_default();
+            let heading = Heading {
+                name: &drop.name,
+                note: &note,
+                colour: colour(drop.rarity),
+                rate: &rate,
+                source: &mob.credit,
+            };
             self.drops.price = Some((key, Arc::new(render_named_card(&self.fonts, &spec, &heading))));
         }
         let Some((_, card)) = self.drops.price.clone() else { return };

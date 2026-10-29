@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::mapinfo::MapInfo;
+use crate::market::format::group_thousands;
 use crate::market::models::Item;
 
 /// How hard a drop is to come by, from the game's loot colours: grey, green, blue, purple, orange.
@@ -80,6 +81,28 @@ pub fn note(drop: &Shown, mob: &str) -> String {
     }
 }
 
+/// 0.4 -> "1 in 2.5", 0.01 -> "1 in 100", 0.0003 -> "1 in 3,300": two significant digits, as the rate is a reference,
+/// not a count.
+pub fn one_in_text(rate: f64) -> String {
+    let x = 1.0 / rate;
+    if x < 10.0 {
+        let text = format!("{x:.1}");
+        return format!("1 in {}", text.trim_end_matches(".0"));
+    }
+    let step = 10f64.powi(x.log10().floor() as i32 - 1);
+    format!("1 in {}", group_thousands(((x / step).round() * step) as i64))
+}
+
+/// The line under the note when the drop has a reference rate: "About 1 in 3,300 a kill · OSMLib, GMS rate", or
+/// "per Orange Mushroom" when several of the map's monsters drop it (the rate is that monster's). It names its
+/// source and that it is not Classic's own.
+pub fn rate_note(drop: &Shown, mob: &str, several: bool) -> Option<String> {
+    let rate = drop.rate.filter(|r| *r > 0.0)?;
+    let each = if several { format!("per {mob}") } else { "a kill".to_string() };
+    let rate = if rate >= 1.0 { "Every kill".to_string() } else { format!("About {} {each}", one_in_text(rate)) };
+    Some(format!("{rate} · {}, GMS rate", meowdb::RATE_CREDIT))
+}
+
 /// One item a monster drops.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Drop {
@@ -88,6 +111,8 @@ pub struct Drop {
     pub name: String,
     /// Per kill, 0..1, when the source knows it.
     pub chance: Option<f64>,
+    /// OSMLib's rate per kill (the old GMS data NiaDB shows for reference): shown as such, never used for rarity.
+    pub rate: Option<f64>,
 }
 
 /// One monster's drops and the credit its source asks for ("NiaDB · meowdb.com/msclassic/monsters/9").
@@ -139,6 +164,7 @@ pub struct Shown {
     pub item: u32,
     pub name: String,
     pub chance: Option<f64>,
+    pub rate: Option<f64>,
     pub price: Option<f64>,
     pub rarity: Rarity,
 }
@@ -245,6 +271,7 @@ pub fn assemble(info: &MapInfo, table: &DropTable, price: impl Fn(u32) -> Option
                         item: d.item,
                         name: d.name.clone(),
                         chance: d.chance,
+                        rate: d.rate,
                         price,
                         rarity: Rarity::of(d.chance, price),
                     }
@@ -306,8 +333,14 @@ mod tests {
     fn chances_read_as_drop_lists_write_them() {
         let texts: Vec<String> = [0.38, 0.1, 0.015, 0.01, 0.004, 0.0003, 0.00005, 1.0].map(chance_text).into();
         assert_eq!(texts, ["38%", "10%", "1.5%", "1%", "0.4%", "0.03%", "0.005%", "100%"]);
-        let drop =
-            Shown { item: 1, name: "Scroll".into(), chance: Some(0.0003), price: None, rarity: Rarity::VeryRare };
+        let drop = Shown {
+            item: 1,
+            name: "Scroll".into(),
+            chance: Some(0.0003),
+            rate: None,
+            price: None,
+            rarity: Rarity::VeryRare,
+        };
         assert_eq!(note(&drop, "Orange Mushroom"), "Very rare drop · 0.03% a kill · Orange Mushroom");
         let priced = Shown { chance: None, price: Some(85_000.0), rarity: Rarity::Rare, ..drop };
         assert_eq!(note(&priced, "Slime"), "Rare by price · Slime");
@@ -315,12 +348,42 @@ mod tests {
     }
 
     #[test]
+    fn reference_rates_read_as_one_in_x_with_their_source() {
+        let texts: Vec<String> = [0.4, 0.5, 0.15, 0.01, 0.008, 0.0003, 0.00003, 0.000_012_3].map(one_in_text).into();
+        assert_eq!(
+            texts,
+            ["1 in 2.5", "1 in 2", "1 in 6.7", "1 in 100", "1 in 130", "1 in 3,300", "1 in 33,000", "1 in 81,000"]
+        );
+        let drop = Shown {
+            item: 1,
+            name: "Axe".into(),
+            chance: None,
+            rate: Some(0.0005),
+            price: None,
+            rarity: Rarity::Common,
+        };
+        assert_eq!(
+            rate_note(&drop, "Orange Mushroom", false).as_deref(),
+            Some("About 1 in 2,000 a kill · OSMLib, GMS rate")
+        );
+        assert_eq!(
+            rate_note(&drop, "Orange Mushroom", true).as_deref(),
+            Some("About 1 in 2,000 per Orange Mushroom · OSMLib, GMS rate")
+        );
+        assert_eq!(
+            rate_note(&Shown { rate: Some(1.0), ..drop.clone() }, "Slime", false).as_deref(),
+            Some("Every kill · OSMLib, GMS rate")
+        );
+        assert_eq!(rate_note(&Shown { rate: None, ..drop }, "Slime", false), None, "unknown: no line");
+    }
+
+    #[test]
     fn drops_go_rarest_first_and_mobs_without_drops_are_left_out() {
         let mut table = DropTable::new("Source");
         let drops = vec![
-            Drop { item: 10, name: "Cap".into(), chance: Some(0.4) },
-            Drop { item: 11, name: "Scroll".into(), chance: Some(0.0003) },
-            Drop { item: 12, name: "Coif".into(), chance: Some(0.015) },
+            Drop { item: 10, name: "Cap".into(), chance: Some(0.4), rate: None },
+            Drop { item: 11, name: "Scroll".into(), chance: Some(0.0003), rate: None },
+            Drop { item: 12, name: "Coif".into(), chance: Some(0.015), rate: None },
         ];
         table.insert(1, Listed { drops, credit: "Source · page 1".into() });
         let info = field(vec![mob(1, "Orange Mushroom", 8, 12), mob(2, "Unknown", 9, 3)]);

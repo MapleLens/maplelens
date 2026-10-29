@@ -66,12 +66,14 @@ fn draw(section: Section, cv: &mut Canvas<'_>, y: f32, item: &Item, now: f64) ->
 }
 
 /// A card opened where the game does not name the item (a drop in the map drops panel): its name is the card's title,
-/// with a line about it in a colour of its own under it, and where that comes from (faint; "" for none).
+/// with a line about it in a colour of its own under it, its drop rate ("" for none), and where that comes from
+/// (faint; "" for none).
 #[derive(Clone, Copy, Debug)]
 pub struct Heading<'a> {
     pub name: &'a str,
     pub note: &'a str,
     pub colour: Rgba,
+    pub rate: &'a str,
     pub source: &'a str,
 }
 
@@ -130,12 +132,18 @@ fn named_header(cv: &mut Canvas<'_>, y: f32, item: Option<&Item>, heading: &Head
     let room = cv.width - glance::PAD - left;
     let note = fit_text(cv, heading.note, 10.0, false, room);
     cv.text(left, y + 21.0, &note, Ink::new(10.0, heading.colour), Anchor::LA);
+    let mut line = y + 35.0;
+    if !heading.rate.is_empty() {
+        let rate = fit_text(cv, heading.rate, 10.0, false, room);
+        cv.text(left, line, &rate, Ink::new(10.0, theme::TEXT), Anchor::LA);
+        line += 14.0;
+    }
     if heading.source.is_empty() {
-        return y + 40.0;
+        return line + 5.0;
     }
     let source = fit_text(cv, heading.source, 9.0, false, room);
-    cv.text(left, y + 35.0, &source, Ink::new(9.0, theme::TEXT_FAINT), Anchor::LA);
-    y + 52.0
+    cv.text(left, line, &source, Ink::new(9.0, theme::TEXT_FAINT), Anchor::LA);
+    line + 17.0
 }
 
 /// What the main column shows, as groups of sections; a divider separates groups that drew anything.

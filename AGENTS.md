@@ -252,17 +252,27 @@ is not shown), only on a field. Setting `map_drops` (settings window and tray). 
   page's streamed Next.js data: id, name, level, HP, EXP), each monster's drops from `api/drops?monsterId=` (drops
   players confirmed in Classic; `score` above 0 counts, `itemIconKey` is the game's item ID, as the price list and
   maplestory.io number items). The site's IDs are its own, so a map's monster (maplestory.io's name and level) is
-  matched by name and level (`meowdb::find`; two Stirges share both: the closer EXP wins). It has no drop chances,
-  so rarity comes from the market price (`Rarity::of`); a source with chances would colour by them.
+  matched by name and level (`meowdb::find`; two Stirges share both: the closer EXP wins). It has no drop chances
+  of its own, so rarity comes from the market price (`Rarity::of`); a source with Classic's chances would colour by
+  them.
+- **Drop rates: OSMLib's, "for reference", off NiaDB's monster page** (the maintainer approved using them, October
+  2026). Each page's `#osmlib-drop-rates` section lists OSMLib's rate per item from the old GMS data, warning that
+  Classic's may differ. They exist only as the page's markup: `meowdb::rates_from_page` reads each row's game item ID
+  from its icon path (the OSMLib link's ID is OSMLib's own) and its "About 1 in X" (more digits than the rounded
+  percent). They are `Drop::rate`, never `chance`: shown on a hovered drop's card under its note as "About 1 in 3,300
+  a kill · OSMLib, GMS rate" (two significant digits, `drops::one_in_text`; "per <monster>" when several of the map's
+  monsters drop it), left out when unknown, and never used for rarity.
 - Requests: everything is kept in `cache\meowdb` and shown from there at once, even when over a week old (then
-  refreshed behind it). A map's monsters not on disk are fetched together, in parallel (the player is waiting); once
-  the panel has shown in a run, while nothing is asked, the site thread gathers every listed monster's drops ahead,
-  one request every 2 s (about seven minutes, weekly), so a map met later needs no request. Before the panel shows,
+  refreshed behind it); a page's rates are saved as read (`rates\<id>.json`), never the page. A map's monsters not on
+  disk are fetched together, in parallel (the player is waiting); once the panel has shown in a run, while nothing
+  is asked, the site thread gathers every listed monster's drops and page ahead, one request every 2 s (about a
+  quarter of an hour, weekly; drops saved without rates are gathered again), so a map met later needs no request. Before the panel shows,
   nothing is fetched (not even the list): every new install gathering at its first start, map drops used or not,
   would flood the site after a public launch. A failure waits 5 minutes. Never bundle or commit its data
   (tests use hand-written stand-ins); `live_meowdb` checks the real pages.
 - **Credit, as the site asks:** "NiaDB" with the exact page used, written out where it cannot be a link: the panel's
-  foot names `meowdb.com/msclassic/monsters`, a monster's page and a hovered drop's card its own page.
+  foot names `meowdb.com/msclassic/monsters`, a monster's page and a hovered drop's card its own page. A rate names
+  OSMLib on its own line, as the page credits it.
 - A monster pressed opens its page in the panel (stats, every drop, Back), back to the list after 3 s without the
   pointer; resting on it does not (it opened pages the player only pointed at).
 - **Presses and drags without breaking rule 3:** the cards stay click-through; `game::left_button_down`
