@@ -525,7 +525,8 @@ relay and `prices.` the price relay, all under one firewall rate limit (`relay/p
 `maplelens.github.io` is one origin for the website, the web app and the phone app, and its localStorage holds the
 player's Discord webhook, Telegram bot token and phone pairing key. So no page of the site runs a script from another server: Tesseract,
 jsQR and pwa-install are vendored (`node scripts/vendor.mjs`: pinned versions checked against the npm registry's integrity,
-files against each folder's SHA256SUMS; `--check` runs in CI), GoatCounter's script is `docs/assets/goatcounter-count.v4.js`,
+files against each folder's SHA256SUMS; CI runs `--verify`, which downloads the packages again and compares every file,
+so a vendored file and its SHA256SUMS changed together still fail), GoatCounter's script is `docs/assets/goatcounter-count.v4.js`,
 and every page has a Content Security Policy (`script-src 'self'`, connections only to the hosts it uses). CI fails on
 a `<script src="https://...">` or a dynamic import from another host. Adding a host to a page means adding it to that
 page's policy; a new GitHub Pages repository on this account would share the origin, so there must not be one.
