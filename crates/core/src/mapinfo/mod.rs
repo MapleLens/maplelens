@@ -5,6 +5,21 @@ pub mod data;
 pub mod resolve;
 pub mod vote;
 
+/// MapleStory Classic World's own data (maplestory.io region MCW) has the maps the classic-era data lacks ("The Murky
+/// Swamp I"), but numbers maps, monsters and NPCs its own way over the same range (its largest map id is 900,000,003).
+/// Its ids are kept this far up, so both share the disk caches and sprite folders.
+pub const CLASSIC_ID_BASE: u32 = 2_000_000_000;
+
+/// Our id for MCW's `id`.
+pub fn classic_id(id: u32) -> u32 {
+    CLASSIC_ID_BASE + id
+}
+
+/// MCW's own id when `id` is one of its (`classic_id`), else None (the classic-era data's).
+pub fn mcw_id(id: u32) -> Option<u32> {
+    id.checked_sub(CLASSIC_ID_BASE)
+}
+
 /// A world-map tooltip title, "Victoria Road : Henesys" (street "" when OCR lost the colon).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Location {

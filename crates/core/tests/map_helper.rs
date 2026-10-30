@@ -16,7 +16,7 @@ use maplelens_core::mapinfo::data::{
 };
 use maplelens_core::mapinfo::resolve::{Candidate, key, parse_location, pick, search_terms};
 use maplelens_core::mapinfo::vote::Voter;
-use maplelens_core::mapinfo::{Location, MapInfo, Mob, Npc};
+use maplelens_core::mapinfo::{Location, MapInfo, Mob, Npc, classic_id, mcw_id};
 use maplelens_core::pipeline::Screen;
 use maplelens_core::pipeline::hover::looks_like_title;
 use maplelens_core::pipeline::map::MapScanner;
@@ -121,6 +121,26 @@ fn numbered_neighbours_do_not_confuse_the_match() {
         Candidate { id: 2, name: "Ground B".into(), street: "S".into() },
     ];
     assert_eq!(pick(&Location::new("S", "Ground C"), &near_tie), None, "two equally likely maps: no guess");
+}
+
+#[test]
+fn an_m_read_as_rn_still_names_its_map() {
+    // Read live off the minimap: "The Murky Swarnp I" was 3 points closer to I than to II, under the margin.
+    let swamps = [
+        Candidate { id: 10003110, name: "The Murky Swamp I".into(), street: "Hidden Street".into() },
+        Candidate { id: 10003111, name: "The Murky Swamp II".into(), street: "Hidden Street".into() },
+    ];
+    assert_eq!(pick(&Location::new("Hidden Street", "The Murky Swarnp I"), &swamps), Some(10003110));
+    assert_eq!(pick(&Location::new("Hidden Street", "The Murky Swarnp II"), &swamps), Some(10003111));
+}
+
+#[test]
+fn classic_world_ids_are_kept_apart() {
+    // MCW's map 10003110 and a monster of id 29 never meet the classic-era data's numbers.
+    assert_eq!(mcw_id(classic_id(10003110)), Some(10003110));
+    assert_eq!(mcw_id(classic_id(29)), Some(29));
+    assert_eq!(mcw_id(990000000), None);
+    assert!(classic_id(900000003) > 990000000);
 }
 
 #[test]
