@@ -1,7 +1,7 @@
 //! The training card: EXP rates of the session being played, and the party quest's stage with what to do there
 //! (Cloto's answers on the first stage, every way to stand on the ones that need it). Drawn like the game's
-//! tooltips, so it sits over the game as if it were part of it. The Windows app draws the EXP as a strip filling the
-//! room beside the status bar, with a graph of the last minutes and the map drops' button (`strip`, `layout`,
+//! tooltips, so it sits over the game as if it were part of it. The Windows app draws the EXP as a strip beside the
+//! status bar, with a graph of the last minutes behind its numbers and the map drops' button (`strip`, `layout`,
 //! `graph`); the web's floating window, a box, keeps the tall card.
 
 mod graph;
@@ -45,7 +45,7 @@ pub struct Show {
     pub strip: Option<Strip>,
 }
 
-/// The strip: its map drops button (None while the map has no drops to show), and its width in pixels (`strip_width`;
+/// The strip: its map drops button (None while the map has no drops to show), its width in pixels (`strip_width`;
 /// None: `FALLBACK_WIDTH`, above the HUD).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Strip {

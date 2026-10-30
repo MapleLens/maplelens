@@ -1,9 +1,8 @@
-//! The EXP as a strip beside the game's status bar, from the screen's side to the bar and from the client's foot up to
-//! the top of the quickslots' Pup button, so it reads as part of the HUD. Its height is fixed with the UI; its width is
-//! the room beside the bar (as on a 16:9 screen at most, and `MAX_STRIP_WIDTH`), and the layout follows it (`layout`):
-//! one column when narrow, the graph across the middle, or a column of numbers beside a tall graph when wide. The
-//! header carries the potions used and the map drops' button, the foot the level's gauge. The party quest's section,
-//! when shown, hangs below it.
+//! The EXP as a strip beside the game's status bar, from the screen's side towards the bar and from the client's foot up
+//! to the top of the quickslots' Pup button, so it reads as part of the HUD. Its height is fixed with the UI; its width
+//! is the room beside the bar, never more than at 16:9 in Default Ratio (`MAX_STRIP_WIDTH`), and the layout follows it
+//! (`layout`): one column when narrow, the graph showing across the middle otherwise. The header carries the potions
+//! used and the map drops' button, the foot the level's gauge. The party quest's section, when shown, hangs below it.
 
 use super::layout::{self, Shape};
 use super::{Button, Show, Strip, fit, is_training, quest_section};
@@ -26,13 +25,17 @@ pub const STRIP_HEIGHT: f32 = PUP_TOP_1X / ONE_X;
 /// Narrower than this there is no room beside the bar (5:4, 800x600): the strip goes above the HUD at `FALLBACK_WIDTH`.
 /// 4:3 leaves 117.
 pub const MIN_STRIP_WIDTH: f32 = 110.0;
-/// Ideal Ratio at 1080p leaves 583; wider (Ideal Ratio at 1440p leaves 917) the numbers would sit far from the graph.
-pub const MAX_STRIP_WIDTH: f32 = 600.0;
-pub const FALLBACK_WIDTH: f32 = 260.0;
 /// Clear of the status bar's outline, at 1x.
 const BAR_GAP_1X: f32 = 2.0;
 /// The widest screen whose room counts: past 16:9 (21:9, 32:9) the strip keeps 16:9's width.
 const MAX_ASPECT: f32 = 16.0 / 9.0;
+/// Default Ratio draws the frame 768 high and scales it: at 16:9 it is this wide, and the status bar 800 in it.
+const DEFAULT_FRAME_W_1X: f32 = 768.0 * MAX_ASPECT;
+const BAR_1X: f32 = 800.0;
+/// The room beside the bar at 16:9 in Default Ratio (1080p, 1440p): the strip is never wider, so where there is more
+/// (Ideal Ratio leaves twice that at 1080p) it keeps to the corner rather than stretch to the bar (the player asked).
+pub const MAX_STRIP_WIDTH: f32 = ((DEFAULT_FRAME_W_1X - BAR_1X) / 2.0 - BAR_GAP_1X) / ONE_X;
+pub const FALLBACK_WIDTH: f32 = 260.0;
 /// 10% less see-through than the other cards' tooltip fill (215): over a busy field the numbers must read at a glance.
 const FILL: theme::Rgba = [34, 37, 80, 241];
 const BUTTON: (f32, f32) = (24.0, 16.0);
@@ -43,12 +46,12 @@ const POTION_ICON: f32 = 11.0;
 const LIT: theme::Rgba = [255, 255, 255, 34];
 /// The header's middle, and the foot's (the gauge and the level's share).
 pub(super) const HEADER_Y: f32 = 13.0;
-const FOOT_Y: f32 = STRIP_HEIGHT - 9.0;
+pub(super) const FOOT_Y: f32 = STRIP_HEIGHT - 9.0;
 const GAUGE_H: f32 = 4.0;
 
 /// The strip's width in pixels for a client of `client` (w, h) with the status bar `bar_w` pixels wide, drawn at
 /// `factor` pixels a design unit: the room from the client's side to the bar, as on a 16:9 screen at most and
-/// `MAX_STRIP_WIDTH` at most; None when that is under `MIN_STRIP_WIDTH`.
+/// `MAX_STRIP_WIDTH` at most (the strip then keeps to the corner); None when that is under `MIN_STRIP_WIDTH`.
 pub fn strip_width(client: (i32, i32), bar_w: i32, factor: f32) -> Option<u32> {
     let room = (client.0 as f32).min(client.1 as f32 * MAX_ASPECT);
     let px = (room - bar_w as f32) / 2.0 - BAR_GAP_1X / ONE_X * factor;

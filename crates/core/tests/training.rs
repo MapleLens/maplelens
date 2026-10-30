@@ -549,7 +549,7 @@ fn the_strip_reaches_the_pup_button_and_is_denser_than_the_tall_card() {
     let (fill, old) = (card.pixel(card.width / 2, card.height - 4)[3], tall.pixel(tall.width / 2, tall.height - 3)[3]);
     assert!(fill < 255 && fill >= old + 15, "{fill} against {old}");
     // Every width has a layout: narrow, medium and wide each draw the numbers, the graph and the gauge.
-    for width in [165, 330, 600, 900] {
+    for width in [165, 330, 440] {
         let card = render_training_card(common::fonts(), &training, strip(None, Some(width)), 0.0, 1.0).expect("strip");
         assert_eq!(card.width, width as usize);
         assert_eq!(card.alpha_bbox(), Some((0, 0, card.width, card.height)), "nothing drawn past the frame");
@@ -587,9 +587,13 @@ fn the_strip_fills_the_room_beside_the_status_bar_up_to_16_9() {
     // Wider than 16:9, the strip is as wide as at 16:9 (2560x1080 is 1920x1080 with more sky).
     assert_eq!(width((2560, 1080), 1.40625), width((1920, 1080), 1.40625));
     assert_eq!(width((3440, 1440), 1.875), width((2560, 1440), 1.875));
-    // Never wider than the most: Ideal Ratio at 1440p leaves 880 px.
+    // Never wider than at 16:9 in Default Ratio: Ideal Ratio leaves twice that at 1080p, and the strip keeps to the
+    // corner, as wide as at 1080p's Default Ratio for its UI size.
     let most = (MAX_STRIP_WIDTH * theme::CARD_SCALE * 0.64).floor() as u32;
+    assert_eq!(width((1920, 1080), 1.0), Some(most));
     assert_eq!(width((2560, 1440), 1.0), Some(most));
+    let at_1080p = width((1920, 1080), 1.40625).expect("room") as f32 / 1.40625;
+    assert!((at_1080p - most as f32).abs() <= 1.5, "{at_1080p} against {most}");
     // 4:3 has a narrow strip; 800x600 has no room at all.
     assert!(width((1024, 768), 1.0).is_some_and(|w| w >= (MIN_STRIP_WIDTH * 0.96) as u32));
     assert_eq!(width((800, 600), 1.0), None);
