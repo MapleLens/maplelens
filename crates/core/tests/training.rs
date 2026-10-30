@@ -190,6 +190,38 @@ fn a_single_misread_never_counts() {
 }
 
 #[test]
+fn killing_faster_than_the_bar_is_read_still_counts() {
+    // Seen live: a kill between every two reads, so no two reads in a row agreed, the bar seemed out of view after
+    // 10 s and the card went away (and after a minute the session ended).
+    let mut tracker = Tracker::new();
+    let mut t = 0.0;
+    feed(&mut tracker, &mut t, 5_000, share(5_000));
+    for step in 1..=120 {
+        let exp = 5_000 + step * 50;
+        tracker.observe(t, read(exp, share(exp)));
+        t += 1.0;
+        let view = tracker.view(t, 10.0);
+        assert!(view.live, "{step}");
+        assert!(tracker.history().is_empty(), "one session: {step}");
+    }
+    // Every read but the last has counted.
+    assert_eq!(tracker.view(t, 10.0).session.gained, 119 * 50);
+}
+
+#[test]
+fn a_misread_between_kills_never_counts() {
+    let mut tracker = Tracker::new();
+    let mut t = 0.0;
+    feed(&mut tracker, &mut t, 5_000, share(5_000));
+    // 5,100 [25.50%] read as 9,100 (another level's size), with the bar moving on after it.
+    for (exp, hundredths) in [(9_100, share(5_100)), (5_200, share(5_200)), (5_300, share(5_300))] {
+        tracker.observe(t, read(exp, hundredths));
+        t += 1.0;
+    }
+    assert_eq!(tracker.view(t, 10.0).session.gained, 200);
+}
+
+#[test]
 fn paused_time_and_exp_do_not_count() {
     let mut tracker = Tracker::new();
     let mut t = 0.0;

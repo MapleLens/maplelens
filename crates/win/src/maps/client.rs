@@ -1,4 +1,5 @@
-//! maplestory.io: map search, map, monster and NPC data, and their sprites (public, no key).
+//! maplestory.io: map search, map, monster and NPC data, and their sprites (public, no key). The classic-era data
+//! first; a map it lacks is looked for in MapleStory Classic World's own, whose ids are `mapinfo::classic_id`s.
 
 use maplelens_core::config;
 use std::collections::HashMap;
@@ -7,7 +8,7 @@ use std::sync::{Mutex, OnceLock};
 
 use maplelens_core::mapinfo::data::{assemble, parse_map, parse_mob, parse_npc, parse_search};
 use maplelens_core::mapinfo::resolve::{Candidate, pick, search_terms};
-use maplelens_core::mapinfo::{Location, MapInfo, Mob, Npc};
+use maplelens_core::mapinfo::{Location, MapInfo, Mob, Npc, classic_id, mcw_id};
 
 use crate::net::{NetError, agent};
 
@@ -22,10 +23,23 @@ const MAX_RESPONSE_BYTES: u64 = 8 * 1024 * 1024;
 const ATTEMPTS: u64 = 3;
 const RETRY_PAUSE_MS: u64 = 400;
 
-fn get(path: &str) -> Result<Vec<u8>, NetError> {
+/// The data set an id of ours belongs to, and its id there.
+fn source(id: u32) -> (&'static str, u32) {
+    match mcw_id(id) {
+        Some(id) => (config::CLASSIC_MAP_API, id),
+        None => (config::MAP_API, id),
+    }
+}
+
+/// Our id for an id of `api`'s.
+fn ours(api: &str, id: u32) -> u32 {
+    if api == config::CLASSIC_MAP_API { classic_id(id) } else { id }
+}
+
+fn get(api: &str, path: &str) -> Result<Vec<u8>, NetError> {
     let mut last = NetError(String::new());
     for attempt in 1..=ATTEMPTS {
-        match get_once(path) {
+        match get_once(api, path) {
             Ok(bytes) => return Ok(bytes),
             // A missing page stays missing; anything else may be the server's moment.
             Err((error, true)) => return Err(error),
@@ -37,8 +51,8 @@ fn get(path: &str) -> Result<Vec<u8>, NetError> {
 }
 
 /// One request; the flag says the answer is final (a client error, not worth asking again).
-fn get_once(path: &str) -> Result<Vec<u8>, (NetError, bool)> {
-    let url = format!("{}/{path}", config::MAP_API);
+fn get_once(api: &str, path: &str) -> Result<Vec<u8>, (NetError, bool)> {
+    let url = format!("{api}/{path}");
     let mut response = agent(config::MAP_REQUEST_TIMEOUT_S)
         .get(&url)
         .call()
@@ -66,12 +80,33 @@ fn encode(term: &str) -> String {
         .collect()
 }
 
-/// Map id for a tooltip reading: search by the whole name, then by its words (one may be misread), and pick from
-/// everything found so far.
+/// MapleStory Classic World's maps (347 of them: one request), asked once a run when a reading is not in the
+/// classic-era list. A failure is asked again next time.
+fn classic_catalog() -> Option<Vec<Candidate>> {
+    static CATALOG: Mutex<Option<Vec<Candidate>>> = Mutex::new(None);
+    let mut catalog = CATALOG.lock().unwrap_or_else(|e| e.into_inner());
+    if catalog.is_none() {
+        match get(config::CLASSIC_MAP_API, &format!("map?count={CATALOG_COUNT}"))
+            .and_then(|b| parse_search(&b).map_err(NetError))
+        {
+            Ok(list) => *catalog = Some(list),
+            Err(error) => crate::warn!("MapleStory Classic World's maps: {error}"),
+        }
+    }
+    catalog.clone()
+}
+
+/// Map id for a tooltip reading (the service has tried the classic-era list already): MapleStory Classic World's
+/// list, which has the maps that one lacks; then a search of the classic-era data by the whole name, then by its
+/// words (one may be misread), picking from everything found so far.
 pub fn find_map_id(location: &Location) -> Result<Option<u32>, NetError> {
+    if let Some(id) = classic_catalog().and_then(|catalog| pick(location, &catalog)) {
+        return Ok(Some(classic_id(id)));
+    }
     let mut found: Vec<Candidate> = Vec::new();
     for term in search_terms(location) {
-        let results = parse_search(&get(&format!("map?searchFor={}&count=100", encode(&term)))?).map_err(NetError)?;
+        let path = format!("map?searchFor={}&count=100", encode(&term));
+        let results = parse_search(&get(config::MAP_API, &path)?).map_err(NetError)?;
         for candidate in results {
             if !found.iter().any(|c| c.id == candidate.id) {
                 found.push(candidate);
@@ -86,12 +121,13 @@ pub fn find_map_id(location: &Location) -> Result<Option<u32>, NetError> {
 
 /// PNG sprite of a monster ("mob") or NPC ("npc").
 pub fn fetch_icon(kind: &str, id: u32) -> Result<Vec<u8>, NetError> {
-    get(&format!("{kind}/{id}/icon"))
+    let (api, id) = source(id);
+    get(api, &format!("{kind}/{id}/icon"))
 }
 
 /// Every map's id, name and street: one request, so a tooltip reading resolves locally instead of by searches.
 pub fn fetch_catalog() -> Result<Vec<Candidate>, NetError> {
-    parse_search(&get(&format!("map?count={CATALOG_COUNT}"))?).map_err(NetError)
+    parse_search(&get(config::MAP_API, &format!("map?count={CATALOG_COUNT}"))?).map_err(NetError)
 }
 
 /// Monsters and NPCs recur across maps (a Snail lives on a dozen): each is requested once per run. Only answers
@@ -107,13 +143,14 @@ fn seen() -> &'static Mutex<Seen> {
     SEEN.get_or_init(Mutex::default)
 }
 
-/// A monster (None when the data set has no stats for it: event-only ids), or the network's failure.
+/// A monster by our id (None when the data set has no stats for it: event-only ids), or the network's failure.
 fn mob(id: u32, count: u32) -> Result<Option<Mob>, NetError> {
     let known = seen().lock().unwrap_or_else(|e| e.into_inner()).mobs.get(&id).cloned();
     let mob = match known {
         Some(mob) => mob,
         None => {
-            let mob = parse_mob(&get(&format!("mob/{id}"))?, id, 0);
+            let (api, theirs) = source(id);
+            let mob = parse_mob(&get(api, &format!("mob/{theirs}"))?, id, 0);
             seen().lock().unwrap_or_else(|e| e.into_inner()).mobs.insert(id, mob.clone());
             mob
         }
@@ -126,7 +163,8 @@ fn npc(id: u32) -> Result<Option<Npc>, NetError> {
     match known {
         Some(npc) => Ok(npc),
         None => {
-            let npc = parse_npc(&get(&format!("npc/{id}"))?, id);
+            let (api, theirs) = source(id);
+            let npc = parse_npc(&get(api, &format!("npc/{theirs}"))?, id);
             seen().lock().unwrap_or_else(|e| e.into_inner()).npcs.insert(id, npc.clone());
             Ok(npc)
         }
@@ -137,7 +175,14 @@ fn npc(id: u32) -> Result<Option<Npc>, NetError> {
 /// still fails after its retries fails the map: a card (and a disk cache entry) missing a monster is worse than a
 /// lookup made again later.
 pub fn fetch_map(id: u32) -> Result<MapInfo, NetError> {
-    let outline = parse_map(&get(&format!("map/{id}"))?).map_err(NetError)?;
+    let (api, theirs) = source(id);
+    let mut outline = parse_map(&get(api, &format!("map/{theirs}"))?).map_err(NetError)?;
+    for (mob, _) in &mut outline.mobs {
+        *mob = ours(api, *mob);
+    }
+    for npc in &mut outline.npcs {
+        *npc = ours(api, *npc);
+    }
     let mobs = in_parallel(&outline.mobs, |&(id, count)| mob(id, count)).into_iter().collect::<Result<Vec<_>, _>>()?;
     let npcs = in_parallel(&outline.npcs, |&id| npc(id)).into_iter().collect::<Result<Vec<_>, _>>()?;
     Ok(assemble(id, outline, mobs.into_iter().flatten().collect(), npcs.into_iter().flatten().collect()))

@@ -1,7 +1,8 @@
 //! EXP over time: the session being played, its rates, and the sessions before it (pure; time is passed in as
 //! seconds since the epoch, so history has real dates).
 //!
-//! A reading counts once two reads in a row agree (the numbers change while the game redraws them). The EXP shown
+//! A reading counts once two reads in a row agree (the numbers change while the game redraws them), or the next one
+//! carries on from it on the same level (a player killing fast moves the bar between every two reads). The EXP shown
 //! is into the current level, so a big drop in the share is a level up (the rest of the old level plus the new
 //! EXP is gained), and a small drop is EXP lost by dying. Time counts only while the bar is seen and EXP keeps
 //! coming, and a minute without EXP (town, shopping, AFK) or a move to another map ends the session: the next EXP
@@ -18,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use super::towns::is_town;
 use crate::vision::gauge::ExpReading;
 
-/// Reads in a row that must agree before a new value counts.
+/// Reads in a row that must agree before a new value counts (or the next read carries on from it: `carries_on`).
 const CONFIRM_READS: u32 = 2;
 /// The share falling by more than this (hundredths of a percent) is a level up, not a death.
 const LEVEL_UP_DROP: u32 = 2_000;
@@ -121,6 +122,16 @@ fn same_map(a: &str, b: &str) -> bool {
     key(a) == key(b)
 }
 
+/// Is `new` where `old` goes on the same level: neither the EXP nor the share lower, and the level's size the same
+/// when both tell it? A misread digit changes the size (EXP over share), so it carries on from nothing.
+fn carries_on(old: ExpReading, new: ExpReading) -> bool {
+    let same_size = match (precise_size(old), precise_size(new)) {
+        (Some(a), Some(b)) => (a as f64 - b as f64).abs() <= a as f64 * SAME_LEVEL,
+        _ => true,
+    };
+    new.exp >= old.exp && new.hundredths >= old.hundredths && same_size
+}
+
 /// The level's EXP worked out from `reading`, when its share is big enough for that to be precise.
 fn precise_size(reading: ExpReading) -> Option<u64> {
     (reading.hundredths >= PRECISE_SHARE).then(|| reading.needed()).flatten()
@@ -139,6 +150,8 @@ pub struct Tracker {
     history: Vec<Session>,
     /// The last value that counted, and when it was last seen.
     last: Option<Seen>,
+    /// When the bar was last read at all: it is in view even while its value moves too fast for two reads to agree.
+    read_at: Option<f64>,
     candidate: Option<(ExpReading, u32)>,
     paused: bool,
     map: Option<String>,
@@ -285,15 +298,28 @@ impl Tracker {
     /// A read of the bar at `now` (None: not readable this time).
     pub fn observe(&mut self, now: f64, reading: Option<ExpReading>) {
         self.expire(now);
-        let Some(reading) = reading else { return };
-        let votes = match self.candidate {
-            Some((candidate, n)) if candidate == reading => n + 1,
+        let Some(read) = reading else { return };
+        self.read_at = Some(now);
+        let before = self.candidate.map(|(candidate, _)| candidate);
+        let votes = match before {
+            Some(candidate) if candidate == read => self.candidate.map_or(1, |(_, n)| n + 1),
             _ => 1,
         };
-        self.candidate = Some((reading, votes));
-        if votes < CONFIRM_READS {
-            return;
-        }
+        self.candidate = Some((read, votes));
+        // Killing fast, the bar moves between every two reads: the read before counts when this one carries on
+        // from it and it from the last count. A level up, a death or another character still needs two alike.
+        let reading = if votes >= CONFIRM_READS {
+            read
+        } else {
+            match (before, self.last) {
+                (Some(before), Some(last))
+                    if before != last.reading && carries_on(last.reading, before) && carries_on(before, read) =>
+                {
+                    before
+                }
+                _ => return,
+            }
+        };
         let Some(last) = self.last else {
             self.begin(now, reading);
             return;
@@ -488,7 +514,7 @@ impl Tracker {
         let map_stat = self.map.as_ref().and_then(|m| session.maps.iter().find(|s| &s.map == m)).cloned();
         TrainingView {
             reading,
-            live: self.last.is_some_and(|s| now - s.at <= live_s),
+            live: self.read_at.is_some_and(|at| now - at <= live_s),
             paused: self.paused,
             session: session.clone(),
             last_minute,

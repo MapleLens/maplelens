@@ -190,12 +190,19 @@ Dependency direction: `win`/`web` -> `core`. Inside core: `pipeline` -> (`vision
 Frame in, `Training` out, about once a second (`TrainingWatcher` paces itself; the app runs it on its own thread from
 window capture, the browser from every frame it is given). Sessions are timed by the wall clock (`now` is Unix
 seconds) so the history has dates; the platform keeps `Tracker::to_json` (training.json / localStorage).
+- **The bar** (`vision::hud::find_bar`): at 1080p (UI scale 0.9) its 1 px top outline is resampled over two rows,
+  each blended with what is above; under the open chat log it never read dark enough (31-84 against `DARK_MAX` 40),
+  so no EXP was read at all. When no crisp outline is found, a top row up to `SMEARED_TOP_MAX` is tried, the sides
+  still judged crisp.
 - **EXP** (`vision::gauge`): the gauge font is drawn 1:1 at Ideal Ratio and smoothed at 1.5625x in Normal; the read
   area is relative to the status bar and scaled by `bar.width / 800`. Glyphs are scaled the same way and the cheapest
   run is decoded under the printed shape (number with separators, `[`, 1-3 digits, `.`, two decimals, `%]`), which is
   what separates `[` from `1` in the blur. Reads with more than `MAX_COST_PER_PX` mismatch are no read (a window over
   the gauge). Fixtures: `status_bar_*` (both UI sizes, four values).
-- **Sessions** (`training::session`): a value counts once two reads agree. A share drop of 20+ points with less EXP is a
+- **Sessions** (`training::session`): a value counts once two reads agree, or once the next read carries on from it
+  on the same level (EXP and share not lower, the level's size alike) and it from the last count: killing fast, live
+  at 1080p, the bar moved between nearly every two reads, nothing counted for 10-30 s and the card hid. The bar is
+  in view (`live`) while it is read at all, whether or not its value has settled. A share drop of 20+ points with less EXP is a
   level up (the rest of the old level plus the new EXP), unless the new level is not bigger, or more than twice as
   big, than the old one: that is another character, which counts nothing. The level's size (EXP / share) also tells a
   death (same size, less EXP: counted as lost) from a character switch. Time counts while the bar is read and EXP
@@ -806,6 +813,15 @@ so a tooltip reading resolves locally (`MapService::lookup`), and `maps/prefetch
 retried on 5xx; a map that still lacks a monster or NPC fails instead of being cached incomplete. Some listed maps
 404 (about 10%); those are skipped. About 130 maps share a street and name with another and rightly resolve to
 nothing.
+
+That list is the classic-era data (GMS v40), which lacks maps MapleStory Classic has ("The Murky Swamp I"): there the
+drops panel stayed empty. A reading it does not resolve is looked for in MapleStory Classic World's own list
+(`config::CLASSIC_MAP_API`, region MCW, 347 maps, one request a run) before the classic-era search. MCW numbers maps,
+monsters and NPCs its own way over the same range, so its ids are kept at `mapinfo::CLASSIC_ID_BASE` (2,000,000,000)
+up (`classic_id` / `mcw_id`): the caches and sprite folders hold both, and `client::source` sends each request to its
+data set. Its monsters' names and levels are the game's (NiaDB's match them). Matching folds OCR's "rn" for "m"
+(`resolve::fold`): "The Murky Swarnp I" was read live and fell under the margin between I and II without it.
+`live_classic_world_map` checks the real API.
 
 ## Testing
 

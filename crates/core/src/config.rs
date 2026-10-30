@@ -118,6 +118,8 @@ pub const RANK_REQUEST_GAP_S: f64 = 2.0;
 // --- Map helper: hover a location on the world map (maplestory.io data and sprites) ---
 /// v40 is the classic-era data set (the Hill East of Henesys: 49 spawns).
 pub const MAP_API: &str = "https://maplestory.io/api/GMS/40";
+/// Maps the classic-era data lacks are looked up in MapleStory Classic World's own (`mapinfo::CLASSIC_ID_BASE`).
+pub const CLASSIC_MAP_API: &str = ITEM_API;
 /// maplestory.io is sometimes slow (a request took >8 s).
 pub const MAP_REQUEST_TIMEOUT_S: u64 = 10;
 /// Sold items' pictures: maplestory.io's MapleStory Classic World data (region MCW), which numbers and names items as
