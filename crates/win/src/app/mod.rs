@@ -20,6 +20,7 @@ use maplelens_core::config;
 use maplelens_core::market::catalog::Catalog;
 use maplelens_core::market::sample::sample_items;
 use maplelens_core::notify::pairing::Pairing;
+use maplelens_core::pill::{Pill, PillPicker};
 use maplelens_core::pipeline::hover::Hover;
 use maplelens_core::pipeline::info::InfoWindow;
 use maplelens_core::ranking::{RankCache, Status};
@@ -91,8 +92,8 @@ fn pump_messages() {
 type CardCache = Vec<((String, bool, u32, bool), Arc<RgbaImage>)>;
 /// The rank panel last drawn, by (name, status, rank's last check, UI scale bits).
 type RankCard = Option<((String, Status, Option<String>, u32), Arc<RgbaImage>)>;
-/// The status pill last rendered, by (status, UI scale bits); None inside when the status has no pill.
-type StatusCard = Option<((ShopStatus, u32), Option<Arc<RgbaImage>>)>;
+/// The status pill last rendered, by (what it says, UI scale bits); None inside when there is no pill.
+type StatusCard = Option<((Pill, u32), Option<Arc<RgbaImage>>)>;
 /// The training card last rendered, by (numbers, what is shown, UI scale bits, clock second).
 type TrainingCard = Option<((Training, maplelens_core::render::training_card::Show, u32, u64), Arc<RgbaImage>)>;
 
@@ -121,6 +122,7 @@ pub struct App {
     shop: ShopUpdate,
     status_window: LayeredWindow,
     status_card: StatusCard,
+    pill: PillPicker,
     map: map::MapUi,
     training_events: Receiver<TrainingUpdate>,
     training_commands: Sender<TrainingCommand>,
@@ -249,6 +251,7 @@ impl App {
             shop: ShopUpdate { hwnd: 0, status: ShopStatus::Hidden },
             status_window: LayeredWindow::new()?,
             status_card: None,
+            pill: PillPicker::default(),
             map,
             training_events,
             training_commands,

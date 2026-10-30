@@ -1,10 +1,12 @@
-//! The small status pill shown at the bottom-left of the game while in our own store.
+//! The small status pill at the bottom-left of the game: our own store's status, or a hint about training
+//! (`pill::PillPicker` chooses which).
 
 use super::RgbaImage;
 use super::canvas::{Anchor, Canvas, Ink};
 use super::font::Fonts;
 use super::theme::{self, Rgba};
 use crate::geometry::Rect;
+use crate::pill::Pill;
 use crate::shop::ShopStatus;
 
 const BRAND: &str = "MapleLens";
@@ -24,8 +26,18 @@ enum Icon {
     Dot,
 }
 
-/// status -> (icon, colour, text). The icon is drawn, not typed: Tahoma has no reliable check or warning glyphs.
-fn look(status: ShopStatus) -> Option<(Icon, Rgba, &'static str)> {
+/// pill -> (icon, colour, text). The icon is drawn, not typed: Tahoma has no reliable check or warning glyphs.
+fn look(pill: Pill) -> Option<(Icon, Rgba, &'static str)> {
+    Some(match pill {
+        Pill::Store(status) => return store_look(status),
+        Pill::ExpBarHidden => (Icon::Warn, theme::WARN, "Move the window off the EXP bar"),
+        Pill::ExpNumbersHidden => (Icon::Warn, theme::WARN, "Something is over the EXP numbers"),
+        Pill::MinimapClosed => (Icon::Warn, theme::WARN, "Open the minimap (top-left)"),
+        Pill::NoDrops => (Icon::Dot, GREY, "No drop data for this map"),
+    })
+}
+
+fn store_look(status: ShopStatus) -> Option<(Icon, Rgba, &'static str)> {
     Some(match status {
         ShopStatus::Hidden => return None,
         ShopStatus::Watching => (Icon::Check, theme::UP, "Store detected"),
@@ -36,8 +48,8 @@ fn look(status: ShopStatus) -> Option<(Icon, Rgba, &'static str)> {
     })
 }
 
-pub fn text_for(status: ShopStatus) -> Option<&'static str> {
-    look(status).map(|(_, _, text)| text)
+pub fn text_for(status: impl Into<Pill>) -> Option<&'static str> {
+    look(status.into()).map(|(_, _, text)| text)
 }
 
 /// A word for the status that pages and the phone act on ("need-sold-window").
@@ -54,8 +66,8 @@ pub fn word_for(status: ShopStatus) -> &'static str {
 
 /// How the status reads at a glance, for a status line that is not drawn like the pill (the browser's): "ok" (all
 /// detected), "warn" (something to do) or "idle" (nothing wrong, nothing to watch); None when there is nothing to say.
-pub fn tone_for(status: ShopStatus) -> Option<&'static str> {
-    look(status).map(|(icon, ..)| match icon {
+pub fn tone_for(status: impl Into<Pill>) -> Option<&'static str> {
+    look(status.into()).map(|(icon, ..)| match icon {
         Icon::Check => "ok",
         Icon::Warn => "warn",
         Icon::Dot => "idle",
@@ -79,8 +91,8 @@ fn icon(cv: &mut Canvas<'_>, kind: Icon, x: f32, y: f32, colour: Rgba) {
 }
 
 /// The pill for `status` at the game's UI scale, or None when there is nothing to show.
-pub fn render_status(fonts: &Fonts, status: ShopStatus, ui_scale: f32) -> Option<RgbaImage> {
-    let (kind, colour, text) = look(status)?;
+pub fn render_status(fonts: &Fonts, status: impl Into<Pill>, ui_scale: f32) -> Option<RgbaImage> {
+    let (kind, colour, text) = look(status.into())?;
     let probe = Canvas::new(fonts, 1.0, 1.0, 1.0);
     let width =
         PAD + ICON + GAP + probe.measure(text, SIZE, true) + GAP + probe.measure(BRAND, SIZE - 1.0, false) + PAD;

@@ -15,6 +15,7 @@ use maplelens_core::market::format::format_mesos;
 use maplelens_core::market::sample::sample_items;
 use maplelens_core::market::snapshot::parse_snapshot;
 use maplelens_core::notify::{NotifySettings, discord, phone, refusal, telegram};
+use maplelens_core::pill::{Facts, PillPicker};
 use maplelens_core::pipeline::FrameScreen;
 use maplelens_core::pipeline::hover::{Hover, HoverDetector};
 use maplelens_core::pipeline::info::{InfoDetector, InfoWindow};
@@ -23,7 +24,9 @@ use maplelens_core::render::RgbaImage;
 use maplelens_core::render::card::{CardSpec, render_card};
 use maplelens_core::render::font::Fonts;
 use maplelens_core::render::rank_card::render_rank_card;
+use maplelens_core::render::status_pill::{text_for, tone_for};
 use maplelens_core::render::training_card::{Show, is_training, render_training_card};
+use maplelens_core::shop::ShopStatus;
 use maplelens_core::training::potions;
 use maplelens_core::training::session::Tracker;
 use maplelens_core::training::watcher::{Training, TrainingWatcher};
@@ -114,6 +117,8 @@ pub struct Engine {
     training: TrainingWatcher,
     map_ocr: Arc<Mutex<OcrQueue>>,
     training_show: Show,
+    /// The training hints of the Windows app's status pill; the page shows the store's status first.
+    pill: PillPicker,
     training_card: Option<Drawn<(Training, Show, u64)>>,
     since: f64,
     card: Option<Drawn<(String, bool)>>,
@@ -159,6 +164,7 @@ impl Engine {
             training,
             map_ocr,
             training_show: Show { exp: true, quest: false, strip: None },
+            pill: PillPicker::default(),
             training_card: None,
             since: 0.0,
             card: None,
@@ -396,6 +402,16 @@ impl Engine {
         self.training.step(&mut screen, bounds, unix_now);
         let training = self.training.training(unix_now);
         self.update_training_card(&training, unix_now);
+        // No drops panel here, and the page puts the store's own status first.
+        let facts = Facts {
+            store: ShopStatus::Hidden,
+            exp_card: self.training_show.exp,
+            map_drops: false,
+            training: Some(&training),
+            no_drops: None,
+        };
+        let hint =
+            self.pill.pick(&facts, unix_now).and_then(|p| Some(json!({"text": text_for(p)?, "tone": tone_for(p)})));
         let t6 = clock_ms();
         let pending_ocr = self.title_ocr.lock().map_or(0, |q| q.waiting())
             + self.name_ocr.lock().map_or(0, |q| q.waiting())
@@ -416,6 +432,7 @@ impl Engine {
             "ocr": pending_ocr,
             "tooltip_in_view": self.hover.tooltip_in_view(),
             "training": training_json(&training),
+            "hint": hint,
             "potion_icons": self.training.potion_icons(),
             "training_card": self.training_card.as_ref().map(|c| c.version),
             // Where the frame's time went (ms): converting the pixels, the tooltip, the Character Info window, the cards,

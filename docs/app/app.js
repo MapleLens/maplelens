@@ -2,13 +2,13 @@
 // test hooks started by a URL parameter), feed frames to the engine, show the cards in the page and, on request, in a picture-in-picture window that floats over the game.
 // The training panel (EXP rates, potions) is drawn from the numbers the engine reads off the HUD.
 
-import { Lens } from "./lens.js?v=652625fee67d";
-import { CardView, floatingSize, openFloating } from "./cards.js?v=652625fee67d";
-import { CardFeed } from "./cardfeed.js?v=652625fee67d";
-import { Prices } from "./prices.js?v=652625fee67d";
-import { drawMapleQr } from "./mapleqr.js?v=652625fee67d";
-import { StoreBook } from "./storebook.js?v=652625fee67d";
-import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=652625fee67d";
+import { Lens } from "./lens.js?v=8f28f7dbbfe7";
+import { CardView, floatingSize, openFloating } from "./cards.js?v=8f28f7dbbfe7";
+import { CardFeed } from "./cardfeed.js?v=8f28f7dbbfe7";
+import { Prices } from "./prices.js?v=8f28f7dbbfe7";
+import { drawMapleQr } from "./mapleqr.js?v=8f28f7dbbfe7";
+import { StoreBook } from "./storebook.js?v=8f28f7dbbfe7";
+import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=8f28f7dbbfe7";
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -653,7 +653,8 @@ function handleState(state, fps, ms, grab) {
   $("fps").textContent = note;
   latest = {
     title: state.hover?.title || (state.info?.name ? `${state.info.name}'s ranks` : ""),
-    store: shopStatus(state),
+    // The store's status, else a training hint (the EXP bar covered): the Windows app's pill says the same.
+    store: shopStatus(state) || state.hint || null,
     sharing: Boolean(source),
     trainingTitle: state.training?.map || "",
   };
