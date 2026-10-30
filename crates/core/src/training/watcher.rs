@@ -43,6 +43,21 @@ pub struct Training {
     /// The map being played, as the minimap names it (its street from a reading of the settled name): what the map
     /// drops panel looks up.
     pub location: Option<Location>,
+    /// When the bar, its EXP and the minimap's title were last found: what the status pill tells the player to fix.
+    pub seen: HudSeen,
+}
+
+/// When parts of the HUD were last found (Unix seconds; None: not since the watcher started).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct HudSeen {
+    /// The watcher's first look: how long a part has been missing when it was never found.
+    pub since: Option<f64>,
+    /// The status bar's outline.
+    pub bar: Option<f64>,
+    /// The EXP read off it.
+    pub exp: Option<f64>,
+    /// The minimap's title.
+    pub minimap: Option<f64>,
 }
 
 /// "Hidden  Street " -> "Hidden Street"; OCR's stray marks at either end are dropped.
@@ -70,6 +85,7 @@ pub struct TrainingWatcher {
     next_map: f64,
     icons: IconSet,
     potions: PotionWatcher,
+    seen: HudSeen,
 }
 
 impl TrainingWatcher {
@@ -87,6 +103,7 @@ impl TrainingWatcher {
             next_map: f64::NEG_INFINITY,
             icons: IconSet::default(),
             potions: PotionWatcher::default(),
+            seen: HudSeen::default(),
         }
     }
 
@@ -111,6 +128,7 @@ impl TrainingWatcher {
     /// Returns whether anything was read.
     pub fn step(&mut self, screen: &mut dyn Screen, bounds: Rect, now: f64) -> bool {
         let mut looked = false;
+        self.seen.since.get_or_insert(now);
         if now >= self.next_exp {
             self.next_exp = now + EXP_POLL_S;
             looked = true;
@@ -122,6 +140,12 @@ impl TrainingWatcher {
                 self.scale = Some(bar.width as f32 / config::STATUS_BAR_WIDTH as f32);
                 read_exp(&strip, bar)
             });
+            if bar.is_some() {
+                self.seen.bar = Some(now);
+            }
+            if reading.is_some() {
+                self.seen.exp = Some(now);
+            }
             self.tracker.observe(now, reading);
             if let Some(bar) = bar.filter(|_| !self.icons.is_empty()) {
                 self.look_at_quickslots(screen, bar, strip_at, now);
@@ -159,6 +183,9 @@ impl TrainingWatcher {
         let area = Rect::new(bounds.x, bounds.y, scaled(w, scale).min(bounds.w), scaled(h, scale).min(bounds.h));
         let title = find_title(&screen.grab(area), scale);
         self.minimap_right = title.as_ref().map(|t| t.right as i32);
+        if title.is_some() {
+            self.seen.minimap = Some(now);
+        }
         // The pointer over the title changes what OCR reads; two looks with it held still would be a new map.
         let pointed = screen
             .cursor()
@@ -195,7 +222,8 @@ impl TrainingWatcher {
         let exp = self.tracker.view(now, LIVE_S);
         let potions = Potions::new(&exp.session.potions, &self.icons);
         let location = self.map.as_ref().map(|(map, _)| Location::new(&self.street, map));
-        Training { exp, quest: self.quest.current(now), minimap_right: self.minimap_right, potions, location }
+        let (quest, minimap_right, seen) = (self.quest.current(now), self.minimap_right, self.seen);
+        Training { exp, quest, minimap_right, potions, location, seen }
     }
 }
 

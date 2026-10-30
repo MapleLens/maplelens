@@ -8,6 +8,7 @@ use maplelens_core::mapinfo::{MapInfo, Mob, Npc};
 use maplelens_core::market::sample::sample_items;
 use maplelens_core::market::time::parse_iso;
 use maplelens_core::notify::pairing::{Pairing, QR_SHOWN_S, Reply};
+use maplelens_core::pill::Pill;
 use maplelens_core::ranking::{Rank, RankResult, Status};
 use maplelens_core::render::RgbaImage;
 use maplelens_core::render::canvas::Canvas;
@@ -93,6 +94,10 @@ fn main() {
     ] {
         let pill = render_status(&fonts, status, 1.0).expect("a visible status");
         save(&pill, &out.join(format!("pill_{status:?}.png").to_lowercase()));
+    }
+    for hint in [Pill::ExpBarHidden, Pill::ExpNumbersHidden, Pill::MinimapClosed, Pill::NoDrops] {
+        let pill = render_status(&fonts, hint, 1.0).expect("a visible hint");
+        save(&pill, &out.join(format!("pill_{hint:?}.png").to_lowercase()));
     }
     let mob = |id, name: &str, level, exp, hp, count| Mob { id, name: name.into(), level, exp, hp, count };
     let map = MapInfo {

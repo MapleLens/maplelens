@@ -112,6 +112,11 @@ impl DropsUi {
     pub fn close_page(&mut self) {
         self.page = None;
     }
+
+    /// The panel was put together for map `id` and nothing it drops is known.
+    pub fn knows_nothing_of(&self, id: u32) -> bool {
+        self.content.as_ref().is_some_and(|((map, ..), content)| *map == id && content.is_none())
+    }
 }
 
 impl App {

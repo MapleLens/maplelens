@@ -12,6 +12,7 @@ pub mod image;
 pub mod mapinfo;
 pub mod market;
 pub mod notify;
+pub mod pill;
 pub mod pipeline;
 pub mod placement;
 pub mod ranking;

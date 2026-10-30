@@ -143,6 +143,7 @@ crates/core/src/          platform-free; everything here is unit-testable
                           potions (candidates, PotionWatcher: quickslots -> totals per item, Potions), kpq (stages,
                           Cloto's answers, combinations, QuestTracker), towns (where EXP is no training), watcher
                           (TrainingWatcher: frames in, Training out)
+  pill.rs                 which status the bottom-left pill shows (the store's, or a training hint), held and timed
   placement.rs, settings.rs, hotkey.rs (naming and building the show/hide combo)
 crates/win/src/           the Windows app (only this crate talks to Win32)
   main.rs                 CLI, --screenshot; instance.rs: one copy at a time (checked before the elevation
@@ -250,6 +251,23 @@ seconds) so the history has dates; the platform keeps `Tracker::to_json` (traini
   settings.json turns it on. Web: the engine never draws it (`set_training_show(exp)`) and the page has no panel for
   it (the panel, its guide JSON and the switch are in PR #46's history). The tracker still follows the quest, and its
   tests and `render_cards`' `training_kpq_*.png` still cover it.
+
+## The status pill (`core/src/pill.rs`, `render/status_pill`, `win/src/app/status.rs`)
+
+One pill at the game's bottom-left, one status at a time by priority, never rotated (rotating blinks): our own store's
+status while its window is up, else what keeps training from being read. Setting `store_status_bar` ("Show the status
+bar (store, EXP bar, minimap)"); each hint also needs its own feature on. `PillPicker` decides from facts and `now`,
+the training reader's `Training.seen` (`HudSeen`: when the bar, its EXP and the minimap's title were last found).
+- **"Move the window off the EXP bar" / "Something is over the EXP numbers"**: EXP card on, not a town, the minimap
+  in view (5 s), the EXP unread for 5 s; the second when the bar was found after the EXP was last read. The minimap is
+  the gate: in the Cash Shop or the login screen neither is there, and nothing need move. Once told, one more look
+  without EXP keeps it: a single good read under the window must not take it away for the five seconds of holding.
+- **"Open the minimap (top-left)"**: EXP card or map drops on, the bar read (3 s), the title missing 10 s; told for
+  30 s each time it goes (some players close it on purpose).
+- **"No drop data for this map"** (idle tone): map drops on, a field, the map not in the map data or none of its drops
+  known, held 10 s (a map's monsters download first), told 8 s once a map.
+- A hint whose cause ends stays 2 s. The browser engine sends the EXP hints as `hint` ({text, tone}); the page shows
+  the store's status first, else that, on the cards' bottom line.
 
 ## Map drops panel (`core/src/drops`, `render/drops_card`)
 

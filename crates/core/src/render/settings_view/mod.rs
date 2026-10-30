@@ -295,7 +295,7 @@ pub fn render(fonts: &Fonts, view: &View<'_>, factor: f32) -> RgbaImage {
     let s = &view.settings;
     let toggles = [
         (Control::Overlay, "OVERLAYS", "Show price cards over item tooltips", s.overlay_enabled),
-        (Control::StatusBar, "STORE", "Show the status bar in your own store", s.store_status_bar),
+        (Control::StatusBar, "STORE", "Show the status bar (store, EXP bar, minimap)", s.store_status_bar),
         (Control::Startup, "STARTUP", "Launch MapleLens when Windows starts", s.launch_at_startup),
         (Control::AutoUpdate, "UPDATES", "Check for updates automatically", s.check_updates),
         (Control::NotifySales, "NOTIFY", "Tell me when an item sells", s.notify_sales),
