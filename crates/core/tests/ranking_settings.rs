@@ -94,7 +94,6 @@ fn settings_default_roundtrip_and_validation() {
         notify_store: false,
         training_card: false,
         quest_helper: false,
-        map_drops: false,
         training_corner: Corner::BottomLeft,
         training_at: Some((0.25, 0.5)),
         drops_at: Some((0.75, 0.0)),
@@ -107,7 +106,9 @@ fn settings_default_roundtrip_and_validation() {
     assert!(Settings::default().store_status_bar);
     assert!(Settings::default().training_card);
     assert!(!Settings::default().quest_helper, "the party quest helper is hidden");
-    assert!(Settings::default().map_drops);
+    // 0.2.x's map drops switch is gone (the panel opens from the EXP card): its key loads and is forgotten.
+    assert_eq!(Settings::from_json(r#"{"map_drops": false}"#), Settings::default());
+    assert!(!Settings::default().to_json().contains("map_drops"));
     assert_eq!(Settings::default().training_at, None);
     let dragged = Settings::from_json(r#"{"training_at": [0.5, 2.0], "drops_at": [0.1, 0.2, 0.3]}"#);
     assert_eq!((dragged.training_at, dragged.drops_at), (None, None), "off the window, or not a pair");

@@ -158,8 +158,9 @@ crates/win/src/           the Windows app (only this crate talks to Win32)
   shop.rs, wgc.rs         the shop watcher thread (and `--shop`), fed by Windows Graphics Capture; app/status.rs:
                           the status pill
   training.rs             the training reader thread (window capture, Windows OCR of the minimap, training.json);
-                          app/training.rs: the training card in the corner picked in the settings (placement.rs
-                          place_in_corner: beside the minimap, above the status bar); tray: its switches and session
+                          app/training.rs: the EXP strip in the corner picked in the settings (placement.rs
+                          place_beside_bar: filling the room beside the status bar; else place_in_corner); tray:
+                          its switch and session
   update/                 signed self-update: version, manifest (Ed25519), net (allow-listed hosts), check
                           (daily thread), install (stage, self-test, swap, relaunch), release (--sign-release,
                           --make-update-key)
@@ -251,10 +252,39 @@ seconds) so the history has dates; the platform keeps `Tracker::to_json` (traini
   it (the panel, its guide JSON and the switch are in PR #46's history). The tracker still follows the quest, and its
   tests and `render_cards`' `training_kpq_*.png` still cover it.
 
+## The EXP strip (`render/training_card`)
+
+The Windows app draws the EXP card as a strip beside the status bar: from the client's side towards the bar (2 px at
+1x clear of its outline) and from the client's foot up to the top of the quickslots' Pup button (`STRIP_HEIGHT`: 139
+px at 1:1, 195 at 1080p's Default Ratio, 217 at 1.0), so it reads as part of the HUD. Measured on mscw-render's HUD at
+every resolution and UI size (the bar is 800 px at 1:1, and Default Ratio draws the frame 768 high and scales it) and
+on a 1080p capture. Its width (`strip_width`) is that room as on a 16:9 screen at most, and never more than the room
+at 16:9 in Default Ratio (`MAX_STRIP_WIDTH`, 292 design units: 394 px at 1080p): where there is more (Ideal Ratio
+leaves twice that at 1080p; 1440p, ultrawide) the strip keeps that width in the corner rather than stretch to the bar
+(the player chose it over a strip filling every room). Under `MIN_STRIP_WIDTH` (5:4, 800x600) it is `FALLBACK_WIDTH`
+wide, above the bar and the quickslots. In a bottom corner it sits flush with the client's side and foot
+(`placement::place_beside_bar`). The body follows the width (`layout`): narrow under 200 design units (4:3: the rate on
+top, the session at the foot), medium otherwise (rate and session total side by side, the graph showing across the
+middle). The header holds the potions that moved most and the map drops' bag button (`drops_button(width)`), the foot
+the level's gauge and share. Its fill is 10% less see-through than the tooltip cards' (the player asked; numbers over
+a busy field). Only a pause is labelled (PAUSED); there is no LIVE label. The web's floating window, a box, keeps the
+tall card (`Show::strip` None). `render_cards` draws it at each measured screen size.
+- **The graph** (`training_card/graph.rs`, `session::ExpGraph`): EXP a minute over the last 10 minutes behind the
+  numbers (the text has a soft shadow), a thin gold line over a glow fading down, like meso.watch's price trends
+  (checked October 2026: its public pages have no EXP graph, only these sparklines). A point every 10 s, each the
+  minute before it (the time since the first EXP while that is shorter, from 10 s on), so kills read as a pace and a
+  young session does not climb from nothing; the time axis is fixed, so a young session fills only its right. The
+  session's average is dashed, level ups are marked where they happened, the newest point is lit. The player picked
+  this over a graph in a well of its own, a horizon in the lower half and a column a minute. The tracker keeps the
+  gains of that span (`timeline`) and level ups; core has no clock (`view(now)`).
+
 ## Map drops panel (`core/src/drops`, `render/drops_card`)
 
-What the monsters of the map being played drop, beside the EXP card and as tall as it (in its corner while that card
-is not shown), only on a field. Setting `map_drops` (settings window and tray). Windows only for now.
+What the monsters of the map being played drop, only on a field, and only on demand: the EXP strip's bag button
+(offered while the map is a field with monsters) opens it over the strip in a bottom corner and under it in a top one
+(`placement::place_off_card`, else beside it), its X closes it, and it goes when the strip goes. It never opens by
+itself. There is no setting: 0.2.x's `map_drops` switch (settings window and tray) is gone, and the key is ignored
+in an old settings.json. Windows only for now.
 - **Data: NiaDB (meowdb.com), used with the site's permission.** Its monster list is read off its monster page (the
   page's streamed Next.js data: id, name, level, HP, EXP), each monster's drops from `api/drops?monsterId=` (drops
   players confirmed in Classic; `score` above 0 counts, `itemIconKey` is the game's item ID, as the price list and
@@ -273,8 +303,8 @@ is not shown), only on a field. Setting `map_drops` (settings window and tray). 
   refreshed behind it); a page's rates are saved as read (`rates\<id>.json`), never the page. A map's monsters not on
   disk are fetched together, in parallel (the player is waiting); once the panel has shown in a run, while nothing
   is asked, the site thread gathers every listed monster's drops and page ahead, one request every 2 s (about a
-  quarter of an hour, weekly; drops saved without rates are gathered again), so a map met later needs no request. Before the panel shows,
-  nothing is fetched (not even the list): every new install gathering at its first start, map drops used or not,
+  quarter of an hour, weekly; drops saved without rates are gathered again), so a map met later needs no request. Before the panel is
+  opened, nothing is fetched (not even the list): every new install gathering at its first start, map drops used or not,
   would flood the site after a public launch. A failure waits 5 minutes. Never bundle or commit its data
   (tests use hand-written stand-ins); `live_meowdb` checks the real pages.
 - **Credit, as the site asks:** "NiaDB" with the exact page used, written out where it cannot be a link: the panel's
@@ -284,7 +314,9 @@ is not shown), only on a field. Setting `map_drops` (settings window and tray). 
   pointer; resting on it does not (it opened pages the player only pointed at).
 - **Presses and drags without breaking rule 3:** the cards stay click-through; `game::left_button_down`
   (`GetAsyncKeyState`, a read of the button's state, no hook, nothing sent) is polled on the UI tick, so the game
-  gets every press as well (on a field it does nothing). A press that moves drags the EXP card or the panel; where
+  gets every press as well (on a field it does nothing). A press let go on the strip's bag button (`on_drops_button`)
+  opens or closes the panel, and on the panel's X (`Hit::Close`) closes it. A press that moves drags the EXP card or
+  the panel; where
   it is let go is kept as a share of the game window (`training_at`, `drops_at`), and picking a corner in the
   settings puts both back. Presses need MapleLens to run as administrator (next section).
 - The list: every monster as a tile on top, then the map's ten dearest worthy drops (5 to a row). Over the cards the

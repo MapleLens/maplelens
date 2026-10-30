@@ -76,8 +76,6 @@ pub enum Control {
     Delay,
     /// Show the EXP rates on the training card.
     TrainingExp,
-    /// Show the map drops panel beside it.
-    MapDrops,
     /// Put the training card in this corner of the game.
     Corner(Corner),
     AutoUpdate,
@@ -111,7 +109,7 @@ pub enum Control {
 
 impl Control {
     /// Tab order.
-    pub const ORDER: [Self; 26] = [
+    pub const ORDER: [Self; 25] = [
         Self::Overlay,
         Self::StatusBar,
         Self::Startup,
@@ -119,7 +117,6 @@ impl Control {
         Self::ClearHotkey,
         Self::Delay,
         Self::TrainingExp,
-        Self::MapDrops,
         Self::Corner(Corner::TopLeft),
         Self::Corner(Corner::TopRight),
         Self::Corner(Corner::BottomLeft),
@@ -159,7 +156,6 @@ impl Control {
             Self::ClearHotkey => (SIZE.0 - PAD - CLEAR_W, HOTKEY_Y, CLEAR_W, ROW_H),
             Self::Delay => (VALUE_X + 8.0, DELAY_Y, VALUE_W - 92.0, ROW_H),
             Self::TrainingExp => (VALUE_X + 2.0, TRAINING_Y + 4.0, TRAINING_SWITCH_W, ROW_H - 2.0),
-            Self::MapDrops => (VALUE_X + 2.0, TRAINING_Y + 4.0 + ROW_H - 1.0, TRAINING_SWITCH_W, ROW_H - 2.0),
             Self::Corner(corner) => {
                 let (x, y, w, h) = corner_card(corner);
                 (x - CORNER_REACH, y - CORNER_REACH, w + 2.0 * CORNER_REACH, h + 2.0 * CORNER_REACH)
@@ -393,10 +389,12 @@ fn training(cv: &mut Canvas<'_>, view: &View<'_>) {
     gamewin::pill(cv, (PAD, TRAINING_Y, LABEL_W, ROW_H), "TRAINING", 11.0);
     field(cv, area, false, false);
     switch(cv, view, Control::TrainingExp, s.training_card, "My EXP rates");
-    switch(cv, view, Control::MapDrops, s.map_drops, "Map drops");
+    // The map drops have no switch: they open from the EXP card's bag button.
+    let hint = (VALUE_X + 8.0, TRAINING_Y + 4.0 + ROW_H - 1.0 + (ROW_H - 2.0) / 2.0 + 4.0);
+    cv.text(hint.0, hint.1, "Map drops: the bag on the card", Ink::new(NOTE_SIZE, INK_DIM), Anchor::LS);
     picker(cv, view);
-    let shown = if !(s.training_card || s.quest_helper || s.map_drops) {
-        "Switched off: tick My EXP rates or Map drops to show them".to_string()
+    let shown = if !(s.training_card || s.quest_helper) {
+        "Switched off: tick My EXP rates to show it".to_string()
     } else if s.training_at.is_some() || s.drops_at.is_some() {
         "Dragged in the game: click a corner to put them back".to_string()
     } else {
@@ -445,7 +443,7 @@ fn picker(cv: &mut Canvas<'_>, view: &View<'_>) {
     );
     cv.rect(x + CORNER_INSET + 3.0, y + CORNER_INSET + 5.0, mw - 6.0, 4.0, [150, 186, 214, 255]);
     let chosen = view.settings.training_corner;
-    let off = !view.settings.training_card && !view.settings.quest_helper && !view.settings.map_drops;
+    let off = !view.settings.training_card && !view.settings.quest_helper;
     for corner in Corner::ALL {
         let control = Control::Corner(corner);
         let touch = view.touch(control);

@@ -1,7 +1,7 @@
 //! The map drops panel: beside the EXP card (as tall as it), each monster of the map with its sprite and its worthy
 //! drops as item slots framed in their rarity's colour (`list`); a monster pressed opens its page there, with every
-//! drop and a Back button (`page`). Drawn like the game's tooltips, as the other cards are. `hit` says what is under a
-//! point, for the pointer's hover and presses.
+//! drop and a Back button (`page`). The panel opens from the EXP strip's button and its X closes it. Drawn like the
+//! game's tooltips, as the other cards are. `hit` says what is under a point, for the pointer's hover and presses.
 
 mod list;
 mod page;
@@ -31,6 +31,10 @@ const SLOT_TINT: u8 = 55;
 const SLOT_EDGE_W: f32 = 1.5;
 /// Under the pointer: a row or button lit this much.
 const LIT: Rgba = [255, 255, 255, 22];
+/// The X closing the panel, top right: (x, y, w, h).
+pub const CLOSE: (f32, f32, f32, f32) = (CARD_WIDTH - 8.0 - 16.0, 8.0, 16.0, 16.0);
+/// Where a chip at the top right ends, clear of the X.
+const TOP_RIGHT: f32 = CLOSE.0 - 5.0;
 
 /// A drop: (monster, drop), indices into `MapDrops`.
 pub type Slot = (usize, usize);
@@ -44,6 +48,8 @@ pub enum Hit {
     Mob(usize),
     /// The page's Back button.
     Back,
+    /// The X: the panel closes.
+    Close,
 }
 
 /// How the panel is drawn besides its content.
@@ -87,6 +93,10 @@ pub fn render_drops_card(
 
 /// What is at (x, y) in the panel's design units (pixels from its corner / CARD_SCALE / UI scale).
 pub fn hit(drops: &MapDrops, state: PanelState, x: f32, y: f32) -> Option<Hit> {
+    let (cx, cy, cw, ch) = CLOSE;
+    if (cx..cx + cw).contains(&x) && (cy..cy + ch).contains(&y) {
+        return Some(Hit::Close);
+    }
     match open_page(drops, state) {
         Some(mob) => page::hit(drops, mob, state, x, y),
         None => list::hit(drops, state, x, y),
@@ -103,6 +113,17 @@ pub fn slot_top(drops: &MapDrops, state: PanelState, slot: Slot) -> f32 {
 
 fn open_page(drops: &MapDrops, state: PanelState) -> Option<usize> {
     state.page.filter(|&i| i < drops.mobs.len())
+}
+
+/// The X closing the panel, lit under the pointer.
+fn close(cv: &mut Canvas<'_>, lit: bool) {
+    let (x, y, w, h) = CLOSE;
+    let (fill, edge) = if lit { (LIT, theme::TEXT) } else { (theme::CHIP_FILL, theme::CHIP_EDGE) };
+    cv.rounded((x, y, w, h), 4.0, Some(fill), Some(edge));
+    let (cx, cy, arm) = (x + w / 2.0, y + h / 2.0, 3.5);
+    let ink = if lit { theme::TEXT } else { theme::TEXT_DIM };
+    cv.polyline(&[(cx - arm, cy - arm), (cx + arm, cy + arm)], ink, 1.5);
+    cv.polyline(&[(cx - arm, cy + arm), (cx + arm, cy - arm)], ink, 1.5);
 }
 
 /// A monster's sprite centred in a dark square (empty while the download is still running), its edge lit when the

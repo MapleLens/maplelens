@@ -36,8 +36,6 @@ pub struct Settings {
     /// The training card's party quest stage and answers, on the quest's maps. Hidden until a real run has checked
     /// it (the stages were only tried on a drawn minimap): off, with no switch in the settings window or the tray.
     pub quest_helper: bool,
-    /// The map drops panel: what the map's monsters drop, beside the EXP card (or in its corner while that is off).
-    pub map_drops: bool,
     /// Which corner of the game the training card sits in.
     pub training_corner: Corner,
     /// Where the player dragged the training card and the map drops panel (top-left as fractions of the game window;
@@ -118,7 +116,6 @@ impl Default for Settings {
             notify_store: true,
             training_card: true,
             quest_helper: false,
-            map_drops: true,
             training_corner: Corner::default(),
             training_at: None,
             drops_at: None,
@@ -162,9 +159,7 @@ impl Settings {
         if let Some(v) = flag("quest_helper") {
             settings.quest_helper = v;
         }
-        if let Some(v) = flag("map_drops") {
-            settings.map_drops = v;
-        }
+        // "map_drops" (0.2.x) is ignored: the panel opens from the EXP card's button now, never by itself.
         settings.training_at = fraction(raw.get("training_at"));
         settings.drops_at = fraction(raw.get("drops_at"));
         if let Some(corner) = raw.get("training_corner").and_then(Value::as_str).and_then(Corner::from_key) {
@@ -209,7 +204,6 @@ impl Settings {
         map.insert("notify_store".into(), json!(self.notify_store));
         map.insert("training_card".into(), json!(self.training_card));
         map.insert("quest_helper".into(), json!(self.quest_helper));
-        map.insert("map_drops".into(), json!(self.map_drops));
         map.insert("training_corner".into(), json!(self.training_corner.key()));
         for (key, at) in [("training_at", self.training_at), ("drops_at", self.drops_at)] {
             if let Some((x, y)) = at {
