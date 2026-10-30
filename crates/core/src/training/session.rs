@@ -41,6 +41,11 @@ const SAME_LEVEL: f64 = 0.02;
 const MAX_LEVEL_GROWTH: f64 = 2.0;
 /// Sessions kept in the history.
 const HISTORY: usize = 100;
+/// The card's graph spans the last ten minutes, a point every 10 s...
+pub const GRAPH_S: f64 = 600.0;
+pub const GRAPH_STEP_S: f64 = 10.0;
+/// ...each the rate over the minute before it: kills come in lumps, and one bucket's gains would be a comb.
+const GRAPH_WINDOW_S: f64 = MINUTE_S;
 
 /// What one map gave in a session.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -97,6 +102,16 @@ pub struct TrainingView {
     pub to_level_s: Option<f64>,
     pub map: Option<String>,
     pub map_stat: Option<MapStat>,
+    pub graph: ExpGraph,
+}
+
+/// EXP a minute over the session's last `GRAPH_S`, for the card's graph.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ExpGraph {
+    /// One point every `GRAPH_STEP_S`, oldest first, the last at `now`; none before the session's first EXP.
+    pub rates: Vec<f64>,
+    /// Level ups, as seconds before `now`.
+    pub level_ups: Vec<f64>,
 }
 
 /// Two settled readings of the minimap name the same map: letters and digits alike, whatever OCR made of the rest.
@@ -142,6 +157,9 @@ pub struct Tracker {
     minute: (i64, u64),
     /// The level's EXP as worked out from the highest share seen in it (the most precise).
     needed: Option<(u64, u32)>,
+    /// Gains and level ups of the graph's span (and the minute before it), for `ExpGraph`.
+    timeline: VecDeque<(f64, u64)>,
+    level_ups: VecDeque<f64>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -213,6 +231,8 @@ impl Tracker {
         self.session = Session { started: now, ended: now, ..Session::default() };
         self.recent.clear();
         self.recent_time.clear();
+        self.timeline.clear();
+        self.level_ups.clear();
         self.last_gain = None;
         self.minute = (0, 0);
     }
@@ -294,7 +314,11 @@ impl Tracker {
             return;
         }
         let counted = gap <= OBSERVED_GAP_S && !self.paused;
+        let levels = self.session.levels;
         let gain = if reading == last.reading { 0 } else { self.change(last.reading, reading) };
+        if counted && self.session.levels > levels {
+            self.level_ups.push_back(now);
+        }
         // The clock runs while EXP keeps coming; the stretch before the first gain after a pause in play counts
         // as play too (the monster took that long).
         if counted && (gain > 0 || self.last_gain.is_some()) {
@@ -381,6 +405,7 @@ impl Tracker {
         }
         self.last_gain = Some(now);
         self.recent.push_back((now, gain));
+        self.timeline.push_back((now, gain));
         let minute = (now / MINUTE_S).floor() as i64;
         self.minute = if self.minute.0 == minute { (minute, self.minute.1 + gain) } else { (minute, gain) };
         self.session.best_minute = self.session.best_minute.max(self.minute.1);
@@ -409,6 +434,35 @@ impl Tracker {
         while self.recent_time.front().is_some_and(|(at, _)| now - at > RECENT_S) {
             self.recent_time.pop_front();
         }
+        while self.timeline.front().is_some_and(|(at, _)| now - at > GRAPH_S + GRAPH_WINDOW_S) {
+            self.timeline.pop_front();
+        }
+        while self.level_ups.front().is_some_and(|at| now - at > GRAPH_S) {
+            self.level_ups.pop_front();
+        }
+    }
+
+    /// The graph at `now`: each point the EXP a minute over the minute before it (over the time since the session's
+    /// first EXP while that is shorter, so the line does not climb from nothing); none until `MIN_RATE_S` of it.
+    fn graph(&self, now: f64) -> ExpGraph {
+        if self.session.gained == 0 {
+            return ExpGraph::default();
+        }
+        let start = self.session.started;
+        let points = (GRAPH_S / GRAPH_STEP_S) as usize;
+        let rates = (0..=points)
+            .rev()
+            .map(|k| now - k as f64 * GRAPH_STEP_S)
+            .filter_map(|at| {
+                let window = GRAPH_WINDOW_S.min(at - start);
+                (window >= MIN_RATE_S).then(|| {
+                    let gained: u64 =
+                        self.timeline.iter().filter(|(t, _)| *t >= at - window && *t <= at).map(|(_, g)| g).sum();
+                    gained as f64 * MINUTE_S / window
+                })
+            })
+            .collect();
+        ExpGraph { rates, level_ups: self.level_ups.iter().map(|at| now - at).collect() }
     }
 
     /// The numbers at `now`; `live_s` is how recent a read must be for the bar to count as in view.
@@ -444,6 +498,7 @@ impl Tracker {
             to_level_s,
             map: self.map.clone(),
             map_stat,
+            graph: self.graph(now),
         }
     }
 }

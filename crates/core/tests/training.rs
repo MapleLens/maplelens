@@ -9,11 +9,14 @@ use maplelens_core::mapinfo::Location;
 use maplelens_core::pipeline::FrameScreen;
 use maplelens_core::placement::place_in_corner;
 use maplelens_core::render::theme;
-use maplelens_core::render::training_card::{CARD_WIDTH, Show, has_content, render_training_card};
+use maplelens_core::render::training_card::{
+    Button, CARD_WIDTH, DROPS_BUTTON, STRIP_HEIGHT, STRIP_WIDTH, Show, Strip, has_content, on_drops_button,
+    render_training_card,
+};
 use maplelens_core::settings::Corner;
 use maplelens_core::training::kpq::{self, Run};
 use maplelens_core::training::potions;
-use maplelens_core::training::session::Tracker;
+use maplelens_core::training::session::{GRAPH_S, GRAPH_STEP_S, Tracker};
 use maplelens_core::training::watcher::{Training, TrainingWatcher};
 use maplelens_core::vision::gauge::{ExpReading, read_exp, read_exp_text};
 use maplelens_core::vision::hud::find_bar;
@@ -251,7 +254,7 @@ fn moving_to_another_map_ends_the_session() {
 /// EXP gained in a town (a quest handed in) starts no session and shows no card; the same on a field does.
 #[test]
 fn exp_in_a_town_is_no_training() {
-    let both = Show { exp: true, quest: true };
+    let both = Show { exp: true, quest: true, strip: None };
     let card = |tracker: &mut Tracker, t: f64| {
         let training = Training { exp: tracker.view(t, 10.0), ..Training::default() };
         (has_content(&training, both), render_training_card(common::fonts(), &training, both, t, 1.0).is_some())
@@ -440,8 +443,9 @@ fn the_card_goes_in_its_corner_clear_of_the_minimap_and_the_status_bar() {
     let card = (200, 300);
     let at = |corner, minimap| place_in_corner(client, card, corner, 10, Some(bar), minimap);
     assert_eq!(at(Corner::TopRight, None), Some((100 + 1920 - 210, 60)));
-    assert_eq!(at(Corner::BottomRight, None), Some((100 + 1920 - 210, 50 + 1200 - 310)));
-    assert_eq!(at(Corner::BottomLeft, None), Some((110, 50 + 1200 - 310)));
+    // Beside the status bar: level with it, its foot on the bar's.
+    assert_eq!(at(Corner::BottomRight, None), Some((100 + 1920 - 210, 50 + 1200 - 300)));
+    assert_eq!(at(Corner::BottomLeft, None), Some((110, 50 + 1200 - 300)));
     // Top left: beside the minimap while it is on screen.
     assert_eq!(at(Corner::TopLeft, None), Some((110, 60)));
     assert_eq!(at(Corner::TopLeft, Some(232)), Some((100 + 232 + 10, 60)));
@@ -465,19 +469,23 @@ fn training_after_play() -> Training {
 
 #[test]
 fn the_card_shows_only_what_there_is_and_what_is_wanted() {
-    let both = Show { exp: true, quest: true };
+    let both = Show { exp: true, quest: true, strip: None };
     assert_eq!(render_training_card(common::fonts(), &Training::default(), both, 0.0, 1.0), None);
     let training = training_after_play();
     let exp = render_training_card(common::fonts(), &training, both, 0.0, 1.0).expect("EXP card");
     // As wide as the design at CARD_SCALE, and translucent like the game's tooltips.
     assert_eq!(exp.width, (CARD_WIDTH * theme::CARD_SCALE).round() as usize);
     assert!(exp.pixel(exp.width / 2, exp.height - 3)[3] < 255);
-    assert_eq!(render_training_card(common::fonts(), &training, Show { exp: false, quest: true }, 0.0, 1.0), None);
+    assert_eq!(
+        render_training_card(common::fonts(), &training, Show { exp: false, quest: true, strip: None }, 0.0, 1.0),
+        None
+    );
     // The quest's first stage lists every Cloto answer: a taller card.
     let quest = Training { quest: Some(Run { started: 0.0, stage: 0, seen: 10.0 }), ..training };
     let with_quest = render_training_card(common::fonts(), &quest, both, 10.0, 1.0).expect("card");
     assert!(with_quest.height > exp.height + 150, "{} vs {}", with_quest.height, exp.height);
-    let quest_only = render_training_card(common::fonts(), &quest, Show { exp: false, quest: true }, 10.0, 1.0);
+    let quest_only =
+        render_training_card(common::fonts(), &quest, Show { exp: false, quest: true, strip: None }, 10.0, 1.0);
     assert!(quest_only.is_some_and(|c| c.height < with_quest.height));
     // Ideal Ratio draws it smaller, like the rest of the UI.
     let small = render_training_card(common::fonts(), &quest, both, 10.0, 0.64).expect("card");
@@ -485,8 +493,84 @@ fn the_card_shows_only_what_there_is_and_what_is_wanted() {
 }
 
 #[test]
+fn the_graph_is_the_pace_of_the_last_minutes_with_its_level_ups() {
+    let mut tracker = Tracker::new();
+    let mut t = 1_000_000.0;
+    feed(&mut tracker, &mut t, 5_000, share(5_000));
+    assert!(tracker.view(t, 10.0).graph.rates.is_empty(), "no EXP yet");
+    // 100 EXP every 2 s for four minutes: 3000 a minute, every point of it.
+    for step in 1..=120 {
+        let exp = 5_000 + step * 100;
+        feed(&mut tracker, &mut t, exp, share(exp));
+    }
+    let graph = tracker.view(t, 10.0).graph;
+    // A point every 10 s from 10 s after the first EXP: none climbs from nothing.
+    assert_eq!(graph.rates.len(), 23);
+    assert!(graph.rates.iter().all(|r| (2_700.0..=3_400.0).contains(r)), "{:?}", graph.rates);
+    assert!(graph.level_ups.is_empty());
+    // A level up is marked where it happened.
+    // The next level is half as big again: 300 of it is 1%.
+    feed(&mut tracker, &mut t, 300, 100);
+    for _ in 0..40 {
+        tracker.observe(t, read(300, 100));
+        t += 1.0;
+    }
+    let graph = tracker.view(t, 10.0).graph;
+    assert_eq!(graph.level_ups.len(), 1);
+    assert!((39.0..=42.0).contains(&graph.level_ups[0]), "{:?}", graph.level_ups);
+    // Ten minutes on, only the graph's span is kept.
+    for step in 0..400 {
+        let exp = 400 + step * 10;
+        feed(&mut tracker, &mut t, exp, (exp / 3) as u32);
+    }
+    let graph = tracker.view(t, 10.0).graph;
+    assert_eq!(graph.rates.len(), (GRAPH_S / GRAPH_STEP_S) as usize + 1);
+    assert!(graph.level_ups.is_empty(), "the level up is older than the graph");
+}
+
+#[test]
+fn the_strip_is_as_tall_as_the_status_bar_and_denser_than_the_tall_card() {
+    let training = training_after_play();
+    let strip = |drops| Show { exp: true, quest: false, strip: Some(Strip { drops }) };
+    for (scale, bar) in [(1.0, 106), (0.9, 95), (0.64, 68)] {
+        let card = render_training_card(common::fonts(), &training, strip(None), 0.0, scale).expect("strip");
+        assert!(card.width.abs_diff((STRIP_WIDTH * theme::CARD_SCALE * scale).round() as usize) <= 1);
+        assert!(card.height.abs_diff((STRIP_HEIGHT * theme::CARD_SCALE * scale).round() as usize) <= 1);
+        assert!(card.height.abs_diff(bar) <= 1, "{} against the bar's {bar} at {scale}", card.height);
+    }
+    // 10% less see-through than the tall card (below the gauge, where nothing else is drawn).
+    let card = render_training_card(common::fonts(), &training, strip(None), 0.0, 1.0).expect("strip");
+    let tall = render_training_card(common::fonts(), &training, Show { strip: None, ..strip(None) }, 0.0, 1.0);
+    let tall = tall.expect("tall card");
+    let (fill, old) = (card.pixel(card.width / 2, card.height - 5)[3], tall.pixel(tall.width / 2, tall.height - 3)[3]);
+    assert!(fill < 255 && fill >= old + 15, "{fill} against {old}");
+    // The drops' button shows only when offered, and lights up under the pointer and while the panel is open.
+    let drawn = [None, Some(Button::Idle), Some(Button::Lit), Some(Button::On)]
+        .map(|b| render_training_card(common::fonts(), &training, strip(b), 0.0, 1.0).expect("strip"));
+    for (i, a) in drawn.iter().enumerate() {
+        assert!(drawn[i + 1..].iter().all(|b| b != a), "button state {i} looks like another");
+    }
+    // The party quest hangs below the strip.
+    let quest = Training { quest: Some(Run { started: 0.0, stage: 3, seen: 10.0 }), ..training };
+    let both = Show { quest: true, ..strip(None) };
+    let with_quest = render_training_card(common::fonts(), &quest, both, 10.0, 1.0).expect("card");
+    assert!(with_quest.height > card.height + 60);
+}
+
+#[test]
+fn the_drops_button_is_pressed_only_inside_it() {
+    let (x, y, w, h) = DROPS_BUTTON;
+    assert!(on_drops_button(x + w / 2.0, y + h / 2.0));
+    assert!(on_drops_button(x, y));
+    assert!(!on_drops_button(x + w, y + h / 2.0), "past its right edge");
+    assert!(!on_drops_button(x - 1.0, y + h / 2.0));
+    assert!(!on_drops_button(x + w / 2.0, y + h + 0.5), "under it: the numbers");
+    assert!(x + w <= STRIP_WIDTH - 4.0 && y + h <= 24.0, "in the header, inside the frame");
+}
+
+#[test]
 fn the_exp_card_shows_from_the_first_kill_and_its_rates_after_ten_seconds() {
-    let both = Show { exp: true, quest: true };
+    let both = Show { exp: true, quest: true, strip: None };
     let mut tracker = Tracker::new();
     let mut t = 0.0;
     feed(&mut tracker, &mut t, 5_000, share(5_000));
@@ -680,7 +764,7 @@ fn play(watcher: &mut TrainingWatcher, bar: &str, cursor: Option<Point>, seconds
 fn moving_to_the_next_map_ends_the_session_and_hides_the_card() {
     let map = std::sync::Arc::new(std::sync::Mutex::new("East Rocky Mountain V"));
     let mut watcher = TrainingWatcher::new(Box::new(Moving(map.clone(), 0)), Tracker::new());
-    let show = Show { exp: true, quest: true };
+    let show = Show { exp: true, quest: true, strip: None };
     let mut t = 0.0;
     play(&mut watcher, "status_bar_normal_1920x1200.png", None, 6, &mut t);
     play(&mut watcher, "status_bar_exp_98_percent_1920x1200.png", None, 14, &mut t);

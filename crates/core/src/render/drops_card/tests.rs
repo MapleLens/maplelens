@@ -45,6 +45,18 @@ fn the_list_has_every_monster_as_a_tile_and_the_map_s_rare_drops_once_each() {
 }
 
 #[test]
+fn the_x_closes_the_panel_from_the_list_and_from_a_page() {
+    let drops = sample_drops();
+    let (x, y, w, h) = CLOSE;
+    for state in [PanelState::default(), PanelState { page: Some(0), ..PanelState::default() }] {
+        assert_eq!(hit(&drops, state, x + w / 2.0, y + h / 2.0), Some(Hit::Close));
+        assert_ne!(hit(&drops, state, x - 1.0, y + h / 2.0), Some(Hit::Close));
+        assert_ne!(hit(&drops, state, x + w / 2.0, y + h + 1.0), Some(Hit::Close));
+    }
+    assert!(x + w <= CARD_WIDTH - 4.0, "inside the frame");
+}
+
+#[test]
 fn a_short_panel_still_has_a_row_of_drops() {
     let drops = sample_drops();
     let short = PanelState { height: Some(100), ..PanelState::default() };

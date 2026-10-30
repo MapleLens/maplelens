@@ -65,7 +65,6 @@ fn check_boxes_flip_their_setting() {
         (Control::NotifySales, Settings { notify_sales: !defaults.notify_sales, ..defaults.clone() }),
         (Control::NotifyStore, Settings { notify_store: !defaults.notify_store, ..defaults.clone() }),
         (Control::TrainingExp, Settings { training_card: !defaults.training_card, ..defaults.clone() }),
-        (Control::MapDrops, Settings { map_drops: !defaults.map_drops, ..defaults.clone() }),
     ] {
         window.sync(defaults.clone());
         click(hwnd, control);

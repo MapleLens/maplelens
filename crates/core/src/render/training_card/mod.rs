@@ -1,6 +1,13 @@
 //! The training card: EXP rates of the session being played, and the party quest's stage with what to do there
 //! (Cloto's answers on the first stage, every way to stand on the ones that need it). Drawn like the game's
-//! tooltips, so it sits over the game as if it were part of it.
+//! tooltips, so it sits over the game as if it were part of it. The Windows app draws the EXP as a wide strip as tall
+//! as the status bar, with a graph of the last minutes behind it and the map drops' button (`strip`, `graph`); the
+//! web's floating window, a box, keeps the tall card.
+
+mod graph;
+mod strip;
+
+pub use strip::{DROPS_BUTTON, STRIP_HEIGHT, STRIP_WIDTH, on_drops_button};
 
 use super::RgbaImage;
 use super::canvas::{Anchor, Canvas, Ink};
@@ -31,6 +38,24 @@ const POTION_LINES: usize = 6;
 pub struct Show {
     pub exp: bool,
     pub quest: bool,
+    /// The wide strip (the Windows app), else the tall card.
+    pub strip: Option<Strip>,
+}
+
+/// The strip's map drops button: None while the map has no drops to show.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Strip {
+    pub drops: Option<Button>,
+}
+
+/// How a button on a card is drawn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Button {
+    Idle,
+    /// Under the pointer.
+    Lit,
+    /// What it opens is open.
+    On,
 }
 
 /// 75 -> "1:15", 3_725 -> "1:02:05".
@@ -79,6 +104,9 @@ pub fn render_training_card(
         return None;
     }
     let factor = theme::CARD_SCALE * ui_scale;
+    if let Some(strip) = show.strip {
+        return Some(strip::render(fonts, training, show, strip, now, factor));
+    }
     let mut body = Canvas::new(fonts, CARD_WIDTH, MAX_HEIGHT, factor);
     let mut y = 8.0;
     if show.exp && is_training(&training.exp) {

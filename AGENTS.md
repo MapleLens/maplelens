@@ -158,8 +158,9 @@ crates/win/src/           the Windows app (only this crate talks to Win32)
   shop.rs, wgc.rs         the shop watcher thread (and `--shop`), fed by Windows Graphics Capture; app/status.rs:
                           the status pill
   training.rs             the training reader thread (window capture, Windows OCR of the minimap, training.json);
-                          app/training.rs: the training card in the corner picked in the settings (placement.rs
-                          place_in_corner: beside the minimap, above the status bar); tray: its switches and session
+                          app/training.rs: the EXP strip in the corner picked in the settings (placement.rs
+                          place_in_corner: beside the minimap, level with the status bar or above it); tray: its
+                          switch and session
   update/                 signed self-update: version, manifest (Ed25519), net (allow-listed hosts), check
                           (daily thread), install (stage, self-test, swap, relaunch), release (--sign-release,
                           --make-update-key)
@@ -244,10 +245,31 @@ seconds) so the history has dates; the platform keeps `Tracker::to_json` (traini
   it (the panel, its guide JSON and the switch are in PR #46's history). The tracker still follows the quest, and its
   tests and `render_cards`' `training_kpq_*.png` still cover it.
 
+## The EXP strip (`render/training_card`)
+
+The Windows app draws the EXP card as a wide strip as tall as the status bar (106 px at UI scale 1: 95 at 1080p's
+0.9, 68 at Ideal Ratio), `STRIP_WIDTH` 260 design units (351 px at 0.9). In a bottom corner it fits beside the bar at
+16:9 (397 px of room each side at 1080p, 283 at 768p) and sits level with it, its foot on the bar's; where it would
+cover the bar (16:10 at 1.0) it goes above, as before. Left: the rate now (big), average and best minute; right: the
+session's total and time, %/h and levels, the next level; along the top the potions that moved most and the map
+drops' bag button; along the foot the level's gauge. Its fill is 10% less see-through than the tooltip cards' (the
+player asked; numbers over a busy field). Only a pause is labelled (PAUSED); there is no LIVE label. The web's
+floating window, a box, keeps the tall card (`Show::strip` None).
+- **The graph** (`training_card/graph.rs`, `session::ExpGraph`): EXP a minute over the last 10 minutes behind the
+  numbers, a point every 10 s, each the minute before it (the time since the first EXP while that is shorter, from
+  10 s on), so kills read as a pace and a young session does not climb from nothing; the time axis is fixed, so a
+  young session fills only its right. Like meso.watch's price trends (a thin line over an area fading out; checked
+  October 2026: its public pages have no EXP graph, only these sparklines), plus the session's average dashed,
+  level ups marked where they happened, and the newest point lit. The tracker keeps the gains of that span
+  (`timeline`) and level ups; core has no clock (`view(now)`).
+
 ## Map drops panel (`core/src/drops`, `render/drops_card`)
 
-What the monsters of the map being played drop, beside the EXP card and as tall as it (in its corner while that card
-is not shown), only on a field. Setting `map_drops` (settings window and tray). Windows only for now.
+What the monsters of the map being played drop, only on a field, and only on demand: the EXP strip's bag button
+(offered while the map is a field with monsters) opens it over the strip in a bottom corner and under it in a top one
+(`placement::place_off_card`, else beside it), its X closes it, and it goes when the strip goes. It never opens by
+itself. There is no setting: 0.2.x's `map_drops` switch (settings window and tray) is gone, and the key is ignored
+in an old settings.json. Windows only for now.
 - **Data: NiaDB (meowdb.com), used with the site's permission.** Its monster list is read off its monster page (the
   page's streamed Next.js data: id, name, level, HP, EXP), each monster's drops from `api/drops?monsterId=` (drops
   players confirmed in Classic; `score` above 0 counts, `itemIconKey` is the game's item ID, as the price list and
@@ -266,8 +288,8 @@ is not shown), only on a field. Setting `map_drops` (settings window and tray). 
   refreshed behind it); a page's rates are saved as read (`rates\<id>.json`), never the page. A map's monsters not on
   disk are fetched together, in parallel (the player is waiting); once the panel has shown in a run, while nothing
   is asked, the site thread gathers every listed monster's drops and page ahead, one request every 2 s (about a
-  quarter of an hour, weekly; drops saved without rates are gathered again), so a map met later needs no request. Before the panel shows,
-  nothing is fetched (not even the list): every new install gathering at its first start, map drops used or not,
+  quarter of an hour, weekly; drops saved without rates are gathered again), so a map met later needs no request. Before the panel is
+  opened, nothing is fetched (not even the list): every new install gathering at its first start, map drops used or not,
   would flood the site after a public launch. A failure waits 5 minutes. Never bundle or commit its data
   (tests use hand-written stand-ins); `live_meowdb` checks the real pages.
 - **Credit, as the site asks:** "NiaDB" with the exact page used, written out where it cannot be a link: the panel's
@@ -277,7 +299,9 @@ is not shown), only on a field. Setting `map_drops` (settings window and tray). 
   pointer; resting on it does not (it opened pages the player only pointed at).
 - **Presses and drags without breaking rule 3:** the cards stay click-through; `game::left_button_down`
   (`GetAsyncKeyState`, a read of the button's state, no hook, nothing sent) is polled on the UI tick, so the game
-  gets every press as well (on a field it does nothing). A press that moves drags the EXP card or the panel; where
+  gets every press as well (on a field it does nothing). A press let go on the strip's bag button (`on_drops_button`)
+  opens or closes the panel, and on the panel's X (`Hit::Close`) closes it. A press that moves drags the EXP card or
+  the panel; where
   it is let go is kept as a share of the game window (`training_at`, `drops_at`), and picking a corner in the
   settings puts both back. Presses need MapleLens to run as administrator (next section).
 - The list: every monster as a tile on top, then the map's ten dearest worthy drops (5 to a row). Over the cards the

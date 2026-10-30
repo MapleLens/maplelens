@@ -237,7 +237,6 @@ impl State {
             Control::NotifySales => s.notify_sales = !s.notify_sales,
             Control::NotifyStore => s.notify_store = !s.notify_store,
             Control::TrainingExp => s.training_card = !s.training_card,
-            Control::MapDrops => s.map_drops = !s.map_drops,
             // A corner also puts back cards the player dragged.
             Control::Corner(corner)
                 if s.training_corner == corner && s.training_at.is_none() && s.drops_at.is_none() =>
