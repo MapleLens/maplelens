@@ -8,6 +8,10 @@ use crate::image::RgbImage;
 
 /// Outline pixels: every channel at most this (measured 1-9).
 const DARK_MAX: u8 = 40;
+/// At a fractional UI scale (0.9 at 1080p) the top outline is resampled over two rows, each blended with its
+/// neighbour: under the open chat log it read 31-84 (measured live), never 40 or less. Only tried when no crisp
+/// outline is found; the sides stay crisp and are still judged by `DARK_MAX`.
+const SMEARED_TOP_MAX: u8 = 100;
 /// The bar spans at least this much of the client (Ideal Ratio at 2560 px: ~31%).
 const MIN_WIDTH_SHARE: f32 = 0.2;
 /// The bar is centred; a dark line elsewhere is scenery.
@@ -119,25 +123,36 @@ fn black_under(dark: &[Vec<bool>], top: usize, left: usize, right: usize) -> boo
     inside.iter().filter(|&&d| d).count() as f32 > SOLID_SHARE * inside.len() as f32
 }
 
-/// The status bar in `strip`, the full-width bottom rows of the client, or None when it is not there (hidden in
-/// the Cash Shop, or a menu covers its outline: better no answer than a wrong width).
-pub fn find_bar(strip: &RgbImage) -> Option<Bar> {
-    let dark: Vec<Vec<bool>> = (0..strip.height)
+/// Each pixel of `strip`: every channel at most `max`.
+fn dark_mask(strip: &RgbImage, max: u8) -> Vec<Vec<bool>> {
+    (0..strip.height)
         .map(|y| {
             (0..strip.width)
                 .map(|x| {
                     let [r, g, b] = strip.pixel(x, y);
-                    r.max(g).max(b) <= DARK_MAX
+                    r.max(g).max(b) <= max
                 })
                 .collect()
         })
-        .collect();
-    let counts = dark_below(&dark);
-    let centre = strip.width as f32 / 2.0;
-    let min_width = MIN_WIDTH_SHARE * strip.width as f32;
+        .collect()
+}
+
+/// The status bar in `strip`, the full-width bottom rows of the client, or None when it is not there (hidden in
+/// the Cash Shop, or a menu covers its outline: better no answer than a wrong width).
+pub fn find_bar(strip: &RgbImage) -> Option<Bar> {
+    let dark = dark_mask(strip, DARK_MAX);
+    find_bar_in(&dark, &dark).or_else(|| find_bar_in(&dark_mask(strip, SMEARED_TOP_MAX), &dark))
+}
+
+/// The bar whose top outline is a long centred run in `top_dark`, with sides and inside judged on `dark`.
+fn find_bar_in(top_dark: &[Vec<bool>], dark: &[Vec<bool>]) -> Option<Bar> {
+    let (height, width) = (dark.len(), dark.first().map_or(0, Vec::len));
+    let counts = dark_below(dark);
+    let centre = width as f32 / 2.0;
+    let min_width = MIN_WIDTH_SHARE * width as f32;
     // Topmost first: the bar's outline is the first long centred line.
-    for top in 0..strip.height.saturating_sub(2) {
-        let (start, end) = longest_run(&dark[top]);
+    for (top, row) in top_dark.iter().enumerate().take(height.saturating_sub(2)) {
+        let (start, end) = longest_run(row);
         if ((end - start) as f32) < min_width {
             continue;
         }
@@ -153,9 +168,49 @@ pub fn find_bar(strip: &RgbImage) -> Option<Bar> {
         if right < left || (to.saturating_sub(from) as f32) < min_width || !centred {
             continue;
         }
-        if !solid(&dark, top, left, right) && !(beside_black && black_under(&dark, top, left, right)) {
+        if !solid(dark, top, left, right) && !(beside_black && black_under(dark, top, left, right)) {
             return Some(Bar { x: left, top, width: right - left + 1 });
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The bar at 1080p (UI scale 0.9) under the open chat log, as captured live: crisp sides, but the top outline
+    /// smeared over two rows, blended with the chat log's border on the left and the quickslots' frame on the right.
+    fn bar_under_open_chat() -> RgbImage {
+        let (left, right, top) = (398, 1521, 84);
+        let mut strip = RgbImage::new(1920, 180);
+        for y in 0..strip.height {
+            for x in 0..strip.width {
+                let inside = (left..=right).contains(&x) && y > top;
+                let v = match () {
+                    _ if inside && (x == left || x == right) => 12,
+                    _ if inside && y == top + 1 => 82,
+                    _ if inside => 240,
+                    _ if (left..=right).contains(&x) && y == top => {
+                        if x < 1170 {
+                            42
+                        } else {
+                            84
+                        }
+                    }
+                    _ => 150,
+                };
+                strip.set_pixel(x, y, [v, v, v]);
+            }
+        }
+        strip
+    }
+
+    #[test]
+    fn a_smeared_top_outline_is_the_bar() {
+        let strip = bar_under_open_chat();
+        let dark = dark_mask(&strip, DARK_MAX);
+        assert_eq!(find_bar_in(&dark, &dark), None);
+        assert_eq!(find_bar(&strip), Some(Bar { x: 398, top: 84, width: 1124 }));
+    }
 }

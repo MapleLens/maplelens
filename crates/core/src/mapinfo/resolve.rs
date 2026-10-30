@@ -78,9 +78,11 @@ pub fn parse_location(text: &str) -> Option<Location> {
         .then(|| Location::new("", &bare))
 }
 
-/// The game font makes OCR swap these ('Ground l' for 'Ground I'); folding both sides costs nothing.
+/// The game font makes OCR swap these ('Ground l' for 'Ground I', 'Swarnp' for 'Swamp'); folding both sides costs
+/// nothing.
 fn fold(text: &str) -> String {
     text.to_lowercase()
+        .replace("rn", "m")
         .chars()
         .filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
         .map(|c| match c {

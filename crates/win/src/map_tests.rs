@@ -223,6 +223,24 @@ fn maplestory_io_lookup() {
     assert!(!crate::maps::client::fetch_icon("mob", map.mobs[0].id).unwrap().is_empty());
 }
 
+/// A map only MapleStory Classic World's data has, as OCR read it off the minimap live ("Swarnp"), with its
+/// monsters and their sprites (`cargo test -p maplelens live_classic_world_map -- --ignored`).
+#[test]
+#[ignore = "needs the network"]
+fn live_classic_world_map() {
+    use maplelens_core::mapinfo::{classic_id, mcw_id};
+    let here = Location::new("Hidden Street", "The Murky Swarnp I");
+    let id = crate::maps::client::find_map_id(&here).unwrap().expect("a map");
+    assert_eq!(mcw_id(id), Some(10003110));
+    let map = crate::maps::client::fetch_map(id).unwrap();
+    let mobs: Vec<_> = map.mobs.iter().map(|m| (m.name.as_str(), m.level)).collect();
+    println!("{id}: {} : {} {mobs:?}", map.street, map.name);
+    assert_eq!(map.name, "The Murky Swamp I");
+    assert!(mobs.contains(&("Ligator", 31)), "{mobs:?}");
+    assert!(map.mobs.iter().all(|m| m.id >= classic_id(0)));
+    assert!(!crate::maps::client::fetch_icon("mob", map.mobs[0].id).unwrap().is_empty());
+}
+
 fn candidate(id: u32, street: &str, name: &str) -> maplelens_core::mapinfo::resolve::Candidate {
     maplelens_core::mapinfo::resolve::Candidate { id, name: name.into(), street: street.into() }
 }
