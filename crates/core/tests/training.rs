@@ -7,11 +7,11 @@ use maplelens_core::geometry::{Point, Rect};
 use maplelens_core::image::{GrayImage, RgbImage};
 use maplelens_core::mapinfo::Location;
 use maplelens_core::pipeline::FrameScreen;
-use maplelens_core::placement::place_in_corner;
+use maplelens_core::placement::{place_beside_bar, place_in_corner};
 use maplelens_core::render::theme;
 use maplelens_core::render::training_card::{
-    Button, CARD_WIDTH, DROPS_BUTTON, STRIP_HEIGHT, STRIP_WIDTH, Show, Strip, has_content, on_drops_button,
-    render_training_card,
+    Button, CARD_WIDTH, FALLBACK_WIDTH, MAX_STRIP_WIDTH, MIN_STRIP_WIDTH, STRIP_HEIGHT, Show, Strip, drops_button,
+    has_content, on_drops_button, render_training_card, strip_width,
 };
 use maplelens_core::settings::Corner;
 use maplelens_core::training::kpq::{self, Run};
@@ -529,43 +529,96 @@ fn the_graph_is_the_pace_of_the_last_minutes_with_its_level_ups() {
 }
 
 #[test]
-fn the_strip_is_as_tall_as_the_status_bar_and_denser_than_the_tall_card() {
+fn the_strip_reaches_the_pup_button_and_is_denser_than_the_tall_card() {
     let training = training_after_play();
-    let strip = |drops| Show { exp: true, quest: false, strip: Some(Strip { drops }) };
-    for (scale, bar) in [(1.0, 106), (0.9, 95), (0.64, 68)] {
-        let card = render_training_card(common::fonts(), &training, strip(None), 0.0, scale).expect("strip");
-        assert!(card.width.abs_diff((STRIP_WIDTH * theme::CARD_SCALE * scale).round() as usize) <= 1);
+    let strip = |drops, width| Show { exp: true, quest: false, strip: Some(Strip { drops, width }) };
+    // The Pup quickslot's top above the client's foot, measured on the game's renders: 139 px at 1:1 (UI scale 0.64),
+    // 195 at 1080p's Default Ratio (0.9), 217 at 1200p's (1.0).
+    for (scale, pup) in [(0.64, 139), (0.9, 195), (1.0, 217)] {
+        let card = render_training_card(common::fonts(), &training, strip(None, Some(300)), 0.0, scale).expect("strip");
+        assert!(card.height.abs_diff(pup) <= 1, "{} against the Pup button's {pup} at {scale}", card.height);
+        assert_eq!(card.width, 300, "as wide as the room it was given");
         assert!(card.height.abs_diff((STRIP_HEIGHT * theme::CARD_SCALE * scale).round() as usize) <= 1);
-        assert!(card.height.abs_diff(bar) <= 1, "{} against the bar's {bar} at {scale}", card.height);
     }
+    let fallback = render_training_card(common::fonts(), &training, strip(None, None), 0.0, 1.0).expect("strip");
+    assert_eq!(fallback.width, (FALLBACK_WIDTH * theme::CARD_SCALE).round() as usize);
     // 10% less see-through than the tall card (below the gauge, where nothing else is drawn).
-    let card = render_training_card(common::fonts(), &training, strip(None), 0.0, 1.0).expect("strip");
-    let tall = render_training_card(common::fonts(), &training, Show { strip: None, ..strip(None) }, 0.0, 1.0);
+    let card = render_training_card(common::fonts(), &training, strip(None, Some(400)), 0.0, 1.0).expect("strip");
+    let tall = render_training_card(common::fonts(), &training, Show { strip: None, ..strip(None, None) }, 0.0, 1.0);
     let tall = tall.expect("tall card");
-    let (fill, old) = (card.pixel(card.width / 2, card.height - 5)[3], tall.pixel(tall.width / 2, tall.height - 3)[3]);
+    let (fill, old) = (card.pixel(card.width / 2, card.height - 4)[3], tall.pixel(tall.width / 2, tall.height - 3)[3]);
     assert!(fill < 255 && fill >= old + 15, "{fill} against {old}");
+    // Every width has a layout: narrow, medium and wide each draw the numbers, the graph and the gauge.
+    for width in [165, 330, 600, 900] {
+        let card = render_training_card(common::fonts(), &training, strip(None, Some(width)), 0.0, 1.0).expect("strip");
+        assert_eq!(card.width, width as usize);
+        assert_eq!(card.alpha_bbox(), Some((0, 0, card.width, card.height)), "nothing drawn past the frame");
+    }
     // The drops' button shows only when offered, and lights up under the pointer and while the panel is open.
     let drawn = [None, Some(Button::Idle), Some(Button::Lit), Some(Button::On)]
-        .map(|b| render_training_card(common::fonts(), &training, strip(b), 0.0, 1.0).expect("strip"));
+        .map(|b| render_training_card(common::fonts(), &training, strip(b, Some(400)), 0.0, 1.0).expect("strip"));
     for (i, a) in drawn.iter().enumerate() {
         assert!(drawn[i + 1..].iter().all(|b| b != a), "button state {i} looks like another");
     }
     // The party quest hangs below the strip.
     let quest = Training { quest: Some(Run { started: 0.0, stage: 3, seen: 10.0 }), ..training };
-    let both = Show { quest: true, ..strip(None) };
+    let both = Show { quest: true, ..strip(None, Some(400)) };
     let with_quest = render_training_card(common::fonts(), &quest, both, 10.0, 1.0).expect("card");
     assert!(with_quest.height > card.height + 60);
 }
 
 #[test]
+fn the_strip_fills_the_room_beside_the_status_bar_up_to_16_9() {
+    // (client, the UI against 1:1) as the game draws them; the bar is 800 px at 1:1.
+    let width = |(w, h): (i32, i32), k: f32| {
+        let scale = 0.64 * k;
+        strip_width((w, h), (800.0 * k).round() as i32, theme::CARD_SCALE * scale)
+    };
+    let room = |(w, _): (i32, i32), k: f32| (w - (800.0 * k).round() as i32) / 2;
+    // The room each side of the bar, less a pixel or three clear of its outline.
+    for (client, k) in [((1920, 1080), 1.40625), ((1366, 768), 1.0), ((1280, 720), 1.0), ((1920, 1200), 1.5625)] {
+        let got = width(client, k).expect("room beside the bar") as i32;
+        assert!(
+            (room(client, k) - 4..=room(client, k) - 2).contains(&got),
+            "{got} in {} at {client:?}",
+            room(client, k)
+        );
+    }
+    // Wider than 16:9, the strip is as wide as at 16:9 (2560x1080 is 1920x1080 with more sky).
+    assert_eq!(width((2560, 1080), 1.40625), width((1920, 1080), 1.40625));
+    assert_eq!(width((3440, 1440), 1.875), width((2560, 1440), 1.875));
+    // Never wider than the most: Ideal Ratio at 1440p leaves 880 px.
+    let most = (MAX_STRIP_WIDTH * theme::CARD_SCALE * 0.64).floor() as u32;
+    assert_eq!(width((2560, 1440), 1.0), Some(most));
+    // 4:3 has a narrow strip; 800x600 has no room at all.
+    assert!(width((1024, 768), 1.0).is_some_and(|w| w >= (MIN_STRIP_WIDTH * 0.96) as u32));
+    assert_eq!(width((800, 600), 1.0), None);
+    assert_eq!(width((1280, 1024), 1024.0 / 768.0), None, "5:4, drawn 768 high and scaled");
+}
+
+#[test]
+fn the_strip_sits_flush_beside_the_bar_or_above_the_hud() {
+    let client = Rect::new(100, 50, 1920, 1080);
+    let bar = Rect::new(100 + 397, 50 + 1080 - 95, 1125, 95);
+    let card = (394, 195);
+    let right = place_beside_bar(client, card, Corner::BottomRight, bar);
+    assert_eq!(right, Some((100 + 1920 - 394, 50 + 1080 - 195)));
+    assert_eq!(place_beside_bar(client, card, Corner::BottomLeft, bar), Some((100, 50 + 1080 - 195)));
+    assert_eq!(place_beside_bar(client, card, Corner::TopRight, bar), None, "nothing beside the bar up there");
+    assert_eq!(place_beside_bar(client, (420, 195), Corner::BottomRight, bar), None, "it would reach the bar");
+}
+
+#[test]
 fn the_drops_button_is_pressed_only_inside_it() {
-    let (x, y, w, h) = DROPS_BUTTON;
-    assert!(on_drops_button(x + w / 2.0, y + h / 2.0));
-    assert!(on_drops_button(x, y));
-    assert!(!on_drops_button(x + w, y + h / 2.0), "past its right edge");
-    assert!(!on_drops_button(x - 1.0, y + h / 2.0));
-    assert!(!on_drops_button(x + w / 2.0, y + h + 0.5), "under it: the numbers");
-    assert!(x + w <= STRIP_WIDTH - 4.0 && y + h <= 24.0, "in the header, inside the frame");
+    for width in [115.0, 290.0, 580.0] {
+        let (x, y, w, h) = drops_button(width);
+        assert!(on_drops_button(width, x + w / 2.0, y + h / 2.0));
+        assert!(on_drops_button(width, x, y));
+        assert!(!on_drops_button(width, x + w, y + h / 2.0), "past its right edge");
+        assert!(!on_drops_button(width, x - 1.0, y + h / 2.0));
+        assert!(!on_drops_button(width, x + w / 2.0, y + h + 0.5), "under it: the numbers");
+        assert!(x + w <= width - 4.0 && y >= 3.0 && y + h <= 24.0, "in the header, inside the frame");
+    }
 }
 
 #[test]

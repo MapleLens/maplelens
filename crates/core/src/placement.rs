@@ -78,6 +78,19 @@ pub fn place_in_corner(
     fits_inside(x, y, card, client).then_some((x, y))
 }
 
+/// Top-left of the EXP strip in a bottom `corner`, flush with the client's side and foot, so it fills the room beside
+/// the status bar (`bar`); None in a top corner or when it would reach the bar.
+pub fn place_beside_bar(client: Rect, card: (i32, i32), corner: Corner, bar: Rect) -> Option<(i32, i32)> {
+    let (width, height) = card;
+    if corner.is_top() {
+        return None;
+    }
+    let x = if corner.is_left() { client.x } else { client.right() - width };
+    let clear = if corner.is_left() { x + width <= bar.x } else { x >= bar.right() };
+    let at = (x, client.bottom() - height);
+    (clear && fits_inside(at.0, at.1, card, client)).then_some(at)
+}
+
 /// Top-left of a card opened from a panel in `corner` (a drop's price card): on the panel's side towards the middle of
 /// the client, else the other side, its top level with `top` (the hovered row) as far as `client` allows.
 pub fn place_from_panel(

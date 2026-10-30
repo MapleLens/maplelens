@@ -159,8 +159,8 @@ crates/win/src/           the Windows app (only this crate talks to Win32)
                           the status pill
   training.rs             the training reader thread (window capture, Windows OCR of the minimap, training.json);
                           app/training.rs: the EXP strip in the corner picked in the settings (placement.rs
-                          place_in_corner: beside the minimap, level with the status bar or above it); tray: its
-                          switch and session
+                          place_beside_bar: filling the room beside the status bar; else place_in_corner); tray:
+                          its switch and session
   update/                 signed self-update: version, manifest (Ed25519), net (allow-listed hosts), check
                           (daily thread), install (stage, self-test, swap, relaunch), release (--sign-release,
                           --make-update-key)
@@ -247,16 +247,23 @@ seconds) so the history has dates; the platform keeps `Tracker::to_json` (traini
 
 ## The EXP strip (`render/training_card`)
 
-The Windows app draws the EXP card as a wide strip as tall as the status bar (106 px at UI scale 1: 95 at 1080p's
-0.9, 68 at Ideal Ratio), `STRIP_WIDTH` 260 design units (351 px at 0.9). In a bottom corner it fits beside the bar at
-16:9 (397 px of room each side at 1080p, 283 at 768p) and sits level with it, its foot on the bar's; where it would
-cover the bar (16:10 at 1.0) it goes above, as before. Left: the rate now (big), average and best minute; right: the
-session's total and time, %/h and levels, the next level; along the top the potions that moved most and the map
-drops' bag button; along the foot the level's gauge. Its fill is 10% less see-through than the tooltip cards' (the
-player asked; numbers over a busy field). Only a pause is labelled (PAUSED); there is no LIVE label. The web's
-floating window, a box, keeps the tall card (`Show::strip` None).
-- **The graph** (`training_card/graph.rs`, `session::ExpGraph`): EXP a minute over the last 10 minutes behind the
-  numbers, a point every 10 s, each the minute before it (the time since the first EXP while that is shorter, from
+The Windows app draws the EXP card as a strip that fills the room beside the status bar: from the client's side to
+the bar (2 px at 1x clear of its outline) and from the client's foot up to the top of the quickslots' Pup button
+(`STRIP_HEIGHT`: 139 px at 1:1, 195 at 1080p's Default Ratio, 217 at 1.0), so it reads as part of the HUD. Measured on
+mscw-render's HUD at every resolution and UI size (the bar is 800 px at 1:1 and Default Ratio draws the frame 768 high
+and scales it) and on a 1080p capture. Its width (`strip_width`) is that room as on a 16:9 screen at most (21:9 and
+32:9 keep 16:9's width) and `MAX_STRIP_WIDTH` (600 design units) at most: Ideal Ratio at 1440p leaves 880 px, and the
+strip then keeps to the corner. Under `MIN_STRIP_WIDTH` (5:4, 800x600) it is `FALLBACK_WIDTH` wide, above the bar and
+the quickslots. In a bottom corner it sits flush with the client's side and foot (`placement::place_beside_bar`).
+The body follows the width (`layout`): narrow under 200 design units (4:3: one column, the graph between the rate and
+the session), medium to 360 (16:10 and Default Ratio at 16:9: rate and session total side by side over a graph across
+the strip), wide past it (Ideal Ratio at 1080p, 1600x900: a column of numbers beside a tall graph with its scale and
+time axis). The header holds the potions that moved most and the map drops' bag button (`drops_button(width)`), the
+foot the level's gauge and share. Its fill is 10% less see-through than the tooltip cards' (the player asked;
+numbers over a busy field). Only a pause is labelled (PAUSED); there is no LIVE label. The web's floating window, a
+box, keeps the tall card (`Show::strip` None). `render_cards` draws it at each measured screen size.
+- **The graph** (`training_card/graph.rs`, `session::ExpGraph`): EXP a minute over the last 10 minutes in a dark
+  well, a point every 10 s, each the minute before it (the time since the first EXP while that is shorter, from
   10 s on), so kills read as a pace and a young session does not climb from nothing; the time axis is fixed, so a
   young session fills only its right. Like meso.watch's price trends (a thin line over an area fading out; checked
   October 2026: its public pages have no EXP graph, only these sparklines), plus the session's average dashed,

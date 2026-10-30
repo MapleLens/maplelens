@@ -18,7 +18,7 @@ use maplelens_core::render::map_card::{render_loading_card, render_map_card};
 use maplelens_core::render::rank_card::render_rank_card;
 use maplelens_core::render::settings_view::{self, Control, View};
 use maplelens_core::render::status_pill::render_status;
-use maplelens_core::render::training_card::{Button, Show, Strip, render_training_card};
+use maplelens_core::render::training_card::{Button, Show, Strip, render_training_card, strip_width};
 use maplelens_core::settings::Corner;
 use maplelens_core::shop::ShopStatus;
 use maplelens_core::training::kpq::Run;
@@ -272,13 +272,17 @@ fn training(fonts: &Fonts, out: &std::path::Path) -> RgbaImage {
         let card = render_training_card(fonts, &training, both, 412.0, 1.0).expect("card");
         save(&card, &out.join(format!("training_kpq_{stage}.png")));
     }
-    let strip = |drops| Show { strip: Some(Strip { drops }), ..both };
-    let idle = strip(Some(Button::Idle));
-    for (name, scale) in [("1200p", 1.0), ("1080p", 0.9), ("ideal_ratio", 0.64)] {
-        let card = render_training_card(fonts, &exp_only, idle, 0.0, scale).expect("strip");
+    // The strip at each screen size the game's own renders were measured at (mscw-render): the room beside the status
+    // bar, from 4:3 (narrow) through Default Ratio at 16:9 (medium) to Ideal Ratio at 1080p (wide), and past 16:9
+    // (2560x1080) or past the widest (Ideal Ratio at 1440p) held at their caps.
+    let idle = Some(Button::Idle);
+    for &(name, size) in STRIP_SIZES {
+        let (show, scale) = strip_at(both, size, idle);
+        let card = render_training_card(fonts, &exp_only, show, 0.0, scale).expect("strip");
         save(&card, &out.join(format!("training_strip_{name}.png")));
     }
-    // Twenty seconds in: no graph yet, no potions, no level.
+    let (at_1080p, scale) = strip_at(both, (1920, 1080, 1.40625), idle);
+    // Twenty seconds in: no graph yet, no potions, no level; at each width.
     let young = TrainingView {
         session: Session { active_s: 20.0, gained: 640, best_minute: 640, ..Session::default() },
         last_minute: None,
@@ -289,16 +293,46 @@ fn training(fonts: &Fonts, out: &std::path::Path) -> RgbaImage {
         ..exp
     };
     let young = Training { exp: young, ..Training::default() };
-    let card = render_training_card(fonts, &young, idle, 0.0, 0.9).expect("strip");
-    save(&card, &out.join("training_strip_no_graph.png"));
-    let card = render_training_card(fonts, &exp_only, strip(Some(Button::Lit)), 0.0, 0.9).expect("strip");
+    for (name, size) in [("narrow", (1024, 768, 1.0)), ("medium", (1920, 1080, 1.40625)), ("wide", (1920, 1080, 1.0))] {
+        let (show, scale) = strip_at(both, size, idle);
+        let card = render_training_card(fonts, &young, show, 0.0, scale).expect("strip");
+        save(&card, &out.join(format!("training_strip_no_graph_{name}.png")));
+    }
+    let with = |drops| Show { strip: Some(Strip { drops, ..at_1080p.strip.unwrap() }), ..at_1080p };
+    let card = render_training_card(fonts, &exp_only, with(Some(Button::Lit)), 0.0, scale).expect("strip");
     save(&card, &out.join("training_strip_button_lit.png"));
-    let card = render_training_card(fonts, &exp_only, strip(None), 0.0, 0.9).expect("strip");
+    let card = render_training_card(fonts, &exp_only, with(None), 0.0, scale).expect("strip");
     save(&card, &out.join("training_strip_no_button.png"));
+    let paused = Training { exp: TrainingView { paused: true, ..exp_only.exp.clone() }, ..exp_only.clone() };
+    let card = render_training_card(fonts, &paused, at_1080p, 0.0, scale).expect("strip");
+    save(&card, &out.join("training_strip_paused.png"));
     let quest = Training { quest: Some(Run { started: 0.0, stage: 3, seen: 400.0 }), ..exp_only.clone() };
-    let card = render_training_card(fonts, &quest, idle, 412.0, 0.9).expect("strip");
+    let card = render_training_card(fonts, &quest, at_1080p, 412.0, scale).expect("strip");
     save(&card, &out.join("training_strip_kpq_3.png"));
-    render_training_card(fonts, &exp_only, strip(Some(Button::On)), 0.0, 0.9).expect("strip")
+    render_training_card(fonts, &exp_only, with(Some(Button::On)), 0.0, scale).expect("strip")
+}
+
+/// Screens the strip is drawn for: (name, (client width, height, the UI's size against 1:1)), as mscw-render draws them.
+const STRIP_SIZES: &[(&str, (i32, i32, f32))] = &[
+    ("1024x768", (1024, 768, 1.0)),
+    ("1280x720", (1280, 720, 1.0)),
+    ("1366x768", (1366, 768, 1.0)),
+    ("1600x900", (1600, 900, 1.0)),
+    ("1920x1080_default", (1920, 1080, 1.40625)),
+    ("1920x1080_ideal", (1920, 1080, 1.0)),
+    ("1920x1200_default", (1920, 1200, 1.5625)),
+    ("2560x1080_default", (2560, 1080, 1.40625)),
+    ("2560x1440_ideal", (2560, 1440, 1.0)),
+    ("2560x1440_default", (2560, 1440, 1.875)),
+    ("800x600", (800, 600, 1.0)),
+];
+
+/// The strip as the app sizes it for a client of (w, h) whose UI is `k` times its 1:1 size, and that UI scale.
+fn strip_at(show: Show, (w, h, k): (i32, i32, f32), drops: Option<Button>) -> (Show, f32) {
+    let scale = 0.64 * k;
+    let bar_w = (800.0 * k).round() as i32;
+    let width = strip_width((w, h), bar_w, maplelens_core::render::theme::CARD_SCALE * scale);
+    (Show { strip: Some(Strip { drops, width }), ..show }, scale)
 }
 
 /// The map drops panel on the sample field, alone and beside the EXP card in a left and a right corner. Sprites and
@@ -366,22 +400,22 @@ fn map_drops(fonts: &Fonts, out: &std::path::Path, exp_card: &RgbaImage) {
     save(&render_named_card(fonts, &spec, &heading), &out.join("drops_price_card.png"));
 }
 
-/// A 1920x1080 game at UI scale 0.9 with the status bar drawn in: the EXP strip in `corner` as the app places it, and
-/// the drops panel opened from it.
+/// A 1920x1080 game at Default Ratio (UI scale 0.9) with the status bar drawn in: the EXP strip in `corner` as the app
+/// places it, and the drops panel opened from it.
 fn scene(fonts: &Fonts, exp_card: &RgbaImage, panel: &RgbaImage, corner: Corner) -> RgbaImage {
     let (width, height) = (1920, 1080);
     let client = Rect::new(0, 0, width, height);
     let bar = Rect::new((width - 1125) / 2, height - 95, 1125, 95);
     let size = (exp_card.width as i32, exp_card.height as i32);
-    let place = maplelens_core::placement::place_in_corner;
-    let at = place(client, size, corner, 9, Some(bar), Some(200)).expect("card fits");
+    let at = maplelens_core::placement::place_beside_bar(client, size, corner, bar)
+        .or_else(|| maplelens_core::placement::place_in_corner(client, size, corner, 9, Some(bar), Some(200)))
+        .expect("card fits");
     let card = Rect::new(at.0, at.1, size.0, size.1);
     let panel_size = (panel.width as i32, panel.height as i32);
     let off = maplelens_core::placement::place_off_card(card, panel_size, corner, 5, client).expect("fits");
     let mut cv = Canvas::new(fonts, width as f32, height as f32, 1.0);
     cv.rect(0.0, 0.0, width as f32, height as f32, [118, 178, 236, 255]);
     cv.rect(0.0, height as f32 - 220.0, width as f32, 220.0, [124, 168, 82, 255]);
-    cv.rect(0.0, height as f32 - 95.0, width as f32, 95.0, [10, 10, 12, 255]);
     cv.rect(bar.x as f32, bar.y as f32, bar.w as f32, bar.h as f32, [70, 74, 92, 255]);
     cv.rect(bar.x as f32 + 4.0, bar.y as f32 + 4.0, bar.w as f32 - 8.0, 20.0, [190, 170, 60, 255]);
     for (image, (x, y)) in [(exp_card, at), (panel, off)] {
