@@ -123,11 +123,27 @@ impl<'f> Canvas<'f> {
     /// Rounded box shaded top to bottom through `stops` (offset 0..=1, colour), like a CSS linear-gradient.
     pub fn gradient(&mut self, (x, y, w, h): (f32, f32, f32, f32), r: f32, stops: &[(f32, Rgba)]) {
         let Some(path) = rounded_rect(x, y, w, h, r) else { return };
+        self.fill_gradient(&path, (y, y + h), stops);
+    }
+
+    /// A polygon shaded through `stops` from row `top` to row `bottom`: the area under a graph's line.
+    pub fn gradient_polygon(&mut self, points: &[(f32, f32)], (top, bottom): (f32, f32), stops: &[(f32, Rgba)]) {
+        let mut pb = PathBuilder::new();
+        for (i, &(x, y)) in points.iter().enumerate() {
+            if i == 0 { pb.move_to(x, y) } else { pb.line_to(x, y) }
+        }
+        pb.close();
+        if let Some(path) = pb.finish() {
+            self.fill_gradient(&path, (top, bottom), stops);
+        }
+    }
+
+    fn fill_gradient(&mut self, path: &Path, (top, bottom): (f32, f32), stops: &[(f32, Rgba)]) {
         let stops = stops
             .iter()
             .map(|&(at, c)| tiny_skia::GradientStop::new(at, tiny_skia::Color::from_rgba8(c[0], c[1], c[2], c[3])))
             .collect();
-        let (top, bottom) = (tiny_skia::Point::from_xy(x, y), tiny_skia::Point::from_xy(x, y + h));
+        let (top, bottom) = (tiny_skia::Point::from_xy(0.0, top), tiny_skia::Point::from_xy(0.0, bottom));
         let Some(shader) =
             tiny_skia::LinearGradient::new(top, bottom, stops, tiny_skia::SpreadMode::Pad, Transform::identity())
         else {
@@ -135,7 +151,7 @@ impl<'f> Canvas<'f> {
         };
         let paint = Paint { shader, anti_alias: true, ..Paint::default() };
         let t = self.transform();
-        self.pixmap.fill_path(&path, &paint, FillRule::Winding, t, None);
+        self.pixmap.fill_path(path, &paint, FillRule::Winding, t, None);
     }
 
     /// Text ringed by `edge` one unit thick: the game's outlined button lettering.

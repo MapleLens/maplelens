@@ -324,10 +324,6 @@ impl App {
                     let training_card = !self.settings.training_card;
                     self.update_settings(Settings { training_card, ..self.settings.clone() });
                 }
-                TrayCommand::ToggleDrops => {
-                    let map_drops = !self.settings.map_drops;
-                    self.update_settings(Settings { map_drops, ..self.settings.clone() });
-                }
                 TrayCommand::PauseTraining => {
                     let paused = self.training.as_ref().is_some_and(|(_, t)| t.exp.paused);
                     self.send_training(TrainingCommand::SetPaused(!paused));

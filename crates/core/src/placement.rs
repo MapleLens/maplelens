@@ -52,7 +52,8 @@ pub fn fits_inside(x: i32, y: i32, card: (i32, i32), bounds: Rect) -> bool {
 ///
 /// It keeps clear of the game's own HUD in that corner: top left it goes right of the minimap (`minimap_right`,
 /// from the client's left edge, when the minimap is on screen), and at the bottom a card that would cover the
-/// status bar (`status_bar`, centred, narrower than the client) sits above it.
+/// status bar (`status_bar`, centred, narrower than the client) sits above it; one that fits beside the bar sits level
+/// with it, its foot on the bar's (the EXP strip, as tall as the bar, then lines up with it).
 pub fn place_in_corner(
     client: Rect,
     card: (i32, i32),
@@ -71,12 +72,23 @@ pub fn place_in_corner(
     let mut y = if corner.is_top() { client.y + margin } else { client.bottom() - margin - height };
     if !corner.is_top()
         && let Some(bar) = status_bar
-        && x < bar.right()
-        && x + width > bar.x
     {
-        y = y.min(bar.y - margin - height);
+        y = if x < bar.right() && x + width > bar.x { y.min(bar.y - margin - height) } else { bar.bottom() - height };
     }
     fits_inside(x, y, card, client).then_some((x, y))
+}
+
+/// Top-left of the EXP strip in a bottom `corner`, flush with the client's side and foot, so it fills the room beside
+/// the status bar (`bar`); None in a top corner or when it would reach the bar.
+pub fn place_beside_bar(client: Rect, card: (i32, i32), corner: Corner, bar: Rect) -> Option<(i32, i32)> {
+    let (width, height) = card;
+    if corner.is_top() {
+        return None;
+    }
+    let x = if corner.is_left() { client.x } else { client.right() - width };
+    let clear = if corner.is_left() { x + width <= bar.x } else { x >= bar.right() };
+    let at = (x, client.bottom() - height);
+    (clear && fits_inside(at.0, at.1, card, client)).then_some(at)
 }
 
 /// Top-left of a card opened from a panel in `corner` (a drop's price card): on the panel's side towards the middle of
@@ -106,6 +118,20 @@ pub fn place_beside_card(card: Rect, panel: (i32, i32), corner: Corner, gap: i32
     let sides = if corner.is_left() { [right, left] } else { [left, right] };
     let y = if corner.is_top() { card.y } else { card.bottom() - height };
     sides.into_iter().map(|x| (x, y)).find(|&(x, y)| fits_inside(x, y, panel, client))
+}
+
+/// Top-left of a panel opened from a wide card in `corner` (the map drops from the EXP strip): above the card in a
+/// bottom corner and below it in a top one, `gap` from it, lined up with the card's outer side; else beside it
+/// (`place_beside_card`). None when nothing fits: the card is never moved to make room.
+pub fn place_off_card(card: Rect, panel: (i32, i32), corner: Corner, gap: i32, client: Rect) -> Option<(i32, i32)> {
+    let (width, height) = panel;
+    let x = if corner.is_left() { card.x } else { card.right() - width };
+    let y = if corner.is_top() { card.bottom() + gap } else { card.y - gap - height };
+    let x = x.clamp(client.x, (client.right() - width).max(client.x));
+    if fits_inside(x, y, panel, client) {
+        return Some((x, y));
+    }
+    place_beside_card(card, panel, corner, gap, client)
 }
 
 /// The corner a card at `card` is nearest (its centre's quarter of `client`): which way a panel beside it grows.

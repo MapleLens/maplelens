@@ -6,7 +6,9 @@ use common::fonts;
 use maplelens_core::drops::{MapDrops, Rarity, Shown, assemble, sample};
 use maplelens_core::geometry::Rect;
 use maplelens_core::market::models::Item;
-use maplelens_core::placement::{fraction_of, nearest_corner, place_at, place_beside_card, place_from_panel};
+use maplelens_core::placement::{
+    fraction_of, nearest_corner, place_at, place_beside_card, place_from_panel, place_off_card,
+};
 use maplelens_core::render::card::{CardSpec, Heading, render_card, render_named_card};
 use maplelens_core::render::drops_card::{CARD_WIDTH, Hit, PanelState, colour, render_drops_card};
 use maplelens_core::render::pointer::{TIP, render_pointer};
@@ -40,7 +42,10 @@ fn the_panel_grows_with_the_monsters_and_the_ui_scale() {
     assert!(tall.height > card.height);
     let small = render_drops_card(fonts(), &drops, &|_, _| None, PanelState::default(), 0.64);
     assert!(small.width < card.width && small.height < card.height);
-    // As tall as the EXP card beside it: shorter than the content leaves monsters out, taller pads the foot.
+    // Its X lights up under the pointer.
+    let closing = PanelState { hover: Some(Hit::Close), ..PanelState::default() };
+    assert_ne!(render_drops_card(fonts(), &drops, &|_, _| None, closing, 1.0), card);
+    // At a height given: shorter than the content leaves monsters out, taller pads the foot.
     for height in [220, 300] {
         let fixed = PanelState { height: Some(height), ..PanelState::default() };
         let panel = render_drops_card(fonts(), &drops, &|_, _| None, fixed, 1.0);
@@ -94,6 +99,29 @@ fn the_panel_extends_the_exp_card_towards_the_middle_and_away_from_the_corner() 
     // No room towards the middle: the other side.
     assert_eq!(place_beside_card(Rect::new(1800, 60, 210, 100), panel, Corner::TopLeft, 6, client), Some((1494, 60)));
     assert_eq!(place_beside_card(Rect::new(100, 50, 1920, 100), panel, Corner::TopLeft, 6, client), None);
+}
+
+#[test]
+fn the_panel_opens_over_the_exp_strip_at_the_bottom_and_under_it_at_the_top() {
+    let client = Rect::new(100, 50, 1920, 1080);
+    let panel = (300, 450);
+    // The strip, 351 x 95, level with the status bar in a bottom corner: the panel above it, lined up outside.
+    let bottom_right = Rect::new(100 + 1920 - 9 - 351, 50 + 1080 - 95, 351, 95);
+    let right = bottom_right.right() - 300;
+    assert_eq!(
+        place_off_card(bottom_right, panel, Corner::BottomRight, 5, client),
+        Some((right, bottom_right.y - 455))
+    );
+    let bottom_left = Rect::new(109, 50 + 1080 - 95, 351, 95);
+    assert_eq!(place_off_card(bottom_left, panel, Corner::BottomLeft, 5, client), Some((109, bottom_left.y - 455)));
+    // Top: under it.
+    let top_left = Rect::new(340, 59, 351, 95);
+    assert_eq!(place_off_card(top_left, panel, Corner::TopLeft, 5, client), Some((340, 159)));
+    // No room under it: beside it.
+    let low = Rect::new(340, 600, 351, 95);
+    assert_eq!(place_off_card(low, panel, Corner::TopLeft, 5, client), Some((696, 600)));
+    // Nowhere: nothing, the strip is never moved for it.
+    assert_eq!(place_off_card(Rect::new(100, 50, 1920, 1000), panel, Corner::TopLeft, 5, client), None);
 }
 
 #[test]

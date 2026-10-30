@@ -18,11 +18,12 @@ impl App {
             self.shop = update;
         }
         let shown = self.settings.overlay_enabled;
-        let no_drops = (shown && self.settings.map_drops).then(|| self.no_drops_map()).flatten();
+        let drops = shown && self.drops.is_open();
+        let no_drops = drops.then(|| self.no_drops_map()).flatten();
         let facts = Facts {
             store: self.shop.status,
             exp_card: shown && self.settings.training_card,
-            map_drops: shown && self.settings.map_drops,
+            map_drops: drops,
             training: self.training.as_ref().map(|(_, t)| t),
             no_drops: no_drops.as_deref(),
         };

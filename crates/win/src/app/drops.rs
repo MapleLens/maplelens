@@ -1,8 +1,9 @@
-//! The map drops panel on the UI thread: what the map being played drops, beside the EXP card and as tall as it (in
-//! its corner while that card is not shown, or wherever the player dragged it), only over the game (rule 5) and only on
-//! a field whose drops are known. It stays click-through (rule 3): what is under the pointer is found from the cursor
-//! position alone (`pointer` reads the presses). A slot opens that drop's price card under the item's name; a monster
-//! pressed opens its page, which goes back to the list after a few seconds without the pointer.
+//! The map drops panel on the UI thread: what the map being played drops, opened by the EXP strip's bag button and
+//! closed by its X (never by itself), over the strip in a bottom corner and under it in a top one (or wherever the
+//! player dragged it), only over the game (rule 5) and only on a field whose drops are known. It stays click-through
+//! (rule 3): what is under the pointer is found from the cursor position alone (`pointer` reads the presses). A slot
+//! opens that drop's price card under the item's name; a monster pressed opens its page, which goes back to the list
+//! after a few seconds without the pointer.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -11,9 +12,7 @@ use maplelens_core::drops::{self, MapDrops};
 use maplelens_core::geometry::{Point, Rect};
 use maplelens_core::mapinfo::MapInfo;
 use maplelens_core::market::models::Item;
-use maplelens_core::placement::{
-    fraction_of, nearest_corner, place_at, place_beside_card, place_from_panel, place_in_corner,
-};
+use maplelens_core::placement::{fraction_of, nearest_corner, place_at, place_from_panel, place_off_card};
 use maplelens_core::render::card::{CardSpec, Heading, render_named_card};
 use maplelens_core::render::drops_card::{Hit, PanelState, Slot, colour, hit, render_drops_card, slot_top};
 use maplelens_core::render::{RgbaImage, theme};
@@ -21,14 +20,13 @@ use windows::Win32::Foundation::HWND;
 
 use super::App;
 use super::pointer::Card;
-use super::training::{MARGIN, status_bar};
 use crate::drops::DropBook;
 use crate::game;
 use crate::layered::LayeredWindow;
 use crate::maps::service::Status;
 use crate::paths;
 
-/// Between the EXP card and the panel, and between the panel and a drop's price card, at UI scale 1.
+/// Between the EXP strip and the panel, and between the panel and a drop's price card, at UI scale 1.
 const GAP: f32 = 6.0;
 /// A monster's page left without the pointer for this long goes back to the list.
 const PAGE_IDLE_S: f64 = 3.0;
@@ -59,6 +57,10 @@ pub struct DropsUi {
     hovered: Option<(Slot, f64)>,
     /// The monster whose page is open (its game ID) and when the pointer was last over the panel.
     page: Option<(u32, f64)>,
+    /// Opened from the EXP strip's button, until its X (or the strip going) closes it.
+    open: bool,
+    /// The map is a field with monsters: the strip offers the button.
+    available: bool,
 }
 
 impl DropsUi {
@@ -76,6 +78,8 @@ impl DropsUi {
             items: (0, HashMap::new()),
             hovered: None,
             page: None,
+            open: false,
+            available: false,
         })
     }
 
@@ -113,6 +117,24 @@ impl DropsUi {
         self.page = None;
     }
 
+    pub fn is_open(&self) -> bool {
+        self.open
+    }
+
+    pub fn available(&self) -> bool {
+        self.available
+    }
+
+    /// The strip's button: open the panel, or close it.
+    pub fn toggle(&mut self) {
+        if self.open { self.close() } else { self.open = true }
+    }
+
+    pub fn close(&mut self) {
+        self.open = false;
+        self.page = None;
+    }
+
     /// The panel was put together for map `id` and nothing it drops is known.
     pub fn knows_nothing_of(&self, id: u32) -> bool {
         self.content.as_ref().is_some_and(|((map, ..), content)| *map == id && content.is_none())
@@ -126,19 +148,25 @@ impl App {
         }
     }
 
-    /// Draw and place the panel and a hovered drop's price card; false when there is nothing to show.
+    /// Draw and place the panel and a hovered drop's price card; false when there is nothing to show. Nothing is
+    /// asked of the drops' site until the panel is opened.
     fn place_drops(&mut self) -> bool {
-        if !self.settings.map_drops || !self.settings.overlay_enabled {
+        self.drops.available = false;
+        if !self.settings.overlay_enabled {
             return false;
         }
         let Some((hwnd, training)) = &self.training else { return false };
         let Some(location) = training.location.clone() else { return false };
-        let (hwnd, minimap_right) = (HWND(*hwnd as *mut _), training.minimap_right);
+        let hwnd = HWND(*hwnd as *mut _);
         let client = (game::is_alive(hwnd) && game::is_foreground(hwnd)).then(|| game::client_rect(hwnd)).flatten();
         let Some(client) = client else { return false };
         let service = self.map.service().clone();
         let result = service.get(&location);
         let Some(info) = result.info.filter(|i| result.status == Status::Found && !i.is_town) else { return false };
+        self.drops.available = !info.mobs.is_empty();
+        if !self.drops.open || !self.drops.available {
+            return false;
+        }
         let scale = (self.ui.of(client) * 100.0).round() / 100.0;
         let catalog = Arc::as_ptr(&self.catalog) as usize;
         if self.drops.items.0 != catalog {
@@ -156,7 +184,7 @@ impl App {
         }
         let Some((_, panel)) = self.drops.panel.clone() else { return false };
         let size = (panel.width as i32, panel.height as i32);
-        let Some((x, y)) = self.drops_spot(client, size, scale, minimap_right) else { return false };
+        let Some((x, y)) = self.drops_spot(client, size, scale) else { return false };
         if self.drops.shown != Some((key, state)) || !self.drops.window.visible() {
             self.drops.window.set_image(&panel, x, y);
             self.drops.shown = Some((key, state));
@@ -172,8 +200,7 @@ impl App {
         true
     }
 
-    /// The open page (back to the list after a while without the pointer), what the pointer is over, and the height:
-    /// the EXP card's while it shows.
+    /// The open page (back to the list after a while without the pointer), and what the pointer is over.
     fn panel_state(&mut self, content: &MapDrops, scale: f32) -> PanelState {
         let now = self.now();
         let cursor = game::cursor();
@@ -188,9 +215,7 @@ impl App {
         }
         let page = self.drops.page.and_then(|(id, _)| content.mobs.iter().position(|m| m.id == id));
         let factor = theme::CARD_SCALE * scale;
-        let exp_card = self.training_window.rect().filter(|_| self.training_window.visible());
-        let height = exp_card.map(|card| (card.h as f32 / factor).round() as u32);
-        let mut state = PanelState { page, hover: None, height };
+        let mut state = PanelState { page, hover: None, height: None };
         // What the pointer is over, on the panel as it will be drawn (a page opened this tick included).
         state.hover = cursor
             .zip(self.drops.panel_rect())
@@ -206,21 +231,16 @@ impl App {
         state
     }
 
-    /// Where the panel goes: where it is being dragged or was let go, else beside the EXP card (towards the middle of
-    /// the game from the corner that card is nearest), else in the training corner.
-    fn drops_spot(&self, client: Rect, size: (i32, i32), scale: f32, minimap_right: Option<i32>) -> Option<(i32, i32)> {
+    /// Where the panel goes: where it is being dragged or was let go, else over the EXP strip in a bottom corner and
+    /// under it in a top one (the corner that strip is nearest); nowhere without the strip, which it opens from.
+    fn drops_spot(&self, client: Rect, size: (i32, i32), scale: f32) -> Option<(i32, i32)> {
         let dragged = self.pointer.dragged(Card::Drops).map(|at| fraction_of(client, at));
         if let Some(fraction) = dragged.or(self.settings.drops_at) {
             return place_at(client, size, fraction);
         }
         let gap = (GAP * scale).round() as i32;
-        match self.training_window.rect().filter(|_| self.training_window.visible()) {
-            Some(card) => place_beside_card(card, size, nearest_corner(card, client), gap, client),
-            None => {
-                let (corner, margin) = (self.settings.training_corner, (MARGIN * scale).round() as i32);
-                place_in_corner(client, size, corner, margin, Some(status_bar(client, scale)), minimap_right)
-            }
-        }
+        let card = self.training_window.rect().filter(|_| self.training_window.visible())?;
+        place_off_card(card, size, nearest_corner(card, client), gap, client)
     }
 
     /// The map's drops for `key`, assembled again only when something it comes from changed.

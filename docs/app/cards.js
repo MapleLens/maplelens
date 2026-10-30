@@ -6,9 +6,9 @@
 // The floating window is one fixed box for the whole session (it sits in a corner of the screen): whatever it shows
 // shrinks to fit it, and recent items that do not fit are left out.
 
-import { paint } from "./lens.js?v=eee7f010d696";
-import { LINGER_MS } from "./cardfeed.js?v=eee7f010d696";
-import { RANK_CSS, rankPanel } from "./rankpanel.js?v=eee7f010d696";
+import { paint } from "./lens.js?v=652625fee67d";
+import { LINGER_MS } from "./cardfeed.js?v=652625fee67d";
+import { RANK_CSS, rankPanel } from "./rankpanel.js?v=652625fee67d";
 
 function storage(action) {
   try { return action(window.localStorage); } catch { return undefined; } // private windows may refuse

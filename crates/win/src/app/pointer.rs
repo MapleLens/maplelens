@@ -1,7 +1,8 @@
 //! The pointer over MapleLens's own cards, and what a press there does. The cards stay click-through (rule 3) and
 //! nothing hooks the mouse (rule 1): the left button's state is read each tick (`game::left_button_down`), so the game
-//! gets every press too, which on a field does nothing. A press on a monster opens its page in the drops panel and
-//! Back closes it; a press on the EXP card or the drops panel that moves drags it, and where it is let go is kept in
+//! gets every press too, which on a field does nothing. The EXP strip's bag button opens the drops panel and its X
+//! closes it; a press on a monster opens its page in the panel and Back closes it; a press on the EXP card or the
+//! drops panel that moves drags it, and where it is let go is kept in
 //! the settings as a share of the game window. The game draws its cursor into its own frame, under the cards, so over
 //! them this draws the game's own (maplestory.io's frames of it, downloaded once into cache\cursor; game artwork, never
 //! committed), a drawn arrow until they are on disk.
@@ -44,6 +45,8 @@ struct Press {
     card: Card,
     /// What was under the pointer in the drops panel: a click counts when it is let go over the same.
     hit: Option<Hit>,
+    /// Pressed on the EXP strip's drops button.
+    button: bool,
     at: Point,
     /// The card's top-left when pressed.
     origin: (i32, i32),
@@ -111,6 +114,7 @@ impl App {
                 self.pointer.press = card.map(|(card, rect)| Press {
                     card,
                     hit: (card == Card::Drops).then(|| self.drops.hit_at(cursor)).flatten(),
+                    button: card == Card::Training && self.over_drops_button(cursor, scale),
                     at: cursor,
                     origin: (rect.x, rect.y),
                     dragging: false,
@@ -125,7 +129,7 @@ impl App {
                     }
                 }
             }
-            (true, false) => self.let_go(cursor, client),
+            (true, false) => self.let_go(cursor, client, scale),
             (false, false) => {}
         }
         let over = [training, panel, self.drops.price_rect()].into_iter().flatten().any(|r| r.contains(cursor));
@@ -137,7 +141,7 @@ impl App {
     }
 
     /// The press ends: a drag keeps where the card was let go; a press let go where it began clicks it.
-    fn let_go(&mut self, cursor: Point, client: Rect) {
+    fn let_go(&mut self, cursor: Point, client: Rect, scale: f32) {
         let Some(press) = self.pointer.press.take() else { return };
         if let Some((card, at)) = self.pointer.dragged.take() {
             let at = Some(fraction_of(client, at));
@@ -146,6 +150,9 @@ impl App {
                 Card::Drops => Settings { drops_at: at, ..self.settings.clone() },
             };
             return self.update_settings(settings);
+        }
+        if press.button && self.over_drops_button(cursor, scale) {
+            return self.drops.toggle();
         }
         if press.card != Card::Drops || self.drops.hit_at(cursor) != press.hit {
             return;
@@ -156,6 +163,7 @@ impl App {
                 self.drops.open_page(mob, now);
             }
             Some(Hit::Back) => self.drops.close_page(),
+            Some(Hit::Close) => self.drops.close(),
             _ => {}
         }
     }

@@ -89,7 +89,8 @@ fn live_training() {
     let target = format!("{}/../../target", env!("CARGO_MANIFEST_DIR"));
     std::fs::write(format!("{target}/live_training_frame.png"), maplelens_core::image::encode_png(&frame)).unwrap();
     let fonts = crate::app::system_fonts().unwrap();
-    if let Some(card) = render_training_card(&fonts, &training, Show { exp: true, quest: true }, now, 1.0) {
+    if let Some(card) = render_training_card(&fonts, &training, Show { exp: true, quest: true, strip: None }, now, 1.0)
+    {
         println!("card {}x{}", card.width, card.height);
     }
 }

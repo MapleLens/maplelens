@@ -1,7 +1,7 @@
 //! The panel's list: every monster of the map as a tile along the top (pressed, its page opens), a line
 //! naming the one under the pointer, then the map's ten dearest drops in big slots, and the best one at the foot.
 
-use super::{CREDIT_H, Canvas, Hit, Icons, LIT, PanelState, credit, slot, sprite};
+use super::{CREDIT_H, Canvas, Hit, Icons, LIT, PanelState, TOP_RIGHT, close, credit, slot, sprite};
 use crate::drops::{MapDrops, Rarity, Shown};
 use crate::market::format::format_mesos;
 use crate::render::canvas::{Anchor, Ink};
@@ -82,6 +82,7 @@ pub(super) fn draw<'f>(
     let mut cv = Canvas::new(fonts, super::CARD_WIDTH, at.height, factor);
     cv.frame(at.height);
     header(&mut cv, drops);
+    close(&mut cv, state.hover == Some(Hit::Close));
     for (i, mob) in drops.mobs[..at.tiles].iter().enumerate() {
         let (x, y) = tile_at(i);
         let pointed = state.hover == Some(Hit::Mob(i));
@@ -116,7 +117,7 @@ fn header(cv: &mut Canvas<'_>, drops: &MapDrops) {
     cv.text(PAD + 13.0, 10.0, "DROPS", Ink::new(11.0, theme::TEXT_DIM).bold(), Anchor::LA);
     if let Some((low, high)) = drops.levels {
         let levels = if low == high { format!("Lv {low}") } else { format!("Lv {low}–{high}") };
-        cv.chip(cv.width - PAD, 8.0, &levels, Ink::new(10.0, theme::TEXT_DIM), true, 16.0);
+        cv.chip(TOP_RIGHT, 8.0, &levels, Ink::new(10.0, theme::TEXT_DIM), true, 16.0);
     }
     let name = fit_text(cv, &drops.map, 12.0, true, cv.width - 2.0 * PAD);
     cv.text(PAD, 27.0, &name, Ink::new(12.0, theme::TEXT).bold(), Anchor::LA);

@@ -7,8 +7,8 @@
 // Fastest path per phone: Android receives push in the browser tab itself (scan, tap, done; installing is optional).
 // iPhone only lets home-screen apps receive push, so the page is installed once, and the app can pair by scanning.
 
-import { pullToRefresh } from "./pull.js?v=eee7f010d696";
-import { KEY_SHAPE, PAIR_CACHE, PAIR_REQUEST, relay, RELAY_URL, unseal } from "./relay.js?v=eee7f010d696";
+import { pullToRefresh } from "./pull.js?v=652625fee67d";
+import { KEY_SHAPE, PAIR_CACHE, PAIR_REQUEST, relay, RELAY_URL, unseal } from "./relay.js?v=652625fee67d";
 
 const $ = id => document.getElementById(id);
 const STORED_KEY = "maplelens.phone.key";

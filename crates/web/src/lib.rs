@@ -163,7 +163,7 @@ impl Engine {
             shop: ShopRunner::new(),
             training,
             map_ocr,
-            training_show: Show { exp: true, quest: false },
+            training_show: Show { exp: true, quest: false, strip: None },
             pill: PillPicker::default(),
             training_card: None,
             since: 0.0,
@@ -445,7 +445,7 @@ impl Engine {
 
     /// Whether the training card shows the EXP rates. The party quest helper is hidden: never on the page's card.
     pub fn set_training_show(&mut self, exp: bool) {
-        self.training_show = Show { exp, quest: false };
+        self.training_show = Show { exp, quest: false, strip: None };
     }
 
     /// Pause or resume the training session (neither time nor EXP counts while paused).

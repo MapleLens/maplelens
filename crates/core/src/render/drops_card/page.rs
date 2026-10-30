@@ -1,7 +1,7 @@
 //! A monster's page in the panel: Back, its sprite and what it is (level, HP, EXP, spawns here), and every drop it is
 //! known for, rarest first, credited to the page they came from.
 
-use super::{Canvas, Hit, Icons, LIT, PanelState, SLOT, SLOT_GAP, credit, more, slot, sprite};
+use super::{Canvas, Hit, Icons, LIT, PanelState, SLOT, SLOT_GAP, TOP_RIGHT, close, credit, more, slot, sprite};
 use crate::drops::MapDrops;
 use crate::market::format::{format_mesos, group_thousands};
 use crate::render::canvas::{Anchor, Ink};
@@ -53,7 +53,8 @@ pub(super) fn draw<'f>(
     let mut cv = Canvas::new(fonts, super::CARD_WIDTH, height, factor);
     cv.frame(height);
     back(&mut cv, state.hover == Some(Hit::Back));
-    cv.chip(cv.width - PAD, 8.0, &format!("Lv {}", mob.level), Ink::new(10.0, theme::TEXT_DIM), true, 16.0);
+    close(&mut cv, state.hover == Some(Hit::Close));
+    cv.chip(TOP_RIGHT, 8.0, &format!("Lv {}", mob.level), Ink::new(10.0, theme::TEXT_DIM), true, 16.0);
     sprite(&mut cv, (PAD, INFO_Y, BIG), icons("mob", mob.id), false);
     let right = cv.width - PAD;
     let price = mob.best_price().map(|p| format_mesos(Some(p)));

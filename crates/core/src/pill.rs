@@ -58,7 +58,7 @@ pub struct Facts<'a> {
     pub store: ShopStatus,
     /// The EXP card is switched on.
     pub exp_card: bool,
-    /// The map drops panel is switched on.
+    /// The map drops panel is open: the player asked what the map drops.
     pub map_drops: bool,
     /// The training reader's latest (None before its first).
     pub training: Option<&'a Training>,
