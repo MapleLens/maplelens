@@ -286,6 +286,14 @@ fn training(fonts: &Fonts, out: &std::path::Path) -> RgbaImage {
         let card = render_training_card(fonts, &exp_only, show, 0.0, scale).expect("strip");
         save(&card, &out.join(format!("training_strip_{name}.png")));
     }
+    // The web's box, bare (the page's background shows through): the floating window's default at 1080p and 1200p, its
+    // least at 125% (as device pixels), and the page's card panel.
+    for (w, h, dpr) in [(302, 302, 1.0), (336, 336, 1.0), (350, 350, 1.25), (330, 266, 1.0)] {
+        let strip = Strip { width: Some(w), height: Some(h), bare: true, drops: None };
+        let show = Show { exp: true, quest: false, strip: Some(strip) };
+        let card = render_training_card(fonts, &exp_only, show, 0.0, dpr).expect("box");
+        save(&card, &out.join(format!("training_web_{w}x{h}.png")));
+    }
     let (at_1080p, scale) = strip_at(both, (1920, 1080, 1.40625), idle);
     // Twenty seconds in: no graph yet, no potions, no level; at each width.
     let young = TrainingView {
@@ -332,12 +340,12 @@ const STRIP_SIZES: &[(&str, (i32, i32, f32))] = &[
     ("800x600", (800, 600, 1.0)),
 ];
 
-/// The strip as the app sizes it for a client of (w, h) whose UI is `k` times its 1:1 size, and that UI scale.
+/// The strip as the app sizes it for a client of (w, h) whose UI is `k` times its 1:1 size, and the cards' scale there.
 fn strip_at(show: Show, (w, h, k): (i32, i32, f32), drops: Option<Button>) -> (Show, f32) {
-    let scale = 0.64 * k;
+    let scale = maplelens_core::geometry::card_scale(Rect::new(0, 0, w, h), 0.64 * k);
     let bar_w = (800.0 * k).round() as i32;
     let width = strip_width((w, h), bar_w, maplelens_core::render::theme::CARD_SCALE * scale);
-    (Show { strip: Some(Strip { drops, width }), ..show }, scale)
+    (Show { strip: Some(Strip { drops, width, ..Strip::default() }), ..show }, scale)
 }
 
 /// The map drops panel on the sample field, alone and beside the EXP card in a left and a right corner. Sprites and

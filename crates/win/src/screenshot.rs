@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use maplelens_core::config;
-use maplelens_core::geometry::{Point, Rect, scaled};
+use maplelens_core::geometry::{Point, Rect, card_scale, scaled};
 use maplelens_core::image::{RgbImage, encode_png};
 use maplelens_core::market::catalog::Catalog;
 use maplelens_core::pipeline::hover::HoverDetector;
@@ -86,7 +86,7 @@ pub fn take(out: &Path, wait_s: f64, blur: &[(usize, usize, usize, usize)], cata
             generated_at: catalog.generated_at.as_deref(),
             now: paths::now_unix(),
             expanded: true,
-            ui_scale: found.scale,
+            ui_scale: card_scale(bounds, found.scale),
             wide: found.compare,
             source: if catalog.generated_at.is_some() { "meso.watch" } else { "demo data" },
         };
@@ -119,7 +119,8 @@ pub fn take(out: &Path, wait_s: f64, blur: &[(usize, usize, usize, usize)], cata
         let mut ranks = RankCache::default();
         ranks.get(&name, 0.0);
         ranks.store(&name, net::fetch_rank(&name), 0.0);
-        let card = render_rank_card(&fonts, &ranks.get(&name, 0.0), paths::now_unix(), window.scale);
+        let card =
+            render_rank_card(&fonts, &ranks.get(&name, 0.0), paths::now_unix(), card_scale(bounds, window.scale));
         let gap = scaled(config::INFO_CARD_GAP_PX, window.scale);
         if let Some((x, y)) = place_beside_window(window.rect, (card.width as i32, card.height as i32), gap, bounds) {
             println!("Character Info: {name}");

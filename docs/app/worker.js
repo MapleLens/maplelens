@@ -5,7 +5,8 @@
 //               {type: "notify", webhook, telegramWebhook, phone, sales, store} ·
 //               {type: "notify-test", service, webhook, telegramWebhook, phone} · {type: "phone-qr", url} ·
 //               {type: "catalog", id, json, unpictured (item names whose sales have no picture)} ·
-//               {type: "training-pause", paused} · {type: "training-new"} · {type: "training-show", exp}
+//               {type: "training-pause", paused} · {type: "training-new"} · {type: "training-show", exp} ·
+//               {type: "training-box", width, height} (device px; 0: the tall card)
 // Messages out: {type: "ready", version, items} · {type: "state", state, fps, ms, grab (ms making the pixels)} ·
 //               {type: "card", which, version, width, height, pixels, about (the item card's {name, price, trend}; the rank panel's {read,
 //               status, rank}; the training card's {})} · {type: "ocr-job", id, font, width, height, pixels} ·
@@ -14,7 +15,7 @@
 //               {type: "picture", name, url} (a sold item's picture, once found) · {type: "catalog-loaded", id, items | error} ·
 //               {type: "training-save", json, history} · {type: "error", message}
 
-import init, { Engine } from "./pkg/maplelens_web.js?v=8f28f7dbbfe7";
+import init, { Engine } from "./pkg/maplelens_web.js?v=7256339d40aa";
 
 /** One rank lookup every two seconds stays under classicrank.com's 30 requests a minute. */
 const RANK_GAP_MS = 2000;
@@ -44,7 +45,7 @@ const post = (message, transfer = []) => self.postMessage(message, transfer);
 
 async function start({ fonts, glyphs, cardScale, ocr, training }) {
   // Named explicitly so scripts/stamp-web.ps1 can version it together with the glue.
-  await init({ module_or_path: new URL("./pkg/maplelens_web_bg.wasm?v=8f28f7dbbfe7", import.meta.url) });
+  await init({ module_or_path: new URL("./pkg/maplelens_web_bg.wasm?v=7256339d40aa", import.meta.url) });
   const [regular, bold] = await Promise.all(fonts.map(url => fetch(url).then(r => r.arrayBuffer())));
   engine = new Engine(new Uint8Array(regular), new Uint8Array(bold));
   engine.card_scale = cardScale || 1;
@@ -292,6 +293,7 @@ self.onmessage = async ({ data }) => {
     else if (data.type === "training-pause" && engine) { engine.training_pause(data.paused); saveTraining(); }
     else if (data.type === "training-new" && engine) { engine.training_new_session(Date.now() / 1000); saveTraining(); }
     else if (data.type === "training-show" && engine) engine.set_training_show(data.exp);
+    else if (data.type === "training-box" && engine) engine.set_training_box(data.width, data.height);
     else if (data.type === "notify" && engine) {
       engine.set_notify(data.webhook, data.telegramWebhook, data.phone || "", data.sales, data.store);
     }

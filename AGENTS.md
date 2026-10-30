@@ -268,8 +268,11 @@ wide, above the bar and the quickslots. In a bottom corner it sits flush with th
 top, the session at the foot), medium otherwise (rate and session total side by side, the graph showing across the
 middle). The header holds the potions that moved most and the map drops' bag button (`drops_button(width)`), the foot
 the level's gauge and share. Its fill is 10% less see-through than the tooltip cards' (the player asked; numbers over
-a busy field). Only a pause is labelled (PAUSED); there is no LIVE label. The web's floating window, a box, keeps the
-tall card (`Show::strip` None). `render_cards` draws it at each measured screen size.
+a busy field). Only a pause is labelled (PAUSED); there is no LIVE label. The web draws the same strip bare (no fill,
+no frame: `Strip::bare`) at the size of the view it shows in (`Strip::height`; below). `render_cards` draws it at each
+measured screen size, and the web's boxes (`training_web_*.png`). Where Ideal Ratio keeps the UI
+small every card is drawn 1.25x (`geometry::card_scale`, below), the strip too: it then stands a quarter above the Pup
+button (174 px at 1200p), its width still the room to the bar (the player asked for the bigger text).
 - **The graph** (`training_card/graph.rs`, `session::ExpGraph`): EXP a minute over the last 10 minutes behind the
   numbers (the text has a soft shadow), a thin gold line over a glow fading down, like meso.watch's price trends
   (checked October 2026: its public pages have no EXP graph, only these sparklines). A point every 10 s, each the
@@ -679,6 +682,13 @@ Ratio the page flipped between 0.64 and the height's 0.9. Every writer must time
 `paths::uptime`, in the browser `performance.now()`. A reading up to 1 s older than the newest goes in its place
 (the hover thread reads the clock before its grab); a clock that goes back further starts the window over.
 
+The Windows app draws its cards at `geometry::card_scale`: the UI scale, 1.25x (`IDEAL_RATIO_CARDS`) where Ideal
+Ratio keeps the UI under 0.9 of what the window's height draws (1:1 at 1080p and 1200p: the player found the cards'
+text too small). Not at 768p, where both ratios draw 1:1, nor at Ideal Ratio's 2x at 1440p (1.28, bigger than Default
+Ratio's 1.2). What is placed against the game (the tooltip offset, the gaps beside it, the status bar) stays at the
+UI scale, and so do the status pill (the window height's scale) and the game's cursor drawn over the cards. The
+browser draws its cards at the screen's pixel ratio, not over the game, and has none of this.
+
 A map smaller than the client (Kerning City Pharmacy) is drawn with black around it, and that black joins the bar's
 1 px outline: its top row is dark from edge to edge, and every reading there was the whole width (1.53 in Ideal
 Ratio), so the vote settled on it and no tooltip was found. `hud::side` steps out of such a black area to the last
@@ -771,6 +781,13 @@ The cards (`cardfeed.js`, shown by `cards.js` in the page and the floating windo
   square inside, its side 28% of the screen's height (280-480 px; the game's UI grows with the screen), or at the size
   the player last dragged it to (`maplelens.cards.box`). While it is open the page's panel says the cards are floating, with a button that
   closes it.
+- The EXP card fills its view instead (the player asked: the tooltip-style card, shrunk into the square window, sat in
+  a double frame with room around it). Each view tells the feed its body's size (`CardFeed::setBox`), the floating
+  window's winning while it is open, and the engine draws the strip bare at that size in device pixels
+  (`Engine::set_training_box`): the window's own background and title (the map) around it, the graph taking the height
+  a box adds over the strip's, under the rate. The canvas lies over the body, out of the flow, so the card never sizes
+  what it fills. At 1080p's default (302 px) the layout is the strip's medium; narrower boxes (280 px at 125%) are
+  narrow.
 
 What measuring taught (1080p Twitch clips, Chrome, `scripts` not needed: a local server and `?report=`):
 - OCR jobs piled up in the page while the OCR box was unticked (400 MB in a minute, 1.5 GB in six): the engine makes

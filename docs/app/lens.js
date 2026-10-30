@@ -56,7 +56,7 @@ export class Lens {
     this.catalogCount = 0;
     this.tesseract = null;
     this.tesseractLoading = null;
-    this.worker = new Worker(new URL("worker.js?v=8f28f7dbbfe7", base), { type: "module" });
+    this.worker = new Worker(new URL("worker.js?v=7256339d40aa", base), { type: "module" });
     this.worker.onerror = event => reject(new Error(event.message || "the engine could not start"));
     this.counts = {};
     this.bytes = 0;
@@ -126,6 +126,14 @@ export class Lens {
   /** Whether the training card shows the EXP rates. */
   trainingShow(exp) {
     this.worker.postMessage({ type: "training-show", exp });
+  }
+
+  /** The box the training card fills ({width, height} in CSS px), or null for the tall card. Rounded down: the card
+   *  must never be bigger than its box. */
+  trainingBox(box) {
+    const dpr = window.devicePixelRatio || 1;
+    const [width, height] = box ? [Math.floor(box.width * dpr), Math.floor(box.height * dpr)] : [0, 0];
+    this.worker.postMessage({ type: "training-box", width, height });
   }
 
   /** Report sold items to a Discord webhook, a Telegram bot's sendMessage URL and the phones paired with a key (the
