@@ -24,7 +24,7 @@ fn main() {
         .set_icon("assets/maplelens.ico")
         .set("FileDescription", "MapleLens - overlays for MapleStory Classic")
         .set("ProductName", "MapleLens")
-        .set("LegalCopyright", "MIT License, MapleLens contributors");
+        .set("LegalCopyright", "GPL-3.0-or-later, MapleLens contributors");
     if let Err(error) = resource.compile() {
         // The icon is cosmetic: a machine without the Windows SDK's rc.exe still builds a working exe.
         println!("cargo:warning=app icon not embedded: {error}");

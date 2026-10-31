@@ -29,5 +29,5 @@ Read [AGENTS.md](AGENTS.md): it documents the architecture, conventions and hard
 - The overlay stays click-through and never steals focus.
 - Pure logic gets unit tests; overlay changes need a test or a screenshot over the game.
 
-By contributing you agree your work is released under the [MIT license](LICENSE) and that you follow the
+By contributing you agree your work is released under the [GNU GPL, version 3 or later](LICENSE) and that you follow the
 [Code of Conduct](CODE_OF_CONDUCT.md).

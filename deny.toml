@@ -1,4 +1,4 @@
-# cargo deny check: known vulnerabilities, licences compatible with shipping an MIT exe, crates.io only.
+# cargo deny check: known vulnerabilities, licences compatible with shipping a GPL-3.0 exe, crates.io only.
 
 [graph]
 targets = ["x86_64-pc-windows-msvc", "wasm32-unknown-unknown"]
@@ -15,6 +15,10 @@ ignore = [
 [licenses]
 allow = ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Zlib", "Unicode-3.0", "CDLA-Permissive-2.0"]
 confidence-threshold = 0.9
+
+# The workspace's own crates (GPL-3.0-or-later) are never published: the list is for what they depend on.
+[licenses.private]
+ignore = true
 
 [bans]
 multiple-versions = "warn"
