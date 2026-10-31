@@ -6,12 +6,13 @@
 //! is into the current level, so a big drop in the share is a level up (the rest of the old level plus the new
 //! EXP is gained), and a small drop is EXP lost by dying. Time counts only while the bar is seen and EXP keeps
 //! coming, and a minute without EXP (town, shopping, AFK) or a move to another map ends the session: the next EXP
-//! starts a new one, so the rates are always those of the training going on now, here. EXP gained in a town (a
-//! quest handed in, an event) is no training: it is followed but never counted, so no session starts there. A pause
-//! holds the session as it is. The level's size (EXP
-//! over share) tells characters apart: a change in it that is not a level up is another character, and counts
-//! nothing.
+//! starts a new one, so the rates are always those of the training going on now, here. A trip that comes back to
+//! the map within `HOP_S` (a portal taken by mistake) is no move: the session goes on, with what the trip gave. EXP
+//! gained in a town (a quest handed in, an event) is no training: it is followed but never counted, so no session
+//! starts there. A pause holds the session as it is. The level's size (EXP over share) tells characters apart: a
+//! change in it that is not a level up is another character, and counts nothing.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 
 use serde::{Deserialize, Serialize};
@@ -29,6 +30,9 @@ const OBSERVED_GAP_S: f64 = 300.0;
 const NEW_SESSION_GAP_S: f64 = 1_800.0;
 /// No EXP for this long and the session is over: it goes into the history and the next EXP starts another.
 const IDLE_RESET_S: f64 = 60.0;
+/// Back on the map left within this, the session goes on: a portal taken by mistake and straight back is two loading
+/// screens, and each map is seen a few seconds late (two minimap reads 2 s apart must agree).
+const HOP_S: f64 = 15.0;
 /// The "now" rate and the time to level look at this much recent play.
 const RECENT_S: f64 = 300.0;
 /// Rates start after this much play (sooner, one kill swings them).
@@ -143,10 +147,118 @@ struct Seen {
     reading: ExpReading,
 }
 
+/// A session and the recent play its rates come from.
+#[derive(Clone, Debug, Default)]
+struct Play {
+    session: Session,
+    /// Gains of the last `RECENT_S`, and the time that counted in the same window.
+    recent: VecDeque<(f64, u64)>,
+    recent_time: VecDeque<(f64, f64)>,
+    last_gain: Option<f64>,
+    /// The current clock minute and what it has given so far.
+    minute: (i64, u64),
+    /// Gains and level ups of the graph's span (and the minute before it), for `ExpGraph`.
+    timeline: VecDeque<(f64, u64)>,
+    level_ups: VecDeque<f64>,
+}
+
+impl Play {
+    fn starting(now: f64) -> Self {
+        Self { session: Session { started: now, ended: now, ..Session::default() }, ..Self::default() }
+    }
+
+    /// Add what came after this (a trip to another map) to it.
+    fn absorb(&mut self, later: Play) {
+        let (into, from) = (&mut self.session, later.session);
+        into.ended = into.ended.max(from.ended);
+        into.active_s += from.active_s;
+        into.gained += from.gained;
+        into.percent += from.percent;
+        into.levels += from.levels;
+        into.lost += from.lost;
+        for stat in from.maps {
+            match into.maps.iter_mut().find(|m| m.map == stat.map) {
+                Some(m) => {
+                    m.active_s += stat.active_s;
+                    m.gained += stat.gained;
+                }
+                None => into.maps.push(stat),
+            }
+        }
+        for stat in from.potions {
+            match into.potions.iter_mut().find(|p| p.id == stat.id) {
+                Some(p) => {
+                    p.used += stat.used;
+                    p.picked += stat.picked;
+                }
+                None => into.potions.push(stat),
+            }
+        }
+        self.recent.extend(later.recent);
+        self.recent_time.extend(later.recent_time);
+        self.timeline.extend(later.timeline);
+        self.level_ups.extend(later.level_ups);
+        self.last_gain = later.last_gain.or(self.last_gain);
+        self.minute = match later.minute {
+            (minute, gain) if minute == self.minute.0 => (minute, self.minute.1 + gain),
+            (_, 0) => self.minute,
+            other => other,
+        };
+        into.best_minute = into.best_minute.max(from.best_minute).max(self.minute.1);
+    }
+
+    fn trim(&mut self, now: f64) {
+        while self.recent.front().is_some_and(|(at, _)| now - at > RECENT_S) {
+            self.recent.pop_front();
+        }
+        while self.recent_time.front().is_some_and(|(at, _)| now - at > RECENT_S) {
+            self.recent_time.pop_front();
+        }
+        while self.timeline.front().is_some_and(|(at, _)| now - at > GRAPH_S + GRAPH_WINDOW_S) {
+            self.timeline.pop_front();
+        }
+        while self.level_ups.front().is_some_and(|at| now - at > GRAPH_S) {
+            self.level_ups.pop_front();
+        }
+    }
+
+    /// The graph at `now`: each point the EXP a minute over the minute before it (over the time since the session's
+    /// first EXP while that is shorter, so the line does not climb from nothing); none until `MIN_RATE_S` of it.
+    fn graph(&self, now: f64) -> ExpGraph {
+        if self.session.gained == 0 {
+            return ExpGraph::default();
+        }
+        let start = self.session.started;
+        let points = (GRAPH_S / GRAPH_STEP_S) as usize;
+        let rates = (0..=points)
+            .rev()
+            .map(|k| now - k as f64 * GRAPH_STEP_S)
+            .filter_map(|at| {
+                let window = GRAPH_WINDOW_S.min(at - start);
+                (window >= MIN_RATE_S).then(|| {
+                    let gained: u64 =
+                        self.timeline.iter().filter(|(t, _)| *t >= at - window && *t <= at).map(|(_, g)| g).sum();
+                    gained as f64 * MINUTE_S / window
+                })
+            })
+            .collect();
+        ExpGraph { rates, level_ups: self.level_ups.iter().map(|at| now - at).collect() }
+    }
+}
+
+/// A session left on a move to another map, kept aside in case the player is back within `HOP_S`.
+#[derive(Clone, Debug)]
+struct Hop {
+    map: String,
+    left: f64,
+    kept: Play,
+}
+
 /// Follows the EXP bar into sessions.
 #[derive(Clone, Debug, Default)]
 pub struct Tracker {
-    session: Session,
+    play: Play,
+    hop: Option<Hop>,
     history: Vec<Session>,
     /// The last value that counted, and when it was last seen.
     last: Option<Seen>,
@@ -157,22 +269,13 @@ pub struct Tracker {
     map: Option<String>,
     /// The map is a town: nothing gained there counts.
     town: bool,
-    /// Gains of the last `RECENT_S`, and the time that counted in the same window.
-    recent: VecDeque<(f64, u64)>,
-    recent_time: VecDeque<(f64, f64)>,
-    last_gain: Option<f64>,
     /// Resumed since the last look: the minute without EXP starts over.
     resumed: bool,
     /// Each item's last total in the quickslots, and when the quickslots were last read.
     potion_totals: HashMap<u32, u32>,
     potions_seen: Option<f64>,
-    /// The current clock minute and what it has given so far.
-    minute: (i64, u64),
     /// The level's EXP as worked out from the highest share seen in it (the most precise).
     needed: Option<(u64, u32)>,
-    /// Gains and level ups of the graph's span (and the minute before it), for `ExpGraph`.
-    timeline: VecDeque<(f64, u64)>,
-    level_ups: VecDeque<f64>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -190,15 +293,18 @@ impl Tracker {
     /// The tracker as it was saved (`to_json`); a damaged file starts afresh.
     pub fn from_json(text: &str) -> Self {
         match serde_json::from_str::<Saved>(text) {
-            Ok(saved) => {
-                Self { session: saved.session, history: saved.history, paused: saved.paused, ..Self::default() }
-            }
+            Ok(saved) => Self {
+                play: Play { session: saved.session, ..Play::default() },
+                history: saved.history,
+                paused: saved.paused,
+                ..Self::default()
+            },
             Err(_) => Self::default(),
         }
     }
 
     pub fn to_json(&self) -> String {
-        let saved = Saved { session: self.session.clone(), history: self.history.clone(), paused: self.paused };
+        let saved = Saved { session: self.shown().session.clone(), history: self.history.clone(), paused: self.paused };
         serde_json::to_string(&saved).unwrap_or_default()
     }
 
@@ -206,8 +312,21 @@ impl Tracker {
         &self.history
     }
 
-    pub fn session(&self) -> &Session {
-        &self.session
+    pub fn session(&self) -> Session {
+        self.shown().into_owned().session
+    }
+
+    /// The session as the player sees it: on a trip to another map, the one left with the trip's play added, as it
+    /// will be if they come back.
+    fn shown(&self) -> Cow<'_, Play> {
+        match &self.hop {
+            Some(hop) => {
+                let mut play = hop.kept.clone();
+                play.absorb(self.play.clone());
+                Cow::Owned(play)
+            }
+            None => Cow::Borrowed(&self.play),
+        }
     }
 
     pub fn paused(&self) -> bool {
@@ -222,51 +341,86 @@ impl Tracker {
         self.paused = paused;
     }
 
-    /// A minute without EXP (not paused) ends the session.
+    /// A minute without EXP (not paused) ends the session, and a trip away for longer than `HOP_S` the one left.
     fn expire(&mut self, now: f64) {
         if self.resumed {
             self.resumed = false;
-            self.last_gain = self.last_gain.map(|_| now);
+            self.play.last_gain = self.play.last_gain.map(|_| now);
         }
-        if !self.paused && self.last_gain.is_some_and(|at| now - at > IDLE_RESET_S) {
+        if self.hop.as_ref().is_some_and(|hop| now - hop.left > HOP_S) {
+            self.settle_hop();
+        }
+        if !self.paused && self.play.last_gain.is_some_and(|at| now - at > IDLE_RESET_S) {
             self.new_session(now);
         }
     }
 
     /// End this session (into the history, if anything happened in it) and start another.
     pub fn new_session(&mut self, now: f64) {
-        if self.session.gained > 0 || self.session.active_s >= MINUTE_S {
-            self.session.ended = self.session.ended.max(self.session.started);
-            self.history.push(std::mem::take(&mut self.session));
+        self.settle_hop();
+        let ended = std::mem::replace(&mut self.play, Play::starting(now));
+        self.file(ended.session);
+    }
+
+    /// A session that is over goes into the history, if anything happened in it.
+    fn file(&mut self, mut session: Session) {
+        if session.gained > 0 || session.active_s >= MINUTE_S {
+            session.ended = session.ended.max(session.started);
+            self.history.push(session);
             let over = self.history.len().saturating_sub(HISTORY);
             self.history.drain(..over);
         }
-        self.session = Session { started: now, ended: now, ..Session::default() };
-        self.recent.clear();
-        self.recent_time.clear();
-        self.timeline.clear();
-        self.level_ups.clear();
-        self.last_gain = None;
-        self.minute = (0, 0);
+    }
+
+    /// The session left on a trip is over: the player did not come back in time, or went on elsewhere.
+    fn settle_hop(&mut self) {
+        if let Some(hop) = self.hop.take() {
+            self.file(hop.kept.session);
+        }
     }
 
     /// The map the player is on, when known: gains and time go to it. Moving to another map, or into a town, ends the
-    /// session (not while paused). No map (the minimap not read for a while, or not yet) keeps the last one for the
-    /// move, but counts as a field: a player training with the minimap closed still has a session.
+    /// session (not while paused), unless the player is back within `HOP_S`: until then the session is kept aside,
+    /// and on coming back it goes on with what the trip gave. No map (the minimap not read for a while, or not yet)
+    /// keeps the last one for the move, but counts as a field: a player training with the minimap closed still has a
+    /// session.
     pub fn set_map(&mut self, map: Option<String>, now: f64) {
         let Some(map) = map else {
             self.town = false;
             return;
         };
-        let moved = self.map.as_deref().is_some_and(|was| !same_map(was, &map));
+        let was = self.map.take().filter(|was| !same_map(was, &map));
         let town = is_town(&map);
-        // A town settled before any map was (a quest handed in while the minimap was still being read) ends what
-        // its EXP had started.
-        if (moved || (town && !self.town)) && !self.paused {
+        if let Some(was) = was.filter(|_| !self.paused) {
+            match self.hop.take() {
+                Some(hop) if same_map(&hop.map, &map) && now - hop.left <= HOP_S => {
+                    let trip = std::mem::replace(&mut self.play, hop.kept);
+                    self.play.absorb(trip);
+                }
+                older => {
+                    if let Some(hop) = older {
+                        self.file(hop.kept.session);
+                    }
+                    self.leave(was, now);
+                }
+            }
+        } else if town && !self.town && !self.paused {
+            // A town settled before any map was (a quest handed in while the minimap was still being read) ends what
+            // its EXP had started.
             self.new_session(now);
         }
         self.town = town;
         self.map = Some(map);
+    }
+
+    /// Leaving `map`: a new session starts here, and the one played there is kept aside for `HOP_S`.
+    fn leave(&mut self, map: String, now: f64) {
+        let left = std::mem::replace(&mut self.play, Play::starting(now));
+        if left.session.gained > 0 {
+            self.hop = Some(Hop { map, left: now, kept: left });
+        } else {
+            self.file(left.session);
+        }
     }
 
     /// The quickslots' totals per item at `now` (only the items read this time; `name` names an id). A total that
@@ -278,7 +432,7 @@ impl Tracker {
         for (&id, &total) in totals {
             let was = self.potion_totals.insert(id, total);
             let Some(was) = was.filter(|&was| counted && was != total) else { continue };
-            let stats = &mut self.session.potions;
+            let stats = &mut self.play.session.potions;
             let index = match stats.iter().position(|p| p.id == id) {
                 Some(index) => index,
                 None => {
@@ -340,28 +494,29 @@ impl Tracker {
             return;
         }
         let counted = gap <= OBSERVED_GAP_S && !self.paused;
-        let levels = self.session.levels;
+        let levels = self.play.session.levels;
         let gain = if reading == last.reading { 0 } else { self.change(last.reading, reading) };
-        if counted && self.session.levels > levels {
-            self.level_ups.push_back(now);
+        if counted && self.play.session.levels > levels {
+            self.play.level_ups.push_back(now);
         }
         // The clock runs while EXP keeps coming; the stretch before the first gain after a pause in play counts
         // as play too (the monster took that long).
-        if counted && (gain > 0 || self.last_gain.is_some()) {
+        if counted && (gain > 0 || self.play.last_gain.is_some()) {
             self.count_time(now, gap);
         }
         if counted && gain > 0 {
             self.gain(now, gain, reading);
         }
         self.last = Some(Seen { at: now, reading });
-        self.session.ended = now;
+        self.play.session.ended = now;
     }
 
     fn begin(&mut self, now: f64, reading: ExpReading) {
-        if self.session.started == 0.0 {
-            self.session.started = now;
+        let session = &mut self.play.session;
+        if session.started == 0.0 {
+            session.started = now;
         }
-        self.session.ended = now;
+        session.ended = now;
         self.last = Some(Seen { at: now, reading });
         self.note_needed(reading);
     }
@@ -380,7 +535,7 @@ impl Tracker {
                 return self.rebase(new);
             }
             let needed = old_size.or_else(|| old.needed()).unwrap_or(old.exp);
-            self.session.levels += 1;
+            self.play.session.levels += 1;
             self.needed = None;
             self.note_needed(new);
             return needed.saturating_sub(old.exp) + new.exp;
@@ -390,7 +545,7 @@ impl Tracker {
         }
         self.note_needed(new);
         if new.exp < old.exp {
-            self.session.lost += old.exp - new.exp;
+            self.play.session.lost += old.exp - new.exp;
             return 0;
         }
         new.exp - old.exp
@@ -412,29 +567,31 @@ impl Tracker {
     }
 
     fn count_time(&mut self, now: f64, gap: f64) {
-        self.session.active_s += gap;
-        self.recent_time.push_back((now, gap));
+        self.play.session.active_s += gap;
+        self.play.recent_time.push_back((now, gap));
         if let Some(stat) = self.map_stat_mut() {
             stat.active_s += gap;
         }
     }
 
     fn gain(&mut self, now: f64, gain: u64, reading: ExpReading) {
-        if self.session.gained == 0 {
-            self.session.started = now; // a session starts with its first EXP, not when the last one ended
+        let needed = self.needed.or(reading.needed().map(|n| (n, 0)));
+        let play = &mut self.play;
+        if play.session.gained == 0 {
+            play.session.started = now; // a session starts with its first EXP, not when the last one ended
         }
-        self.session.gained += gain;
-        if let Some((needed, _)) = self.needed.or(reading.needed().map(|n| (n, 0)))
+        play.session.gained += gain;
+        if let Some((needed, _)) = needed
             && needed > 0
         {
-            self.session.percent += gain as f64 * 100.0 / needed as f64;
+            play.session.percent += gain as f64 * 100.0 / needed as f64;
         }
-        self.last_gain = Some(now);
-        self.recent.push_back((now, gain));
-        self.timeline.push_back((now, gain));
+        play.last_gain = Some(now);
+        play.recent.push_back((now, gain));
+        play.timeline.push_back((now, gain));
         let minute = (now / MINUTE_S).floor() as i64;
-        self.minute = if self.minute.0 == minute { (minute, self.minute.1 + gain) } else { (minute, gain) };
-        self.session.best_minute = self.session.best_minute.max(self.minute.1);
+        play.minute = if play.minute.0 == minute { (minute, play.minute.1 + gain) } else { (minute, gain) };
+        play.session.best_minute = play.session.best_minute.max(play.minute.1);
         if let Some(stat) = self.map_stat_mut() {
             stat.gained += gain;
         }
@@ -442,7 +599,7 @@ impl Tracker {
 
     fn map_stat_mut(&mut self) -> Option<&mut MapStat> {
         let map = self.map.clone()?;
-        let maps = &mut self.session.maps;
+        let maps = &mut self.play.session.maps;
         let index = match maps.iter().position(|m| m.map == map) {
             Some(index) => index,
             None => {
@@ -453,56 +610,22 @@ impl Tracker {
         maps.get_mut(index)
     }
 
-    fn trim(&mut self, now: f64) {
-        while self.recent.front().is_some_and(|(at, _)| now - at > RECENT_S) {
-            self.recent.pop_front();
-        }
-        while self.recent_time.front().is_some_and(|(at, _)| now - at > RECENT_S) {
-            self.recent_time.pop_front();
-        }
-        while self.timeline.front().is_some_and(|(at, _)| now - at > GRAPH_S + GRAPH_WINDOW_S) {
-            self.timeline.pop_front();
-        }
-        while self.level_ups.front().is_some_and(|at| now - at > GRAPH_S) {
-            self.level_ups.pop_front();
-        }
-    }
-
-    /// The graph at `now`: each point the EXP a minute over the minute before it (over the time since the session's
-    /// first EXP while that is shorter, so the line does not climb from nothing); none until `MIN_RATE_S` of it.
-    fn graph(&self, now: f64) -> ExpGraph {
-        if self.session.gained == 0 {
-            return ExpGraph::default();
-        }
-        let start = self.session.started;
-        let points = (GRAPH_S / GRAPH_STEP_S) as usize;
-        let rates = (0..=points)
-            .rev()
-            .map(|k| now - k as f64 * GRAPH_STEP_S)
-            .filter_map(|at| {
-                let window = GRAPH_WINDOW_S.min(at - start);
-                (window >= MIN_RATE_S).then(|| {
-                    let gained: u64 =
-                        self.timeline.iter().filter(|(t, _)| *t >= at - window && *t <= at).map(|(_, g)| g).sum();
-                    gained as f64 * MINUTE_S / window
-                })
-            })
-            .collect();
-        ExpGraph { rates, level_ups: self.level_ups.iter().map(|at| now - at).collect() }
-    }
-
     /// The numbers at `now`; `live_s` is how recent a read must be for the bar to count as in view.
     pub fn view(&mut self, now: f64, live_s: f64) -> TrainingView {
         self.expire(now);
-        self.trim(now);
-        let session = &self.session;
+        self.play.trim(now);
+        if let Some(hop) = &mut self.hop {
+            hop.kept.trim(now);
+        }
+        let play = self.shown();
+        let session = &play.session;
         let per_min = |gained: f64, seconds: f64| (seconds >= MIN_RATE_S).then(|| gained * MINUTE_S / seconds);
-        let recent_s: f64 = self.recent_time.iter().map(|(_, s)| s).sum();
-        let recent_gain: u64 = self.recent.iter().map(|(_, g)| g).sum();
-        let last_minute_gain: u64 = self.recent.iter().filter(|(at, _)| now - at <= MINUTE_S).map(|(_, g)| g).sum();
+        let recent_s: f64 = play.recent_time.iter().map(|(_, s)| s).sum();
+        let recent_gain: u64 = play.recent.iter().map(|(_, g)| g).sum();
+        let last_minute_gain: u64 = play.recent.iter().filter(|(at, _)| now - at <= MINUTE_S).map(|(_, g)| g).sum();
         let average_per_min = per_min(session.gained as f64, session.active_s);
         let recent_per_min = per_min(recent_gain as f64, recent_s).or(average_per_min);
-        let stalled = self.last_gain.is_none_or(|at| now - at > IDLE_RESET_S);
+        let stalled = play.last_gain.is_none_or(|at| now - at > IDLE_RESET_S);
         let last_minute = (session.active_s >= MINUTE_S && !stalled).then_some(last_minute_gain as f64);
         let reading = self.last.map(|s| s.reading);
         let to_level_s = match (reading, self.needed, recent_per_min) {
@@ -524,7 +647,7 @@ impl Tracker {
             to_level_s,
             map: self.map.clone(),
             map_stat,
-            graph: self.graph(now),
+            graph: play.graph(now),
         }
     }
 }
