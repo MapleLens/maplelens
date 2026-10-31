@@ -1,10 +1,11 @@
 //! The strip's body between its header and its gauge, laid out for the room it has, over the graph drawn behind it
 //! (`graph`). Narrow (4:3 screens): the rate on top, the session at the foot, the graph showing between. Medium (16:10
 //! and wider): the rate and the session's total side by side, the graph across the middle. The text has a soft shadow
-//! so it reads over the graph.
+//! so it reads over the graph. A box taller than the strip (the web's) gives the graph the height it adds, under the
+//! rate rather than behind it.
 
 use super::graph;
-use super::strip::{FOOT_Y, HEADER_Y, STRIP_HEIGHT};
+use super::strip::{FOOT_UP, HEADER_Y, STRIP_HEIGHT};
 use super::{clock, eta, fit};
 use crate::market::format::format_mesos;
 use crate::render::canvas::{Anchor, Canvas, Ink};
@@ -14,9 +15,11 @@ use crate::training::session::TrainingView;
 
 /// From this width (design units) the medium layout.
 const MEDIUM: f32 = 200.0;
-/// The body starts under the header and ends over the gauge.
+/// The body starts under the header and ends this far over the strip's bottom, above the gauge.
 const TOP: f32 = HEADER_Y + 11.0;
-const BOTTOM: f32 = STRIP_HEIGHT - 19.0;
+const BOTTOM_UP: f32 = 19.0;
+/// The rate and the line under it, which the graph clears in a box taller than the strip.
+const ABOVE_GRAPH: f32 = 42.0;
 const SMALL: f32 = 9.0;
 /// Under every letter, so the numbers read over the graph.
 const SHADOW: theme::Rgba = [6, 8, 28, 190];
@@ -73,14 +76,17 @@ impl Lines {
     }
 }
 
-pub(super) fn body(cv: &mut Canvas<'_>, view: &TrainingView, shape: Shape) {
-    // Behind everything: the whole body, from under the header down to the gauge.
-    let area = (4.0, TOP - 3.0, cv.width - 8.0, FOOT_Y - 3.0 - TOP);
+/// The body of a strip `height` design units tall.
+pub(super) fn body(cv: &mut Canvas<'_>, view: &TrainingView, shape: Shape, height: f32) {
+    // Behind everything: the whole body, from under the header (or the rate) down to the gauge.
+    let top = TOP - 3.0 + (height - STRIP_HEIGHT).clamp(0.0, ABOVE_GRAPH);
+    let area = (4.0, top, cv.width - 8.0, height - FOOT_UP - 3.0 - top);
     graph::draw(cv, area, &view.graph, view.average_per_min);
     let lines = Lines::of(view);
+    let bottom = height - BOTTOM_UP;
     match shape {
-        Shape::Narrow => narrow(cv, &lines),
-        Shape::Medium => medium(cv, &lines),
+        Shape::Narrow => narrow(cv, &lines, bottom),
+        Shape::Medium => medium(cv, &lines, bottom),
     }
 }
 
@@ -112,16 +118,16 @@ fn small(cv: &mut Canvas<'_>, x: f32, y: f32, text: &str, room: f32, colour: the
     put(cv, x, y, &text, Ink::new(SMALL, colour), Anchor::LA)
 }
 
-fn narrow(cv: &mut Canvas<'_>, lines: &Lines) {
+fn narrow(cv: &mut Canvas<'_>, lines: &Lines, bottom: f32) {
     let room = cv.width - 2.0 * PAD;
     rate(cv, PAD, TOP, 17.0, &lines.rate);
     small(cv, PAD, TOP + 21.0, &lines.average, room, theme::TEXT_DIM);
     let session = format!("{} {}", lines.total, lines.time);
-    small(cv, PAD, BOTTOM - 25.0, &session, room, theme::TEXT);
-    small(cv, PAD, BOTTOM - 12.0, &lines.level, room, theme::TEXT_DIM);
+    small(cv, PAD, bottom - 25.0, &session, room, theme::TEXT);
+    small(cv, PAD, bottom - 12.0, &lines.level, room, theme::TEXT_DIM);
 }
 
-fn medium(cv: &mut Canvas<'_>, lines: &Lines) {
+fn medium(cv: &mut Canvas<'_>, lines: &Lines, bottom: f32) {
     let room = cv.width - 2.0 * PAD;
     rate(cv, PAD, TOP + 1.0, 20.0, &lines.rate);
     total(cv, cv.width - PAD, TOP + 3.0, lines, 12.0);
@@ -130,7 +136,7 @@ fn medium(cv: &mut Canvas<'_>, lines: &Lines) {
     let pace_above = !lines.pace.is_empty() && cv.measure(&both, SMALL, false) <= room;
     let above = if pace_above { both } else { lines.average.clone() };
     small(cv, PAD, TOP + 27.0, &above, room, theme::TEXT_DIM);
-    let y = BOTTOM - 10.0;
+    let y = bottom - 10.0;
     let level_w = small(cv, PAD, y, &lines.level, room, theme::TEXT);
     if !pace_above && !lines.pace.is_empty() {
         let pace = fit(cv, &lines.pace, SMALL, room - level_w - 10.0);

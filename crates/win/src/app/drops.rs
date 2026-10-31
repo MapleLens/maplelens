@@ -26,17 +26,17 @@ use crate::layered::LayeredWindow;
 use crate::maps::service::Status;
 use crate::paths;
 
-/// Between the EXP strip and the panel, and between the panel and a drop's price card, at UI scale 1.
+/// Between the EXP strip and the panel, and between the panel and a drop's price card, at the cards' scale 1.
 const GAP: f32 = 6.0;
 /// A monster's page left without the pointer for this long goes back to the list.
 const PAGE_IDLE_S: f64 = 3.0;
 
-/// What the panel's content comes from: (map, what the drop book knows, sprites ready, item icons ready, catalog, UI
-/// scale bits).
+/// What the panel's content comes from: (map, what the drop book knows, sprites ready, item icons ready, catalog, the
+/// cards' scale bits).
 type ContentKey = (u32, u64, usize, usize, usize, u32);
 /// The panel's picture: its content and how it is drawn.
 type PanelKey = (ContentKey, PanelState);
-/// A drop's price card: (item, monster, expanded, catalog, UI scale bits).
+/// A drop's price card: (item, monster, expanded, catalog, the cards' scale bits).
 type PriceKey = (u32, u32, bool, usize, u32);
 
 pub struct DropsUi {
@@ -167,7 +167,7 @@ impl App {
         if !self.drops.open || !self.drops.available {
             return false;
         }
-        let scale = (self.ui.of(client) * 100.0).round() / 100.0;
+        let scale = self.card_scale(client);
         let catalog = Arc::as_ptr(&self.catalog) as usize;
         if self.drops.items.0 != catalog {
             self.drops.items = (catalog, drops::items_by_id(self.catalog.items()));

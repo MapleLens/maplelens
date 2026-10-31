@@ -47,6 +47,19 @@ pub fn ui_scale(client: Rect) -> f32 {
     client.h as f32 / REFERENCE_HEIGHT as f32
 }
 
+/// MapleLens's cards are drawn this much bigger than the game's UI where "UI Size: Ideal Ratio" keeps that UI small:
+/// at 1:1 on a 1200 px tall screen their text was too small to read at a glance (the player asked for 1.25x).
+pub const IDEAL_RATIO_CARDS: f32 = 1.25;
+/// Ideal Ratio is told by the UI drawn at most this share of what the window's height would draw (`ui_scale`, as
+/// Default Ratio does): 0.64 against 1.0 at 1200p, 0.9 at 1080p. Where both draw alike (768p, 0.64) or Ideal Ratio
+/// draws bigger (its 2x at 1440p, 1.28 against 1.2), the UI is not small and the cards keep its size.
+const SMALL_UI: f32 = 0.9;
+
+/// The UI scale MapleLens draws its cards at over a game drawing its UI at `scale` in `client`.
+pub fn card_scale(client: Rect, scale: f32) -> f32 {
+    if scale < ui_scale(client) * SMALL_UI { scale * IDEAL_RATIO_CARDS } else { scale }
+}
+
 /// A capture of the same game window can be this much shorter: the browser guesses the height of the window's title
 /// bar (0, 31, 39 or 47 px) and cycles through those guesses while nothing is detected. A real resize changes more,
 /// or changes the width.

@@ -3,6 +3,7 @@
 //! is the room beside the bar, never more than at 16:9 in Default Ratio (`MAX_STRIP_WIDTH`), and the layout follows it
 //! (`layout`): one column when narrow, the graph showing across the middle otherwise. The header carries the potions
 //! used and the map drops' button, the foot the level's gauge. The party quest's section, when shown, hangs below it.
+//! The web draws it bare (no fill, no frame) at the size of its box, the graph taking the height it adds.
 
 use super::layout::{self, Shape};
 use super::{Button, Show, Strip, fit, is_training, quest_section};
@@ -44,9 +45,9 @@ const POTIONS: usize = 3;
 const POTION_ICON: f32 = 11.0;
 /// Under the pointer: the button lit this much.
 const LIT: theme::Rgba = [255, 255, 255, 34];
-/// The header's middle, and the foot's (the gauge and the level's share).
+/// The header's middle, and the foot's above the strip's bottom (the gauge and the level's share).
 pub(super) const HEADER_Y: f32 = 13.0;
-pub(super) const FOOT_Y: f32 = STRIP_HEIGHT - 9.0;
+pub(super) const FOOT_UP: f32 = 9.0;
 const GAUGE_H: f32 = 4.0;
 
 /// The strip's width in pixels for a client of `client` (w, h) with the status bar `bar_w` pixels wide, drawn at
@@ -72,9 +73,10 @@ pub fn on_drops_button(width: f32, x: f32, y: f32) -> bool {
 
 pub(super) fn render(fonts: &Fonts, training: &Training, show: Show, strip: Strip, now: f64, factor: f32) -> RgbaImage {
     let width = strip.width.map_or(FALLBACK_WIDTH, |px| px as f32 / factor);
+    let exp_height = strip.height.map_or(STRIP_HEIGHT, |px| px as f32 / factor);
     let exp = show.exp && is_training(&training.exp);
     let quest = training.quest.filter(|_| show.quest);
-    let top = if exp { STRIP_HEIGHT } else { 0.0 };
+    let top = if exp { exp_height } else { 0.0 };
     let height = match quest {
         Some(run) => {
             let mut probe = Canvas::new(fonts, width, 900.0, factor);
@@ -83,13 +85,15 @@ pub(super) fn render(fonts: &Fonts, training: &Training, show: Show, strip: Stri
         None => top,
     };
     let mut cv = Canvas::new(fonts, width, height, factor);
-    frame(&mut cv, height);
+    if !strip.bare {
+        frame(&mut cv, height);
+    }
     if exp {
         let view = &training.exp;
         let shape = Shape::of(width);
-        header(&mut cv, view, &training.potions, strip.drops, shape);
-        layout::body(&mut cv, view, shape);
-        foot(&mut cv, view);
+        header(&mut cv, view, &training.potions, strip.drops, shape, !strip.bare);
+        layout::body(&mut cv, view, shape, exp_height);
+        foot(&mut cv, view, exp_height - FOOT_UP);
     }
     if let Some(run) = quest {
         if exp {
@@ -112,8 +116,9 @@ fn frame(cv: &mut Canvas<'_>, height: f32) {
     }
 }
 
-/// What it is (and a pause), the map when there is room, the potions and the drops' button on the right.
-fn header(cv: &mut Canvas<'_>, view: &TrainingView, potions: &Potions, drops: Option<Button>, shape: Shape) {
+/// What it is (and a pause), the map when there is room (and no one else names it), the potions and the drops' button
+/// on the right.
+fn header(cv: &mut Canvas<'_>, view: &TrainingView, potions: &Potions, drops: Option<Button>, shape: Shape, map: bool) {
     cv.circle(PAD + 3.5, HEADER_Y, 3.5, theme::BULLET, None);
     let label = Ink::new(10.0, theme::TEXT_DIM).bold();
     let mut x = PAD + 12.0 + cv.text(PAD + 12.0, HEADER_Y, "EXP", label, Anchor::LM) + 6.0;
@@ -128,6 +133,7 @@ fn header(cv: &mut Canvas<'_>, view: &TrainingView, potions: &Potions, drops: Op
     }
     right = potions_row(cv, potions, x, right);
     if shape != Shape::Narrow
+        && map
         && let Some(map) = &view.map
     {
         let room = right - x - 8.0;
@@ -138,16 +144,16 @@ fn header(cv: &mut Canvas<'_>, view: &TrainingView, potions: &Potions, drops: Op
     }
 }
 
-/// The level's share along the foot, like the game's EXP bar, with the share at its end.
-fn foot(cv: &mut Canvas<'_>, view: &TrainingView) {
+/// The level's share along the foot (its middle at `foot_y`), like the game's EXP bar, with the share at its end.
+fn foot(cv: &mut Canvas<'_>, view: &TrainingView, foot_y: f32) {
     let Some(reading) = view.reading else { return };
     let share = reading.percent();
     let text = format!("{share:.2}%");
     let ink = Ink::new(9.0, theme::TEXT).bold();
     let end = cv.width - PAD;
     let track = end - cv.measure(&text, ink.size, true) - 6.0 - PAD;
-    cv.text(end, FOOT_Y, &text, ink, Anchor::RM);
-    let y = FOOT_Y - GAUGE_H / 2.0;
+    cv.text(end, foot_y, &text, ink, Anchor::RM);
+    let y = foot_y - GAUGE_H / 2.0;
     cv.rounded((PAD, y, track, GAUGE_H), 2.0, Some(theme::TRACK), None);
     let filled = (track * share as f32 / 100.0).clamp(0.0, track);
     if filled >= 1.0 {

@@ -563,7 +563,8 @@ fn the_graph_is_the_pace_of_the_last_minutes_with_its_level_ups() {
 #[test]
 fn the_strip_reaches_the_pup_button_and_is_denser_than_the_tall_card() {
     let training = training_after_play();
-    let strip = |drops, width| Show { exp: true, quest: false, strip: Some(Strip { drops, width }) };
+    let strip =
+        |drops, width| Show { exp: true, quest: false, strip: Some(Strip { drops, width, ..Strip::default() }) };
     // The Pup quickslot's top above the client's foot, measured on the game's renders: 139 px at 1:1 (UI scale 0.64),
     // 195 at 1080p's Default Ratio (0.9), 217 at 1200p's (1.0).
     for (scale, pup) in [(0.64, 139), (0.9, 195), (1.0, 217)] {
@@ -597,6 +598,27 @@ fn the_strip_reaches_the_pup_button_and_is_denser_than_the_tall_card() {
     let both = Show { quest: true, ..strip(None, Some(400)) };
     let with_quest = render_training_card(common::fonts(), &quest, both, 10.0, 1.0).expect("card");
     assert!(with_quest.height > card.height + 60);
+}
+
+#[test]
+fn the_webs_box_is_filled_by_a_bare_strip() {
+    let training = training_after_play();
+    let in_box = |w, h| Strip { width: Some(w), height: Some(h), bare: true, drops: None };
+    let show = |w, h| Show { exp: true, quest: false, strip: Some(in_box(w, h)) };
+    // The floating window's default at 1080p, its least at 125% (device pixels), the page's card panel.
+    for (w, h, dpr) in [(302, 302, 1.0), (350, 350, 1.25), (419, 266, 1.0)] {
+        let card = render_training_card(common::fonts(), &training, show(w, h), 0.0, dpr).expect("box");
+        assert_eq!((card.width, card.height), (w as usize, h as usize), "exactly the box at {dpr}");
+        // No tooltip fill or frame: the page's own background shows in the corners.
+        let corners = [(0, 0), (card.width - 1, 0), (0, card.height - 1), (card.width - 1, card.height - 1)];
+        assert!(corners.iter().all(|&(x, y)| card.pixel(x, y)[3] == 0), "{w}x{h} has a frame");
+    }
+    // The height a box adds goes to the graph: the numbers and the gauge are the strip's.
+    let strip = render_training_card(common::fonts(), &training, show(302, 217), 0.0, 1.0).expect("strip-high box");
+    let framed = Show { strip: Some(Strip { bare: false, ..in_box(302, 217) }), ..show(302, 217) };
+    let framed = render_training_card(common::fonts(), &training, framed, 0.0, 1.0).expect("framed");
+    assert_eq!((strip.width, strip.height), (framed.width, framed.height));
+    assert!(framed.pixel(0, 0)[3] > 0, "the Windows strip keeps its frame");
 }
 
 #[test]
