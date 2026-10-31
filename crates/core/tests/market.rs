@@ -99,6 +99,23 @@ fn unknown_glyphs_are_wildcards() {
 }
 
 #[test]
+fn a_title_cut_short_names_no_variant() {
+    let scrolls = ["Lesser", "Intermediate", "Greater", "Chaos"].map(|v| format!("Gloves Magic Attack Scroll: {v}"));
+    let catalog = Catalog::new(scrolls.iter().map(|n| make(n, 1)).chain([make("Mithril War Axe", 1)]), None);
+    // The whole name is closest to the shorter "Greater" once "Intermediate" is cut to "Inter".
+    for read in ["Gloves Magic Attack Scroll: Inter", "Gloves Magic Attack Scroll: In", "Gloves Magic Attack Scroll"] {
+        assert_eq!(found(&catalog, read), None, "{read}");
+    }
+    let read = |text: &str| found(&catalog, text).map(|n| n.rsplit(' ').next().unwrap().to_string());
+    assert_eq!(read("Gloves Magic Attack Scroll: Intermed").as_deref(), Some("Intermediate"));
+    assert_eq!(read("Glovcs Magic Attack Scro11: Greater").as_deref(), Some("Greater"));
+    assert_eq!(read("Gloves Magic Attack Scroll: Lesscr").as_deref(), Some("Lesser"));
+    // Siblings share whole words: "Mithril Wa" of "Mithril War Axe" leaves "Wand" to read, not "nd".
+    let catalog = Catalog::new([make("Mithril Wand", 1), make("Mithril War Axe", 1)], None);
+    assert_eq!(found(&catalog, "Mithril Wad").as_deref(), Some("Mithril Wand"));
+}
+
+#[test]
 fn ratio_is_rapidfuzz_ratio() {
     assert_eq!(ratio("abc", "abc"), 100.0);
     assert!((ratio("emeraldore", "emeraldore") - 100.0).abs() < 1e-9);
