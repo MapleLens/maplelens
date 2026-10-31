@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use maplelens_core::config;
-use maplelens_core::geometry::{Rect, scaled};
+use maplelens_core::geometry::{Rect, card_scale, scaled};
 use maplelens_core::pipeline::hover::Hover;
 use maplelens_core::placement::{fits_inside, place_beside_window, place_card};
 use maplelens_core::render::RgbaImage;
@@ -69,7 +69,8 @@ impl App {
 
     /// Rendering takes a few ms, so each item's card is drawn once and kept.
     fn card_for(&mut self, hover: &Hover, expanded: bool) -> Arc<RgbaImage> {
-        let key = (hover.title.clone(), expanded, hover.scale.to_bits(), hover.compare);
+        let scale = card_scale(hover.bounds, hover.scale);
+        let key = (hover.title.clone(), expanded, scale.to_bits(), hover.compare);
         if let Some(index) = self.cards.iter().position(|(k, _)| *k == key) {
             let entry = self.cards.remove(index);
             self.cards.push(entry.clone());
@@ -84,7 +85,7 @@ impl App {
             generated_at: self.catalog.generated_at.as_deref(),
             now: paths::now_unix(),
             expanded,
-            ui_scale: hover.scale,
+            ui_scale: scale,
             wide: hover.compare,
             source,
         };
@@ -120,11 +121,11 @@ impl App {
             let _ = self.confirmations.send((info.read.clone(), rank.name.clone()));
             self.confirmed = Some(name.clone());
         }
-        let key =
-            (name, result.status, result.rank.as_ref().and_then(|r| r.last_checked.clone()), info.scale.to_bits());
+        let scale = card_scale(info.bounds, info.scale);
+        let key = (name, result.status, result.rank.as_ref().and_then(|r| r.last_checked.clone()), scale.to_bits());
         let unchanged = self.rank_card.as_ref().is_some_and(|(k, _)| *k == key);
         if !unchanged {
-            let card = Arc::new(render_rank_card(&self.fonts, &result, paths::now_unix(), info.scale));
+            let card = Arc::new(render_rank_card(&self.fonts, &result, paths::now_unix(), scale));
             self.rank_card = Some((key, card));
         }
         let Some((_, card)) = &self.rank_card else { return };

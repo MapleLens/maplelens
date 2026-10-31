@@ -86,6 +86,10 @@ pub const UNKNOWN_TITLE_FRAMES: u32 = 5;
 pub const MIN_MATCH_SCORE: f64 = 88.0;
 /// The closest name must beat the next one by this much (ratio points): a tie names nothing.
 pub const FUZZY_MARGIN: f64 = 0.5;
+/// Minimum score of the part of a fuzzy match's name that tells it from its variants ("Intermediate" in "Gloves Magic
+/// Attack Scroll: Intermediate"): a read cut short there ("...Scroll: Inter") scored best against the shorter
+/// "Greater" and showed its price.
+pub const VARIANT_MIN_SCORE: f64 = 80.0;
 
 /// Gap between the tooltip and the card.
 pub const CARD_GAP_PX: i32 = 6;

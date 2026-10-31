@@ -17,9 +17,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use maplelens_core::config;
+use maplelens_core::geometry::{Rect, card_scale};
 use maplelens_core::market::catalog::Catalog;
 use maplelens_core::market::sample::sample_items;
 use maplelens_core::notify::pairing::Pairing;
+use maplelens_core::pill::{Pill, PillPicker};
 use maplelens_core::pipeline::hover::Hover;
 use maplelens_core::pipeline::info::InfoWindow;
 use maplelens_core::ranking::{RankCache, Status};
@@ -87,13 +89,13 @@ fn pump_messages() {
     }
 }
 
-/// Cached price cards by (title, expanded, UI scale bits, compare), least recently used first.
+/// Cached price cards by (title, expanded, the cards' scale bits, compare), least recently used first.
 type CardCache = Vec<((String, bool, u32, bool), Arc<RgbaImage>)>;
-/// The rank panel last drawn, by (name, status, rank's last check, UI scale bits).
+/// The rank panel last drawn, by (name, status, rank's last check, the cards' scale bits).
 type RankCard = Option<((String, Status, Option<String>, u32), Arc<RgbaImage>)>;
-/// The status pill last rendered, by (status, UI scale bits); None inside when the status has no pill.
-type StatusCard = Option<((ShopStatus, u32), Option<Arc<RgbaImage>>)>;
-/// The training card last rendered, by (numbers, what is shown, UI scale bits, clock second).
+/// The status pill last rendered, by (what it says, UI scale bits); None inside when there is no pill.
+type StatusCard = Option<((Pill, u32), Option<Arc<RgbaImage>>)>;
+/// The training card last rendered, by (numbers, what is shown, the cards' scale bits, clock second).
 type TrainingCard = Option<((Training, maplelens_core::render::training_card::Show, u32, u64), Arc<RgbaImage>)>;
 
 struct Shown {
@@ -121,6 +123,7 @@ pub struct App {
     shop: ShopUpdate,
     status_window: LayeredWindow,
     status_card: StatusCard,
+    pill: PillPicker,
     map: map::MapUi,
     training_events: Receiver<TrainingUpdate>,
     training_commands: Sender<TrainingCommand>,
@@ -249,6 +252,7 @@ impl App {
             shop: ShopUpdate { hwnd: 0, status: ShopStatus::Hidden },
             status_window: LayeredWindow::new()?,
             status_card: None,
+            pill: PillPicker::default(),
             map,
             training_events,
             training_commands,
@@ -292,6 +296,12 @@ impl App {
 
     fn now(&self) -> f64 {
         self.start.elapsed().as_secs_f64()
+    }
+
+    /// The scale the cards over `client` are drawn at (`geometry::card_scale`), to the hundredth: a reading's wobble
+    /// must not redraw them.
+    fn card_scale(&self, client: Rect) -> f32 {
+        (card_scale(client, self.ui.of(client)) * 100.0).round() / 100.0
     }
 
     /// Run until Exit (or a finished update). Returns the exe to start afterwards, if an update was installed.

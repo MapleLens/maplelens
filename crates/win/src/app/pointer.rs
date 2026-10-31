@@ -99,7 +99,8 @@ impl App {
         let (Some(client), Some(cursor)) = (in_front.and_then(game::client_rect), game::cursor()) else {
             return self.pointer.hide();
         };
-        let scale = (self.ui.of(client) * 100.0).round() / 100.0;
+        // The game's cursor at the game's size; the cards' button at theirs.
+        let (scale, cards) = ((self.ui.of(client) * 100.0).round() / 100.0, self.card_scale(client));
         let down = game::left_button_down();
         let was_down = std::mem::replace(&mut self.pointer.down, down);
         let training = self.training_window.rect().filter(|_| self.training_window.visible());
@@ -114,7 +115,7 @@ impl App {
                 self.pointer.press = card.map(|(card, rect)| Press {
                     card,
                     hit: (card == Card::Drops).then(|| self.drops.hit_at(cursor)).flatten(),
-                    button: card == Card::Training && self.over_drops_button(cursor, scale),
+                    button: card == Card::Training && self.over_drops_button(cursor, cards),
                     at: cursor,
                     origin: (rect.x, rect.y),
                     dragging: false,
@@ -129,7 +130,7 @@ impl App {
                     }
                 }
             }
-            (true, false) => self.let_go(cursor, client, scale),
+            (true, false) => self.let_go(cursor, client, cards),
             (false, false) => {}
         }
         let over = [training, panel, self.drops.price_rect()].into_iter().flatten().any(|r| r.contains(cursor));
@@ -140,8 +141,9 @@ impl App {
         }
     }
 
-    /// The press ends: a drag keeps where the card was let go; a press let go where it began clicks it.
-    fn let_go(&mut self, cursor: Point, client: Rect, scale: f32) {
+    /// The press ends: a drag keeps where the card was let go; a press let go where it began clicks it. `cards` is the
+    /// scale the cards are drawn at.
+    fn let_go(&mut self, cursor: Point, client: Rect, cards: f32) {
         let Some(press) = self.pointer.press.take() else { return };
         if let Some((card, at)) = self.pointer.dragged.take() {
             let at = Some(fraction_of(client, at));
@@ -151,7 +153,7 @@ impl App {
             };
             return self.update_settings(settings);
         }
-        if press.button && self.over_drops_button(cursor, scale) {
+        if press.button && self.over_drops_button(cursor, cards) {
             return self.drops.toggle();
         }
         if press.card != Card::Drops || self.drops.hit_at(cursor) != press.hit {

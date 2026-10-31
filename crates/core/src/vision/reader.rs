@@ -64,8 +64,43 @@ pub fn title_mask_anchored(image: &RgbImage, width: usize, lines: usize, top: us
         }
         None => (TITLE_LEFT_SKIP, top, top + TITLE_ROW_H + extra, false),
     };
-    let row = image.crop(left, y0, width.max(left), y1);
+    let right = title_right(image, left, (y0, y1), width);
+    let row = image.crop(left, y0, right.max(left), y1);
     (!row.is_empty()).then(|| (Mask::threshold(&title_gray(&row), TEXT_THRESHOLD), anchored))
+}
+
+/// Blank columns after which a title has ended: wider than the gap between two words.
+const TITLE_END_GAP: usize = 10;
+/// A column inked over this share of the title's rows is no letter: the tooltip's border, or a light window behind.
+const WALL_SHARE: f32 = 0.8;
+/// How far before the cut a border is looked for: a 370 px tooltip's border reads at columns 366 and 369.
+const BORDER_LOOKBACK: usize = 8;
+
+/// Where the title row is cut: at `width`, or further when the title runs on past it. The game widens a tooltip for
+/// a long name ("Gloves Magic Attack Scroll: Intermediate" is ~465 px), and the cut had read it as "...Scroll: Inter".
+/// The cut stays for a tooltip whose border is at it: only beside that narrow equipment tooltip can a compare tooltip
+/// be, whose title must not be read.
+fn title_right(image: &RgbImage, left: usize, (y0, y1): (usize, usize), width: usize) -> usize {
+    if width <= left + BORDER_LOOKBACK || width >= image.width {
+        return width;
+    }
+    let row = title_gray(&image.crop(left, y0, image.width, y1));
+    let ink = |c: usize| (0..row.height).filter(|&y| row.data[y * row.width + c] >= TEXT_THRESHOLD).count();
+    let wall = |c: usize| ink(c) as f32 >= WALL_SHARE * row.height as f32;
+    let cut = width - left;
+    if (cut - BORDER_LOOKBACK..cut).any(wall) {
+        return width;
+    }
+    let Some(mut last) = (cut.saturating_sub(TITLE_END_GAP)..cut).rev().find(|&c| ink(c) > 0) else { return width };
+    for c in cut..row.width {
+        if wall(c) || c - last > TITLE_END_GAP {
+            break;
+        }
+        if ink(c) > 0 {
+            last = c;
+        }
+    }
+    (left + last + 2).max(width)
 }
 
 /// Warm text is this much redder than blue: the fill and the scenery under it never are.

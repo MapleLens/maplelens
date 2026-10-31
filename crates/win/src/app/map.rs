@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 
 use maplelens_core::config;
-use maplelens_core::geometry::Rect;
+use maplelens_core::geometry::{Rect, card_scale};
 use maplelens_core::mapinfo::{Location, resolve};
 use maplelens_core::pipeline::map::MapHover;
 use maplelens_core::placement::place_card;
@@ -21,7 +21,7 @@ use crate::maps::service::{MapResult, MapService, Status};
 const CARD_CACHE_SIZE: usize = 48;
 const SPINNER_FPS: f64 = 12.0;
 
-/// (reading key, status, sprites ready, spinner frame, UI scale bits)
+/// (reading key, status, sprites ready, spinner frame, the cards' scale bits)
 type CardKey = (String, Status, usize, usize, u32);
 
 pub struct MapUi {
@@ -127,7 +127,8 @@ impl MapUi {
     fn card_for(&mut self, fonts: &Fonts, hover: &MapHover, result: &MapResult, now: f64) -> (Arc<RgbaImage>, CardKey) {
         // The ring turns while the lookup runs; the failure notice and the finished card stand still.
         let frame = if result.status == Status::Loading { (now * SPINNER_FPS) as usize % SPINNER_FRAMES } else { 0 };
-        let key = (resolve::key(&hover.location), result.status, result.icons, frame, hover.scale.to_bits());
+        let scale = card_scale(hover.bounds, hover.scale);
+        let key = (resolve::key(&hover.location), result.status, result.icons, frame, scale.to_bits());
         if let Some(at) = self.cards.iter().position(|(k, _)| *k == key) {
             let entry = self.cards.remove(at);
             self.cards.push(entry); // most recently used last
@@ -137,9 +138,9 @@ impl MapUi {
             Some(info) if result.status == Status::Found => {
                 let service = &self.service;
                 let room = (hover.bounds.w / 2, (hover.bounds.h as f32 * 0.96).round() as i32);
-                render_map_card(fonts, info, &|kind, id| service.icon(kind, id), hover.scale, Some(room))
+                render_map_card(fonts, info, &|kind, id| service.icon(kind, id), scale, Some(room))
             }
-            _ => render_loading_card(fonts, &hover.location.name, frame, result.status == Status::Failed, hover.scale),
+            _ => render_loading_card(fonts, &hover.location.name, frame, result.status == Status::Failed, scale),
         };
         let card = Arc::new(card);
         self.cards.push((key.clone(), card.clone()));

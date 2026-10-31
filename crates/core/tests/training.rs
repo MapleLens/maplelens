@@ -268,11 +268,16 @@ fn moving_to_another_map_ends_the_session() {
     tracker.set_map(None, t);
     assert!(tracker.history().is_empty());
     assert_eq!(tracker.view(t, 10.0).session.gained, 500);
-    // Another map: the session goes into the history and the card has nothing to show until the next EXP here.
+    // Another map: the session is held for a few seconds (the player may be straight back)...
     tracker.set_map(Some("Ant Tunnel II".into()), t);
+    t += 10.0;
+    assert!(tracker.history().is_empty());
+    assert_eq!(tracker.view(t, 10.0).session.gained, 500);
+    // ...then goes into the history, and the card has nothing to show until the next EXP here.
+    t += 6.0;
+    assert_eq!(tracker.view(t, 10.0).session.gained, 0);
     assert_eq!(tracker.history().len(), 1);
     assert_eq!(tracker.history()[0].maps[0].map, "Ant Tunnel I");
-    assert_eq!(tracker.view(t, 10.0).session.gained, 0);
     feed(&mut tracker, &mut t, 1_800, share(1_800));
     let session = tracker.view(t, 10.0).session;
     assert_eq!(session.gained, 300);
@@ -280,7 +285,51 @@ fn moving_to_another_map_ends_the_session() {
     // Paused, a move keeps the session.
     tracker.set_paused(true);
     tracker.set_map(Some("Ant Tunnel III".into()), t);
+    t += 30.0;
+    assert_eq!(tracker.view(t, 10.0).session.gained, 300);
     assert_eq!(tracker.history().len(), 1);
+}
+
+#[test]
+fn a_short_trip_to_another_map_keeps_the_session() {
+    let mut tracker = Tracker::new();
+    let mut t = 0.0;
+    tracker.set_map(Some("Ant Tunnel I".into()), t);
+    feed(&mut tracker, &mut t, 1_000, share(1_000));
+    feed(&mut tracker, &mut t, 1_500, share(1_500));
+    // Through a portal by mistake, a kill on the other side, and straight back.
+    tracker.set_map(Some("Ant Tunnel II".into()), t);
+    feed(&mut tracker, &mut t, 1_500, share(1_500));
+    feed(&mut tracker, &mut t, 1_600, share(1_600));
+    let during = tracker.view(t, 10.0);
+    assert_eq!(during.session.gained, 600, "the card shows the session all along");
+    assert_eq!(during.map.as_deref(), Some("Ant Tunnel II"));
+    t += 4.0;
+    tracker.set_map(Some("Ant Tunnel I".into()), t);
+    feed(&mut tracker, &mut t, 1_900, share(1_900));
+    let session = tracker.view(t, 10.0).session;
+    assert!(tracker.history().is_empty());
+    assert_eq!(session.gained, 900);
+    let maps: Vec<(&str, u64)> = session.maps.iter().map(|m| (m.map.as_str(), m.gained)).collect();
+    assert_eq!(maps, [("Ant Tunnel I", 800), ("Ant Tunnel II", 100)]);
+    assert_eq!(session.started, 3.0, "the session started at its first EXP, before the trip");
+    // The graph has the trip's EXP too: 900 over the 11 s since the first.
+    let rates = tracker.view(t, 10.0).graph.rates;
+    assert!(rates.last().is_some_and(|r| (r - 900.0 * 60.0 / 11.0).abs() < 1.0), "{rates:?}");
+    // Saved during a trip, the session is what the card shows.
+    tracker.set_map(Some("Ant Tunnel II".into()), t);
+    assert_eq!(Tracker::from_json(&tracker.to_json()).session().gained, 900);
+    // Back too late, or on to a third map: the session is over.
+    t += 20.0;
+    tracker.set_map(Some("Ant Tunnel I".into()), t);
+    assert_eq!(tracker.history().len(), 1);
+    assert_eq!(tracker.history()[0].gained, 900);
+    feed(&mut tracker, &mut t, 2_000, share(2_000));
+    tracker.set_map(Some("Ant Tunnel II".into()), t);
+    tracker.set_map(Some("Ant Tunnel III".into()), t + 2.0);
+    assert_eq!(tracker.history().len(), 2);
+    assert_eq!(tracker.history()[1].gained, 100);
+    assert_eq!(tracker.view(t + 2.0, 10.0).session.gained, 0);
 }
 
 /// EXP gained in a town (a quest handed in) starts no session and shows no card; the same on a field does.
@@ -317,13 +366,15 @@ fn walking_into_town_ends_the_session() {
     feed(&mut tracker, &mut t, 1_000, share(1_000));
     feed(&mut tracker, &mut t, 1_500, share(1_500));
     tracker.set_map(Some("Henesys".into()), t);
-    assert_eq!(tracker.history().len(), 1);
-    assert_eq!(tracker.history()[0].gained, 500);
     // A quest handed in there that levels the character up: nothing counts, and the new level's size is learnt.
     feed(&mut tracker, &mut t, 1_900, share(1_900));
     feed(&mut tracker, &mut t, 400, 100);
     let view = tracker.view(t, 10.0);
-    assert_eq!((view.session.gained, view.session.levels), (0, 0));
+    assert_eq!((view.session.gained, view.session.levels), (500, 0), "the field's session, held for a moment");
+    t += 20.0;
+    assert_eq!(tracker.view(t, 10.0).session.gained, 0);
+    assert_eq!(tracker.history().len(), 1);
+    assert_eq!(tracker.history()[0].gained, 500);
     // Back on a field, the next kill counts from the town's last reading.
     tracker.set_map(Some("Henesys Hunting Ground II".into()), t);
     feed(&mut tracker, &mut t, 1_200, 300);
@@ -563,7 +614,8 @@ fn the_graph_is_the_pace_of_the_last_minutes_with_its_level_ups() {
 #[test]
 fn the_strip_reaches_the_pup_button_and_is_denser_than_the_tall_card() {
     let training = training_after_play();
-    let strip = |drops, width| Show { exp: true, quest: false, strip: Some(Strip { drops, width }) };
+    let strip =
+        |drops, width| Show { exp: true, quest: false, strip: Some(Strip { drops, width, ..Strip::default() }) };
     // The Pup quickslot's top above the client's foot, measured on the game's renders: 139 px at 1:1 (UI scale 0.64),
     // 195 at 1080p's Default Ratio (0.9), 217 at 1200p's (1.0).
     for (scale, pup) in [(0.64, 139), (0.9, 195), (1.0, 217)] {
@@ -597,6 +649,27 @@ fn the_strip_reaches_the_pup_button_and_is_denser_than_the_tall_card() {
     let both = Show { quest: true, ..strip(None, Some(400)) };
     let with_quest = render_training_card(common::fonts(), &quest, both, 10.0, 1.0).expect("card");
     assert!(with_quest.height > card.height + 60);
+}
+
+#[test]
+fn the_webs_box_is_filled_by_a_bare_strip() {
+    let training = training_after_play();
+    let in_box = |w, h| Strip { width: Some(w), height: Some(h), bare: true, drops: None };
+    let show = |w, h| Show { exp: true, quest: false, strip: Some(in_box(w, h)) };
+    // The floating window's default at 1080p, its least at 125% (device pixels), the page's card panel.
+    for (w, h, dpr) in [(302, 302, 1.0), (350, 350, 1.25), (419, 266, 1.0)] {
+        let card = render_training_card(common::fonts(), &training, show(w, h), 0.0, dpr).expect("box");
+        assert_eq!((card.width, card.height), (w as usize, h as usize), "exactly the box at {dpr}");
+        // No tooltip fill or frame: the page's own background shows in the corners.
+        let corners = [(0, 0), (card.width - 1, 0), (0, card.height - 1), (card.width - 1, card.height - 1)];
+        assert!(corners.iter().all(|&(x, y)| card.pixel(x, y)[3] == 0), "{w}x{h} has a frame");
+    }
+    // The height a box adds goes to the graph: the numbers and the gauge are the strip's.
+    let strip = render_training_card(common::fonts(), &training, show(302, 217), 0.0, 1.0).expect("strip-high box");
+    let framed = Show { strip: Some(Strip { bare: false, ..in_box(302, 217) }), ..show(302, 217) };
+    let framed = render_training_card(common::fonts(), &training, framed, 0.0, 1.0).expect("framed");
+    assert_eq!((strip.width, strip.height), (framed.width, framed.height));
+    assert!(framed.pixel(0, 0)[3] > 0, "the Windows strip keeps its frame");
 }
 
 #[test]
@@ -768,9 +841,10 @@ fn potions_used_and_picked_up_follow_the_quickslot_totals() {
     tracker.set_paused(false);
     tracker.observe_potions(t, &totals(&[(RED, 9)]), name);
     assert_eq!(tracker.view(t, 10.0).session.potions[0].used, 6);
-    // A new map, a new session: the counts start over, the totals carry on.
+    // A new map, a new session once the player has not come back: the counts start over, the totals carry on.
     tracker.set_map(Some("Ant Tunnel I".into()), t);
     tracker.set_map(Some("Ant Tunnel II".into()), t);
+    t += 20.0;
     assert!(tracker.view(t, 10.0).session.potions.is_empty());
     tracker.observe_potions(t, &totals(&[(RED, 7)]), name);
     assert_eq!(tracker.view(t, 10.0).session.potions[0].used, 2);
@@ -861,14 +935,40 @@ fn moving_to_the_next_map_ends_the_session_and_hides_the_card() {
     assert_eq!(before.exp.map.as_deref(), Some("East Rocky Mountain V"));
     assert!(before.exp.session.gained > 0);
     assert!(has_content(&before, show));
-    // Through the portal to VI, a numeral away: within a few seconds the session is over and the card gone.
+    // Through the portal to VI, a numeral away: the card holds the session for a few seconds in case the player is
+    // straight back, then the session is over and the card gone.
     *map.lock().unwrap() = "East Rocky Mountain VI";
     play(&mut watcher, "status_bar_exp_98_percent_1920x1200.png", None, 5, &mut t);
+    let during = watcher.training(t);
+    assert_eq!(during.exp.map.as_deref(), Some("East Rocky Mountain VI"));
+    assert_eq!(during.exp.session.gained, before.exp.session.gained);
+    assert!(has_content(&during, show));
+    play(&mut watcher, "status_bar_exp_98_percent_1920x1200.png", None, 20, &mut t);
     let after = watcher.training(t);
-    assert_eq!(after.exp.map.as_deref(), Some("East Rocky Mountain VI"));
     assert_eq!(after.exp.session.gained, 0);
     assert!(!has_content(&after, show));
     assert_eq!(watcher.tracker().history().len(), 1);
+}
+
+#[test]
+#[cfg_attr(not(fixtures), ignore = "needs the local captures in tests/fixtures")]
+fn a_portal_taken_by_mistake_and_straight_back_keeps_the_session() {
+    let map = std::sync::Arc::new(std::sync::Mutex::new("East Rocky Mountain V"));
+    let mut watcher = TrainingWatcher::new(Box::new(Moving(map.clone(), 0)), Tracker::new());
+    let mut t = 0.0;
+    play(&mut watcher, "status_bar_normal_1920x1200.png", None, 6, &mut t);
+    play(&mut watcher, "status_bar_exp_98_percent_1920x1200.png", None, 14, &mut t);
+    let gained = watcher.training(t).exp.session.gained;
+    assert!(gained > 0);
+    *map.lock().unwrap() = "East Rocky Mountain VI";
+    play(&mut watcher, "status_bar_exp_98_percent_1920x1200.png", None, 8, &mut t);
+    assert_eq!(watcher.training(t).exp.map.as_deref(), Some("East Rocky Mountain VI"), "the trip was seen");
+    *map.lock().unwrap() = "East Rocky Mountain V";
+    play(&mut watcher, "status_bar_exp_98_percent_1920x1200.png", None, 10, &mut t);
+    let training = watcher.training(t);
+    assert_eq!(training.exp.map.as_deref(), Some("East Rocky Mountain V"));
+    assert_eq!(training.exp.session.gained, gained);
+    assert!(watcher.tracker().history().is_empty());
 }
 
 #[test]

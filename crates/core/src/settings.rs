@@ -18,7 +18,8 @@ pub struct Settings {
     pub expand_delay_s: f64,
     /// Look for a newer release at start-up and daily.
     pub check_updates: bool,
-    /// The Store Permit watcher's status pill at the game's bottom-left.
+    /// The status pill at the game's bottom-left: the Store Permit watcher's status, and hints about training (the EXP
+    /// bar covered, the minimap closed).
     pub store_status_bar: bool,
     /// A Discord channel's webhook URL, where sold items are reported; empty = off.
     pub discord_webhook: String,

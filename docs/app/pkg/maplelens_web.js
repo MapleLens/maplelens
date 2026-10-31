@@ -586,6 +586,15 @@ export class Engine {
         wasm.engine_set_shop(this.__wbg_ptr, enabled);
     }
     /**
+     * The box the training card fills, in device pixels (the card panel's body, or the floating window's): drawn bare
+     * at that size, the window's own background and title around it. 0 x 0: the tall card.
+     * @param {number} width
+     * @param {number} height
+     */
+    set_training_box(width, height) {
+        wasm.engine_set_training_box(this.__wbg_ptr, width, height);
+    }
+    /**
      * Whether the training card shows the EXP rates. The party quest helper is hidden: never on the page's card.
      * @param {boolean} exp
      */
@@ -887,7 +896,7 @@ function __wbg_get_imports() {
         __wbg___wbindgen_throw_41e9ee4f547fc59a: function(arg0, arg1) {
             throw new Error(getStringFromWasm0(arg0, arg1));
         },
-        __wbg_now_25b9445d8cc4bb59: function() {
+        __wbg_now_9310808bf0b2c74e: function() {
             const ret = performance.now();
             return ret;
         },

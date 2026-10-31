@@ -43,7 +43,7 @@ impl App {
             .flatten();
         let Some(client) = client else { return self.training_window.hide() };
         let measured = self.ui.of(client);
-        let scale = (measured * 100.0).round() / 100.0;
+        let scale = self.card_scale(client);
         let button = self.drops.available().then(|| match game::cursor() {
             _ if self.drops.is_open() => Button::On,
             Some(cursor) if self.over_drops_button(cursor, scale) => Button::Lit,
@@ -52,7 +52,7 @@ impl App {
         // The bar from the measured scale, not the rounded one: the strip fills the room to it to the pixel.
         let bar = status_bar(client, measured);
         let width = strip_width((client.w, client.h), bar.w, theme::CARD_SCALE * scale);
-        let show = Show { strip: Some(Strip { drops: button, width }), ..show };
+        let show = Show { strip: Some(Strip { drops: button, width, ..Strip::default() }), ..show };
         let now = crate::paths::now_unix();
         // The quest's clock ticks every second even when nothing else changes.
         let key = (training.clone(), show, scale.to_bits(), now as u64);

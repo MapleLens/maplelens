@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::models::Item;
-use crate::config::{FUZZY_MARGIN, MIN_MATCH_SCORE};
+use crate::config::{FUZZY_MARGIN, MIN_MATCH_SCORE, VARIANT_MIN_SCORE};
 
 /// Read text without trailing one- or two-character junk ('Kitty Camping Hat ii' -> 'Kitty Camping Hat').
 pub fn clean_title(text: &str) -> String {
@@ -148,6 +148,44 @@ fn similarity(a: &[u8], b: &[u8], cutoff: f64) -> Option<f64> {
     (score >= cutoff).then_some(score)
 }
 
+/// How much of `name` (in bytes) is whole words `other` begins with too: "Mithril Wand" and "Mithril War Axe" share
+/// "Mithril ", not "Mithril Wa".
+fn shared_words(name: &str, other: &str) -> usize {
+    let common = name.bytes().zip(other.bytes()).take_while(|(x, y)| x == y).count();
+    let word_ends = |s: &str, at: usize| at == s.len() || !s.as_bytes()[at].is_ascii_alphanumeric();
+    if word_ends(name, common) && word_ends(other, common) {
+        return common;
+    }
+    name[..common].rfind(|c: char| !c.is_ascii_alphanumeric()).map_or(0, |space| space + 1)
+}
+
+/// Where the read's part matching `prefix` ends: the end of the cheapest alignment of a start of `read` to all of
+/// `prefix`, with `similarity`'s costs (misread letters in the shared part move it by a letter or two). Of equally
+/// cheap ends the last: a letter doubled at the join ("Bronzze Ore") must not move the end before it.
+fn prefix_end(read: &[u8], prefix: &[u8]) -> usize {
+    let mut previous: Vec<f32> = (0..=prefix.len()).map(|j| j as f32).collect();
+    let mut row = vec![0.0f32; prefix.len() + 1];
+    let mut best = (previous[prefix.len()], 0);
+    for (i, &ca) in read.iter().enumerate() {
+        row[0] = (i + 1) as f32;
+        for (j, &cb) in prefix.iter().enumerate() {
+            let swap = if ca == cb {
+                0.0
+            } else if confusable(ca, cb) {
+                CONFUSABLE_COST
+            } else {
+                2.0
+            };
+            row[j + 1] = (previous[j] + swap).min(previous[j + 1] + 1.0).min(row[j] + 1.0);
+        }
+        if row[prefix.len()] <= best.0 {
+            best = (row[prefix.len()], i + 1);
+        }
+        std::mem::swap(&mut previous, &mut row);
+    }
+    best.1
+}
+
 /// Similarity 0..100 like rapidfuzz's `fuzz.ratio`: 2 * longest common subsequence / total length.
 pub fn ratio(a: &str, b: &str) -> f64 {
     let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
@@ -280,7 +318,24 @@ impl Catalog {
             }
         }
         let (score, i) = best?;
-        (score - runner_up >= FUZZY_MARGIN).then(|| self.by_key.get(&self.keys[i]).cloned()).flatten()
+        let item = self.by_key.get(&self.keys[i])?;
+        (score - runner_up >= FUZZY_MARGIN && self.variant_read(key, &item.name)).then(|| item.clone())
+    }
+
+    /// Was the part of `name` that tells it from its variants read? Variants share their first words and differ in
+    /// the last ('...Scroll: Greater', '...Scroll: Intermediate'); the score over the whole name favours the shorter
+    /// one when the read is cut short, so those last words must fit on their own.
+    fn variant_read(&self, read: &str, name: &str) -> bool {
+        let lower = name.to_ascii_lowercase();
+        let shared = self
+            .items()
+            .filter(|other| other.name != name)
+            .map(|other| shared_words(&lower, &other.name.to_ascii_lowercase()))
+            .max()
+            .filter(|&n| 2 * n >= lower.len());
+        let Some(shared) = shared else { return true };
+        let rest = &read.as_bytes()[prefix_end(read.as_bytes(), key(&lower[..shared]).as_bytes())..];
+        similarity(rest, key(&lower[shared..]).as_bytes(), VARIANT_MIN_SCORE).is_some()
     }
 
     /// A read with unknown glyphs: the one item whose name fits the known letters around the gaps; nothing when

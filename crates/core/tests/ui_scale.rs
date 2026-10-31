@@ -1,5 +1,5 @@
 //! The UI scale, measured off the status bar so "UI Size: Ideal Ratio" works (the UI keeps its size whatever
-//! the window), and player-crafted items, whose title sits under a crafter-name line.
+//! the window), the cards' scale over it, and player-crafted items, whose title sits under a crafter-name line.
 
 mod common;
 
@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use common::fixture;
 use maplelens_core::config;
-use maplelens_core::geometry::{Point, Rect, UiScale};
+use maplelens_core::geometry::{Point, Rect, UiScale, card_scale};
 use maplelens_core::image::RgbImage;
 use maplelens_core::market::catalog::Catalog;
 use maplelens_core::market::models::Item;
@@ -173,6 +173,22 @@ fn a_ratio_switch_on_the_same_client_takes_over_within_seconds() {
     });
     let after = switched.expect("Ideal Ratio took over") - 10;
     assert!((2..=5).contains(&after), "{after} s");
+}
+
+#[test]
+fn cards_are_a_quarter_bigger_where_ideal_ratio_keeps_the_ui_small() {
+    let screen = |w, h| Rect::new(0, 0, w, h);
+    for (client, ui, cards) in [
+        (screen(1920, 1200), 0.64, 0.8), // Ideal Ratio
+        (screen(1920, 1080), 0.64, 0.8),
+        (screen(1920, 1200), 1.0, 1.0), // Default Ratio
+        (screen(1920, 1080), 0.9, 0.9),
+        (screen(1366, 768), 0.64, 0.64),  // both ratios draw 1:1
+        (screen(2560, 1440), 1.28, 1.28), // Ideal Ratio's 2x, bigger than Default's 1.2
+        (screen(2560, 1440), 1.2, 1.2),
+    ] {
+        assert!((card_scale(client, ui) - cards).abs() < 1e-6, "{client:?} at {ui}");
+    }
 }
 
 fn paste(frame: &mut RgbImage, image: &RgbImage, at: (usize, usize)) {

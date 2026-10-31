@@ -2,7 +2,7 @@
 //! (Cloto's answers on the first stage, every way to stand on the ones that need it). Drawn like the game's
 //! tooltips, so it sits over the game as if it were part of it. The Windows app draws the EXP as a strip beside the
 //! status bar, with a graph of the last minutes behind its numbers and the map drops' button (`strip`, `layout`,
-//! `graph`); the web's floating window, a box, keeps the tall card.
+//! `graph`); the web draws the same strip bare to fill its box (the page's card panel, the floating window).
 
 mod graph;
 mod layout;
@@ -51,6 +51,10 @@ pub struct Show {
 pub struct Strip {
     pub drops: Option<Button>,
     pub width: Option<u32>,
+    /// Its height in pixels (the web's box); None: level with the quickslots (`STRIP_HEIGHT`).
+    pub height: Option<u32>,
+    /// Without the tooltip's fill and frame, on the page's own background (the web's box, which names the map too).
+    pub bare: bool,
 }
 
 /// How a button on a card is drawn.

@@ -2,13 +2,13 @@
 // test hooks started by a URL parameter), feed frames to the engine, show the cards in the page and, on request, in a picture-in-picture window that floats over the game.
 // The training panel (EXP rates, potions) is drawn from the numbers the engine reads off the HUD.
 
-import { Lens } from "./lens.js?v=652625fee67d";
-import { CardView, floatingSize, openFloating } from "./cards.js?v=652625fee67d";
-import { CardFeed } from "./cardfeed.js?v=652625fee67d";
-import { Prices } from "./prices.js?v=652625fee67d";
-import { drawMapleQr } from "./mapleqr.js?v=652625fee67d";
-import { StoreBook } from "./storebook.js?v=652625fee67d";
-import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=652625fee67d";
+import { Lens } from "./lens.js?v=7256339d40aa";
+import { CardView, floatingSize, openFloating } from "./cards.js?v=7256339d40aa";
+import { CardFeed } from "./cardfeed.js?v=7256339d40aa";
+import { Prices } from "./prices.js?v=7256339d40aa";
+import { drawMapleQr } from "./mapleqr.js?v=7256339d40aa";
+import { StoreBook } from "./storebook.js?v=7256339d40aa";
+import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=7256339d40aa";
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -67,6 +67,8 @@ let floating = null; // {window, view}
 let pageView = null;
 /** What the page's card panel and the floating window show (the item card lingers, then joins the recent items). */
 const feed = new CardFeed();
+// The training card is drawn to fill the view it shows in.
+feed.onBox = box => lens?.trainingBox(box);
 /** The worker's time on the last few frames (ms), for the pacing. */
 const recentMs = [];
 let lastState = null;
@@ -377,6 +379,7 @@ function loadTrainingSettings() {
 function applyTrainingSettings() {
   storage(s => s.setItem(TRAINING_KEY, JSON.stringify(trainingSettings)));
   lens?.trainingShow(trainingSettings.exp !== false);
+  lens?.trainingBox(feed.box);
 }
 
 /** 1920 -> "1.92k", 2_300_000 -> "2.3m" (as the cards write numbers). */
@@ -653,7 +656,8 @@ function handleState(state, fps, ms, grab) {
   $("fps").textContent = note;
   latest = {
     title: state.hover?.title || (state.info?.name ? `${state.info.name}'s ranks` : ""),
-    store: shopStatus(state),
+    // The store's status, else a training hint (the EXP bar covered): the Windows app's pill says the same.
+    store: shopStatus(state) || state.hint || null,
     sharing: Boolean(source),
     trainingTitle: state.training?.map || "",
   };

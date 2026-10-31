@@ -6,9 +6,9 @@
 // The floating window is one fixed box for the whole session (it sits in a corner of the screen): whatever it shows
 // shrinks to fit it, and recent items that do not fit are left out.
 
-import { paint } from "./lens.js?v=652625fee67d";
-import { LINGER_MS } from "./cardfeed.js?v=652625fee67d";
-import { RANK_CSS, rankPanel } from "./rankpanel.js?v=652625fee67d";
+import { paint } from "./lens.js?v=7256339d40aa";
+import { LINGER_MS } from "./cardfeed.js?v=7256339d40aa";
+import { RANK_CSS, rankPanel } from "./rankpanel.js?v=7256339d40aa";
 
 function storage(action) {
   try { return action(window.localStorage); } catch { return undefined; } // private windows may refuse
@@ -52,11 +52,12 @@ const CSS = `
 .cv-timer i{display:block;height:100%;background:var(--wait);transform-origin:left;animation:cv-run var(--linger) linear forwards}
 .cv[data-held=true] .cv-timer i{animation-play-state:paused;background:#ffd98a}
 @keyframes cv-run{from{transform:scaleX(1)}to{transform:scaleX(0)}}
-.cv-body{flex:1;min-height:0;display:flex;flex-direction:column;padding:10px;overflow:hidden;box-sizing:border-box}
+.cv-body{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;padding:10px;overflow:hidden;box-sizing:border-box}
 .cv-stack{flex:none;display:flex;flex-direction:column;align-items:center;gap:${STACK_GAP}px}
 .cv-stack > *{flex:none;transition:opacity .25s}
-.cv-stack canvas,.cv-training{display:block;filter:drop-shadow(0 6px 12px #0007)}
-.cv-training{flex:none;align-self:center}
+.cv-stack canvas{display:block;filter:drop-shadow(0 6px 12px #0007)}
+/* The training card is drawn bare to fill the body (the engine is told its size), out of the flow so it never sizes it. */
+.cv-training{position:absolute;inset:0;margin:auto;display:block}
 .cv[data-mode=leaving] .cv-stack > *{opacity:.8}
 .cv[data-mode=leaving][data-held=true] .cv-stack > *{opacity:1}
 .cv-idle{flex:1;min-height:0;display:flex;flex-direction:column;gap:14px}
@@ -188,6 +189,7 @@ export class CardView {
   detach() {
     this.feed.views.delete(this);
     this.feed.hold(this, false);
+    this.feed.setBox(this, null);
   }
 
   render() {
@@ -306,10 +308,13 @@ export class CardView {
 
   /** The card shown (the training card, or the item card) at its own size, or smaller to fit (the floating window: its
    *  whole height too; the page: its width), never larger, which would blur it; the rank panel as wide as the card
-   *  and its own height (its text does not wrap). Recent items that do not fit are left out rather than scrolled to. */
+   *  and its own height (its text does not wrap). Recent items that do not fit are left out rather than scrolled to.
+   *  The training card is drawn for the whole body (`feed.setBox`), so it fills it once the engine has drawn it. */
   fit() {
     this.fitted = this.layoutKey();
     const body = this.body;
+    const box = { width: body.clientWidth, height: body.clientHeight };
+    this.feed.setBox(this, this.away || !box.width || !box.height ? null : box);
     const style = this.doc.defaultView.getComputedStyle(body);
     const width = body.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
     const height = body.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
@@ -317,7 +322,7 @@ export class CardView {
     const dpr = window.devicePixelRatio || 1;
     if (!this.training.hidden && this.training.width) {
       const [w, h] = [this.training.width / dpr, this.training.height / dpr];
-      const k = Math.max(0, Math.min(1, width / w, this.compact ? height / h : 1));
+      const k = Math.max(0, Math.min(1, box.width / w, box.height / h));
       this.training.style.width = `${Math.floor(w * k)}px`;
       this.training.style.height = `${Math.floor(h * k)}px`;
     }

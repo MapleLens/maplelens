@@ -143,6 +143,7 @@ crates/core/src/          platform-free; everything here is unit-testable
                           potions (candidates, PotionWatcher: quickslots -> totals per item, Potions), kpq (stages,
                           Cloto's answers, combinations, QuestTracker), towns (where EXP is no training), watcher
                           (TrainingWatcher: frames in, Training out)
+  pill.rs                 which status the bottom-left pill shows (the store's, or a training hint), held and timed
   placement.rs, settings.rs, hotkey.rs (naming and building the show/hide combo)
 crates/win/src/           the Windows app (only this crate talks to Win32)
   main.rs                 CLI, --screenshot; instance.rs: one copy at a time (checked before the elevation
@@ -207,8 +208,11 @@ seconds) so the history has dates; the platform keeps `Tracker::to_json` (traini
   big, than the old one: that is another character, which counts nothing. The level's size (EXP / share) also tells a
   death (same size, less EXP: counted as lost) from a character switch. Time counts while the bar is read and EXP
   keeps coming; a minute without EXP or a move to another map (not paused) ends the session into the history, and
-  so does a gap over 30 minutes unseen. A session starts at its first EXP, and so does the card (`is_training`: a
-  player training wants it at once); its rates fill in after 10 s of play (`MIN_RATE_S`).
+  so does a gap over 30 minutes unseen. A move is final only after `HOP_S` (15 s): until then the session is kept
+  aside (`Hop`) and the card and the saved file show it with the trip's play added, so a portal taken by mistake and
+  straight back goes on as one session, the trip's EXP included; another map or the time running out files it. A
+  session starts at its first EXP, and so does the card (`is_training`: a player training wants it at once); its rates
+  fill in after 10 s of play (`MIN_RATE_S`).
 - **Towns** (`training::towns`): EXP gained in a town is a quest handed in, not training, and a single one had shown
   the card in Kerning City. On a town map the bar is followed (leaving does not count what was gained there; a level
   up there is learnt, not counted) but nothing counts, potions included, so no session starts, and neither the card
@@ -267,8 +271,11 @@ wide, above the bar and the quickslots. In a bottom corner it sits flush with th
 top, the session at the foot), medium otherwise (rate and session total side by side, the graph showing across the
 middle). The header holds the potions that moved most and the map drops' bag button (`drops_button(width)`), the foot
 the level's gauge and share. Its fill is 10% less see-through than the tooltip cards' (the player asked; numbers over
-a busy field). Only a pause is labelled (PAUSED); there is no LIVE label. The web's floating window, a box, keeps the
-tall card (`Show::strip` None). `render_cards` draws it at each measured screen size.
+a busy field). Only a pause is labelled (PAUSED); there is no LIVE label. The web draws the same strip bare (no fill,
+no frame: `Strip::bare`) at the size of the view it shows in (`Strip::height`; below). `render_cards` draws it at each
+measured screen size, and the web's boxes (`training_web_*.png`). Where Ideal Ratio keeps the UI
+small every card is drawn 1.25x (`geometry::card_scale`, below), the strip too: it then stands a quarter above the Pup
+button (174 px at 1200p), its width still the room to the bar (the player asked for the bigger text).
 - **The graph** (`training_card/graph.rs`, `session::ExpGraph`): EXP a minute over the last 10 minutes behind the
   numbers (the text has a soft shadow), a thin gold line over a glow fading down, like meso.watch's price trends
   (checked October 2026: its public pages have no EXP graph, only these sparklines). A point every 10 s, each the
@@ -277,6 +284,23 @@ tall card (`Show::strip` None). `render_cards` draws it at each measured screen 
   session's average is dashed, level ups are marked where they happened, the newest point is lit. The player picked
   this over a graph in a well of its own, a horizon in the lower half and a column a minute. The tracker keeps the
   gains of that span (`timeline`) and level ups; core has no clock (`view(now)`).
+
+## The status pill (`core/src/pill.rs`, `render/status_pill`, `win/src/app/status.rs`)
+
+One pill at the game's bottom-left, one status at a time by priority, never rotated (rotating blinks): our own store's
+status while its window is up, else what keeps training from being read. Setting `store_status_bar` ("Show the status
+bar (store, EXP bar, minimap)"); each hint also needs its own feature on. `PillPicker` decides from facts and `now`,
+the training reader's `Training.seen` (`HudSeen`: when the bar, its EXP and the minimap's title were last found).
+- **"Move the window off the EXP bar" / "Something is over the EXP numbers"**: EXP card on, not a town, the minimap
+  in view (5 s), the EXP unread for 5 s; the second when the bar was found after the EXP was last read. The minimap is
+  the gate: in the Cash Shop or the login screen neither is there, and nothing need move. Once told, one more look
+  without EXP keeps it: a single good read under the window must not take it away for the five seconds of holding.
+- **"Open the minimap (top-left)"**: EXP card on or the drops panel open, the bar read (3 s), the title missing
+  10 s; told for 30 s each time it goes (some players close it on purpose).
+- **"No drop data for this map"** (idle tone): the drops panel open, a field, the map not in the map data or none of
+  its drops known, held 10 s (a map's monsters download first), told 8 s once a map.
+- A hint whose cause ends stays 2 s. The browser engine sends the EXP hints as `hint` ({text, tone}); the page shows
+  the store's status first, else that, on the cards' bottom line.
 
 ## Map drops panel (`core/src/drops`, `render/drops_card`)
 
@@ -621,6 +645,13 @@ rule 4 forbids searching for it) and Cash Shop pets (their translucent fill over
 fill test that keeps other blue UI out). A wrong price is worse than none, so precision comes first. Before
 changing the reader, the segmenter, the atlas or the catalog lookup, run it and compare. The rules:
 - The title is cut around its bullet (`reader::find_bullet`), so scenery beside a shifted tooltip is not read.
+- Titles are read from the first 370 px (`TOOLTIP_TITLE_WIDTH`), so a compare tooltip beside equipment is never read
+  into the first title. The game widens a tooltip for a long name (122 of 1,919 names, nearly all scrolls: "Gloves
+  Magic Attack Scroll: Intermediate" is ~465 px), and the cut read it as "...Scroll: Inter", which named the Greater
+  scroll. A title whose ink reaches the cut is read on to its end (`reader::title_right`): up to a blank wider than a
+  word gap, or a column inked over 80% of the title's rows (a border, or a light window behind). Not when such a
+  column is just before the cut: a 370 px tooltip's border reads at 366 and 369, and only beside that tooltip can a
+  compare tooltip be.
 - A catalog match counts only with tooltip evidence (`HoverDetector::credible`): the bullet, the blue fill, or an
   atlas read of 6+ letters. OCR reads shop lists and quest logs too, and their text names items.
 - A `?` wildcard that fits several items names none; a glyph that nearly matches two letters reads as `?`.
@@ -660,6 +691,13 @@ nothing is detected) had changed the client every 1.5 s and thrown the measured 
 Ratio the page flipped between 0.64 and the height's 0.9. Every writer must time readings on one clock: on Windows
 `paths::uptime`, in the browser `performance.now()`. A reading up to 1 s older than the newest goes in its place
 (the hover thread reads the clock before its grab); a clock that goes back further starts the window over.
+
+The Windows app draws its cards at `geometry::card_scale`: the UI scale, 1.25x (`IDEAL_RATIO_CARDS`) where Ideal
+Ratio keeps the UI under 0.9 of what the window's height draws (1:1 at 1080p and 1200p: the player found the cards'
+text too small). Not at 768p, where both ratios draw 1:1, nor at Ideal Ratio's 2x at 1440p (1.28, bigger than Default
+Ratio's 1.2). What is placed against the game (the tooltip offset, the gaps beside it, the status bar) stays at the
+UI scale, and so do the status pill (the window height's scale) and the game's cursor drawn over the cards. The
+browser draws its cards at the screen's pixel ratio, not over the game, and has none of this.
 
 A map smaller than the client (Kerning City Pharmacy) is drawn with black around it, and that black joins the bar's
 1 px outline: its top row is dark from edge to edge, and every reading there was the whole width (1.53 in Ideal
@@ -753,6 +791,13 @@ The cards (`cardfeed.js`, shown by `cards.js` in the page and the floating windo
   square inside, its side 28% of the screen's height (280-480 px; the game's UI grows with the screen), or at the size
   the player last dragged it to (`maplelens.cards.box`). While it is open the page's panel says the cards are floating, with a button that
   closes it.
+- The EXP card fills its view instead (the player asked: the tooltip-style card, shrunk into the square window, sat in
+  a double frame with room around it). Each view tells the feed its body's size (`CardFeed::setBox`), the floating
+  window's winning while it is open, and the engine draws the strip bare at that size in device pixels
+  (`Engine::set_training_box`): the window's own background and title (the map) around it, the graph taking the height
+  a box adds over the strip's, under the rate. The canvas lies over the body, out of the flow, so the card never sizes
+  what it fills. At 1080p's default (302 px) the layout is the strip's medium; narrower boxes (280 px at 125%) are
+  narrow.
 
 What measuring taught (1080p Twitch clips, Chrome, `scripts` not needed: a local server and `?report=`):
 - OCR jobs piled up in the page while the OCR box was unticked (400 MB in a minute, 1.5 GB in six): the engine makes
@@ -788,6 +833,13 @@ What measuring taught (1080p Twitch clips, Chrome, `scripts` not needed: a local
   letter ("Red Cloth Pants ()") names neither variant. `wrong_items_under_ocr_noise` measures it on the real catalog:
   74,724 one-letter misreads, 9 name another item (each is another item's exact name or the f/t fold) and 437 name
   nothing.
+- Variants share their first words and differ in the last ("Gloves Magic Attack Scroll: Intermediate" / "Greater"),
+  and the whole-name score favours the shorter one when a title is read cut short: "...Scroll: Inter" showed the
+  Greater scroll's 60k for an Intermediate one (220k). A fuzzy match counts only when the words it does not share
+  with its closest sibling fit on their own (`Catalog::variant_read`, `VARIANT_MIN_SCORE` 80). On the October 2026
+  list: titles cut 1-8 letters short named the wrong item 971 -> 643 times in 9,658 (511 of the 643 are another
+  item's exact name: "Sapphire" of "Sapphire Ore"); one-letter misreads 306 -> 521 nothing, 10 -> 7 wrong; 2/3/4
+  edits found 81.9/56.9/34.9% -> 80.0/54.5/33.2%, wrong 20/16/18 -> 17/15/13 of 7,676.
 - The fuzzy match (`catalog::similarity`, used by the app and the browser alike, for titles and shop items) is `ratio`'s
   measure (a lost or extra letter costs 1, a wrong one 2) where a look-alike letter (`CONFUSABLE`: o/0/q/a/c, l/i/1, e/c, f/t,
   s/5, u/v, n/h/r, g/q/9) costs 0.5, and a candidate is dropped as soon as no path can stay under the cost the cutoff allows.

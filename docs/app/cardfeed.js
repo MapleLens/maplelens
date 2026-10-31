@@ -6,7 +6,8 @@
 //   recalled  when the player clicks a recent item, until the next tooltip or Back.
 // The training card (EXP rates, potions) is apart from all that: it is about the session, not the
 // mouse, so the views show it whenever no card is up, for as long as the engine sends one. While it shows, a card
-// takes its place only once two reports in a row have it, and gives it back after TRAINING_LINGER_MS.
+// takes its place only once two reports in a row have it, and gives it back after TRAINING_LINGER_MS. The engine draws
+// it to fill a view's body: the floating window's while it is open, else the page's panel.
 
 /** How long a card stays after its tooltip is gone (not counting while the pointer is over the view). */
 export const LINGER_MS = 6000;
@@ -48,6 +49,23 @@ export class CardFeed {
     /** The training card's ImageData, or null, and what it is about (the map). */
     this.training = null;
     this.trainingTitle = "";
+    /** Each view's box for the training card ({width, height}, CSS px), the one it is drawn for, and who is told. */
+    this.boxes = new Map();
+    this.box = null;
+    this.onBox = null;
+  }
+
+  /** `view` would show the training card in `box` ({width, height}, CSS px), or nowhere (null: its cards float away).
+   *  One card serves every view, so it is drawn for the floating window's box when there is one. */
+  setBox(view, box) {
+    if (box) this.boxes.set(view, box);
+    else this.boxes.delete(view);
+    const views = [...this.boxes.keys()];
+    const chosen = views.find(v => v.compact) || views[0];
+    const next = chosen ? this.boxes.get(chosen) : null;
+    if (next?.width === this.box?.width && next?.height === this.box?.height) return;
+    this.box = next;
+    this.onBox?.(next);
   }
 
   /** The training card (ImageData), or null while there is none. */
