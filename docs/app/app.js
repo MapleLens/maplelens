@@ -2,13 +2,13 @@
 // test hooks started by a URL parameter), feed frames to the engine, show the cards in the page and, on request, in a picture-in-picture window that floats over the game.
 // The training panel (EXP rates, potions) is drawn from the numbers the engine reads off the HUD.
 
-import { Lens } from "./lens.js?v=7256339d40aa";
-import { CardView, floatingSize, openFloating } from "./cards.js?v=7256339d40aa";
-import { CardFeed } from "./cardfeed.js?v=7256339d40aa";
-import { Prices } from "./prices.js?v=7256339d40aa";
-import { drawMapleQr } from "./mapleqr.js?v=7256339d40aa";
-import { StoreBook } from "./storebook.js?v=7256339d40aa";
-import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=7256339d40aa";
+import { Lens } from "./lens.js?v=620e871c45df";
+import { CardView, floatingSize, openFloating } from "./cards.js?v=620e871c45df";
+import { CardFeed } from "./cardfeed.js?v=620e871c45df";
+import { Prices } from "./prices.js?v=620e871c45df";
+import { drawMapleQr } from "./mapleqr.js?v=620e871c45df";
+import { StoreBook } from "./storebook.js?v=620e871c45df";
+import { KEY_SHAPE, newKey, phoneUrl, relay, seal } from "./phone/relay.js?v=620e871c45df";
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
