@@ -113,3 +113,34 @@ fn a_wildcard_that_fits_two_items_names_neither() {
     assert!(items.lookup("?P Reset Scroll").is_none(), "AP or SP: a guess");
     assert_eq!(items.lookup("Sniper P?tion").map(|i| i.name.clone()).as_deref(), Some("Sniper Potion"));
 }
+
+/// A drawn tooltip: dark fill, title strokes from the bullet to `title_end`, a light border at `border` and a white
+/// window behind it from there on (the shop's chat panel).
+fn drawn_tooltip(title_end: usize, border: usize) -> maplelens_core::image::RgbImage {
+    let mut image = maplelens_core::image::RgbImage::new(config::TOOLTIP_CAPTURE_SIZE.0 as usize, 120);
+    for y in 0..image.height {
+        for x in 0..image.width {
+            let colour = if x >= border { [250, 250, 252] } else { [60, 60, 110] };
+            image.set_pixel(x, y, colour);
+        }
+    }
+    // Letters as 2 px strokes 4 px apart, a word gap every 40 px, on the title's rows.
+    for x in (24..title_end).filter(|x| x % 4 < 2 && x % 40 > 3) {
+        for y in 14..30 {
+            image.set_pixel(x, y, [255, 255, 255]);
+        }
+    }
+    image
+}
+
+#[test]
+fn a_long_title_is_read_past_the_cut_up_to_its_border() {
+    let width = |image| maplelens_core::vision::reader::title_mask(&image, WIDTH, 1).unwrap().width;
+    // "Gloves Magic Attack Scroll: Intermediate": the game widened the tooltip to ~465 px for it.
+    let long = width(drawn_tooltip(460, 466));
+    assert!((450 - 18..466 - 18).contains(&long), "{long}"); // to its last letters, short of the border
+    // A title ending before the cut is cut where it always was.
+    assert_eq!(width(drawn_tooltip(300, 450)), WIDTH - 18);
+    // Equipment (370 px, its border at the cut) may have the worn item's tooltip beside it: never read on into it.
+    assert_eq!(width(drawn_tooltip(366, 368)), WIDTH - 18);
+}

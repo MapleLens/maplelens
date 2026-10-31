@@ -642,6 +642,13 @@ rule 4 forbids searching for it) and Cash Shop pets (their translucent fill over
 fill test that keeps other blue UI out). A wrong price is worse than none, so precision comes first. Before
 changing the reader, the segmenter, the atlas or the catalog lookup, run it and compare. The rules:
 - The title is cut around its bullet (`reader::find_bullet`), so scenery beside a shifted tooltip is not read.
+- Titles are read from the first 370 px (`TOOLTIP_TITLE_WIDTH`), so a compare tooltip beside equipment is never read
+  into the first title. The game widens a tooltip for a long name (122 of 1,919 names, nearly all scrolls: "Gloves
+  Magic Attack Scroll: Intermediate" is ~465 px), and the cut read it as "...Scroll: Inter", which named the Greater
+  scroll. A title whose ink reaches the cut is read on to its end (`reader::title_right`): up to a blank wider than a
+  word gap, or a column inked over 80% of the title's rows (a border, or a light window behind). Not when such a
+  column is just before the cut: a 370 px tooltip's border reads at 366 and 369, and only beside that tooltip can a
+  compare tooltip be.
 - A catalog match counts only with tooltip evidence (`HoverDetector::credible`): the bullet, the blue fill, or an
   atlas read of 6+ letters. OCR reads shop lists and quest logs too, and their text names items.
 - A `?` wildcard that fits several items names none; a glyph that nearly matches two letters reads as `?`.
