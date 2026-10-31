@@ -645,6 +645,13 @@ rule 4 forbids searching for it) and Cash Shop pets (their translucent fill over
 fill test that keeps other blue UI out). A wrong price is worse than none, so precision comes first. Before
 changing the reader, the segmenter, the atlas or the catalog lookup, run it and compare. The rules:
 - The title is cut around its bullet (`reader::find_bullet`), so scenery beside a shifted tooltip is not read.
+- Titles are read from the first 370 px (`TOOLTIP_TITLE_WIDTH`), so a compare tooltip beside equipment is never read
+  into the first title. The game widens a tooltip for a long name (122 of 1,919 names, nearly all scrolls: "Gloves
+  Magic Attack Scroll: Intermediate" is ~465 px), and the cut read it as "...Scroll: Inter", which named the Greater
+  scroll. A title whose ink reaches the cut is read on to its end (`reader::title_right`): up to a blank wider than a
+  word gap, or a column inked over 80% of the title's rows (a border, or a light window behind). Not when such a
+  column is just before the cut: a 370 px tooltip's border reads at 366 and 369, and only beside that tooltip can a
+  compare tooltip be.
 - A catalog match counts only with tooltip evidence (`HoverDetector::credible`): the bullet, the blue fill, or an
   atlas read of 6+ letters. OCR reads shop lists and quest logs too, and their text names items.
 - A `?` wildcard that fits several items names none; a glyph that nearly matches two letters reads as `?`.
@@ -826,6 +833,13 @@ What measuring taught (1080p Twitch clips, Chrome, `scripts` not needed: a local
   letter ("Red Cloth Pants ()") names neither variant. `wrong_items_under_ocr_noise` measures it on the real catalog:
   74,724 one-letter misreads, 9 name another item (each is another item's exact name or the f/t fold) and 437 name
   nothing.
+- Variants share their first words and differ in the last ("Gloves Magic Attack Scroll: Intermediate" / "Greater"),
+  and the whole-name score favours the shorter one when a title is read cut short: "...Scroll: Inter" showed the
+  Greater scroll's 60k for an Intermediate one (220k). A fuzzy match counts only when the words it does not share
+  with its closest sibling fit on their own (`Catalog::variant_read`, `VARIANT_MIN_SCORE` 80). On the October 2026
+  list: titles cut 1-8 letters short named the wrong item 971 -> 643 times in 9,658 (511 of the 643 are another
+  item's exact name: "Sapphire" of "Sapphire Ore"); one-letter misreads 306 -> 521 nothing, 10 -> 7 wrong; 2/3/4
+  edits found 81.9/56.9/34.9% -> 80.0/54.5/33.2%, wrong 20/16/18 -> 17/15/13 of 7,676.
 - The fuzzy match (`catalog::similarity`, used by the app and the browser alike, for titles and shop items) is `ratio`'s
   measure (a lost or extra letter costs 1, a wrong one 2) where a look-alike letter (`CONFUSABLE`: o/0/q/a/c, l/i/1, e/c, f/t,
   s/5, u/v, n/h/r, g/q/9) costs 0.5, and a candidate is dropped as soon as no path can stay under the cost the cutoff allows.
