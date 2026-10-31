@@ -225,7 +225,7 @@ See [AGENTS.md](AGENTS.md) for architecture rules and how to extend it.
 
 **This project.** MapleLens is open source under the [GNU General Public License, version 3 or later](LICENSE)
 (GPL-3.0-or-later): anyone who distributes MapleLens or a program built on its code must release that program's
-source under the same license. Releases up to 0.2.11 were published under the MIT license, and those copies stay
+source under the same license. Releases up to 0.2.12 were published under the MIT license, and those copies stay
 under it. The license covers MapleLens' own code only: not MesoWatch's data, not NEXON's artwork (the meso icon), and
 not the game.
 
