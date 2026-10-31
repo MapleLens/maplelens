@@ -208,8 +208,11 @@ seconds) so the history has dates; the platform keeps `Tracker::to_json` (traini
   big, than the old one: that is another character, which counts nothing. The level's size (EXP / share) also tells a
   death (same size, less EXP: counted as lost) from a character switch. Time counts while the bar is read and EXP
   keeps coming; a minute without EXP or a move to another map (not paused) ends the session into the history, and
-  so does a gap over 30 minutes unseen. A session starts at its first EXP, and so does the card (`is_training`: a
-  player training wants it at once); its rates fill in after 10 s of play (`MIN_RATE_S`).
+  so does a gap over 30 minutes unseen. A move is final only after `HOP_S` (15 s): until then the session is kept
+  aside (`Hop`) and the card and the saved file show it with the trip's play added, so a portal taken by mistake and
+  straight back goes on as one session, the trip's EXP included; another map or the time running out files it. A
+  session starts at its first EXP, and so does the card (`is_training`: a player training wants it at once); its rates
+  fill in after 10 s of play (`MIN_RATE_S`).
 - **Towns** (`training::towns`): EXP gained in a town is a quest handed in, not training, and a single one had shown
   the card in Kerning City. On a town map the bar is followed (leaving does not count what was gained there; a level
   up there is learnt, not counted) but nothing counts, potions included, so no session starts, and neither the card
